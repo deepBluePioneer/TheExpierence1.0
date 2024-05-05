@@ -1,0 +1,32 @@
+{
+  "name": "@quenty/deferred",
+  "version": "2.1.0",
+  "description": "deferred (otherwise known as fastSpawn) implementation for Roblox",
+  "keywords": [
+    "Roblox",
+    "Nevermore",
+    "Lua",
+    "deferred",
+    "fastSpawn"
+  ],
+  "bugs": {
+    "url": "https://github.com/Quenty/NevermoreEngine/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Quenty/NevermoreEngine.git",
+    "directory": "src/deferred/"
+  },
+  "funding": {
+    "type": "patreon",
+    "url": "https://www.patreon.com/quenty"
+  },
+  "license": "MIT",
+  "contributors": [
+    "Quenty"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "gitHead": "501844bd6c3d3f765fd3032b997d8030bc963a1f"
+}
