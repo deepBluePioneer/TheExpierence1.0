@@ -5,7 +5,7 @@ registry = "test"
 [[package]]
 name = "arin3/roblox-knit-template"
 version = "0.1.0"
-dependencies = [["Input", "sleitnick/input@2.3.0"], ["Knit", "sleitnick/knit@1.7.0"], ["Signal", "sleitnick/signal@2.0.1"], ["TableUtil", "sleitnick/table-util@1.2.1"], ["Trove", "sleitnick/trove@1.2.0"], ["imgizmo", "jakeywastaken/imgizmo@3.5.0"], ["iris", "michael-48/iris@2.2.0"], ["timer", "sleitnick/timer@1.1.2"]]
+dependencies = [["Input", "sleitnick/input@2.3.0"], ["Knit", "sleitnick/knit@1.7.0"], ["Shake", "sleitnick/shake@1.1.0"], ["Signal", "sleitnick/signal@2.0.1"], ["TableUtil", "sleitnick/table-util@1.2.1"], ["Trove", "sleitnick/trove@1.2.0"], ["imgizmo", "jakeywastaken/imgizmo@3.5.0"], ["iris", "michael-48/iris@2.2.0"], ["timer", "sleitnick/timer@1.1.2"]]
 
 [[package]]
 name = "evaera/promise"
@@ -40,6 +40,11 @@ dependencies = [["Comm", "sleitnick/comm@1.0.1"], ["Promise", "evaera/promise@4.
 [[package]]
 name = "sleitnick/option"
 version = "1.0.5"
+dependencies = []
+
+[[package]]
+name = "sleitnick/shake"
+version = "1.1.0"
 dependencies = []
 
 [[package]]
