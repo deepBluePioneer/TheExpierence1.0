@@ -12,8 +12,8 @@ local HubWorldServiceID = 17399041158
 -- References to controller directories
 local ClientControllers = StarterPlayerScripts.Source.ClientControllers
 local HubWorldControllers = ClientControllers.HubWorldControllers
-local DungeonControllers = ClientControllers.DungeonControllers
-local ProcGenControllers = DungeonControllers.ProcGenControllers_v2
+local DungeonControllers = ClientControllers.DungeonControllers.ProcGenControllers_v3
+local ProcGenControllers = DungeonControllers
 
 -- Function to require controllers based on the place id
 local function loadControllersForPlace(placeId)

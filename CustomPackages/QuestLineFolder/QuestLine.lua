@@ -1,42 +1,44 @@
 -- Authored by FarFromLittle
 
-export type Objective = "event"|"score"|"speak"|"timer"|"touch"|"value"
+export type Objective = "event" | "score" | "speak" | "timer" | "touch" | "value" | "proximity"
 
 export type QuestLine = {
-	Event:"event",
-	Score:"score",
-	Speak:"speak",
-	Timer:"timer",
-	Touch:"touch",
-	Value:"value",
-	
-	interval:number,
-	
-	getQuestById:(questId:string)->QuestLine,
-	register:(player:Player, progressTable:{[string]:number}?)->nil,
-	unregister:(player:Player)->{[string]:number},
-	
-	new:(questId:string, self:{}?)->QuestLine,
-	
-	AddObjective:(self:QuestLine, objType:Objective, ...any)->number,
-	
-	Assign:(self:QuestLine, player:Player)->nil,
-	Cancel:(self:QuestLine, player:Player)->nil,
-	
-	GetCurrentProgress:(self:QuestLine, player:Player)->(number, number),
-	GetObjectiveValue:(self:QuestLine, index:number)->number,
-	GetProgress:(self:QuestLine, player:Player)->number,
-	
-	IsAccepted:(self:QuestLine, player:Player)->boolean,
-	IsCanceled:(self:QuestLine, player:Player)->boolean,
-	IsComplete:(self:QuestLine, player:Player)->boolean,
-	
-	OnAccept:(self:QuestLine, player:Player)->nil,
-	OnAssign:(self:QuestLine, player:Player)->nil,
-	OnCancel:(self:QuestLine, player:Player)->nil,
-	OnComplete:(self:QuestLine, player:Player)->nil,
-	OnProgress:(self:QuestLine, player:Player, progress:number, index:number)->nil
+    Event: "event",
+    Score: "score",
+    Speak: "speak",
+    Timer: "timer",
+    Touch: "touch",
+    Value: "value",
+    Proximity: "proximity",  -- Add this line
+    
+    interval: number,
+    
+    getQuestById: (questId: string) -> QuestLine,
+    register: (player: Player, progressTable: {[string]: number}?) -> nil,
+    unregister: (player: Player) -> {[string]: number},
+    
+    new: (questId: string, self: {}?) -> QuestLine,
+    
+    AddObjective: (self: QuestLine, objType: Objective, ...any) -> number,
+    
+    Assign: (self: QuestLine, player: Player) -> nil,
+    Cancel: (self: QuestLine, player: Player) -> nil,
+    
+    GetCurrentProgress: (self: QuestLine, player: Player) -> (number, number),
+    GetObjectiveValue: (self: QuestLine, index: number) -> number,
+    GetProgress: (self: QuestLine, player: Player) -> number,
+    
+    IsAccepted: (self: QuestLine, player: Player) -> boolean,
+    IsCanceled: (self: QuestLine, player: Player) -> boolean,
+    IsComplete: (self: QuestLine, player: Player) -> boolean,
+    
+    OnAccept: (self: QuestLine, player: Player) -> nil,
+    OnAssign: (self: QuestLine, player: Player) -> nil,
+    OnCancel: (self: QuestLine, player: Player) -> nil,
+    OnComplete: (self: QuestLine, player: Player) -> nil,
+    OnProgress: (self: QuestLine, player: Player, progress: number, index: number) -> nil
 }
+
 
 local QuestLine = {
 	Event = "event",
@@ -44,6 +46,8 @@ local QuestLine = {
 	Timer = "timer",
 	Touch = "touch",
 	Value = "value",
+	Proximity = "proximity",  -- Adding the proximity type
+
 	
 	interval = 1.0
 }
@@ -123,7 +127,7 @@ end
 function Objective.touch(touchPart:BasePart)
 	local function eval(player:Player, progress:number)
 		local hit
-		
+
 		repeat hit = coroutine.yield(progress, touchPart.Touched)
 		until hit.Parent == player.Character
 		
@@ -148,6 +152,30 @@ function Objective.value(intValue:IntValue, amount:number, operator:string?)
 	
 	return eval, amount
 end
+
+-- Add a custom objective
+function Objective.proximity(promptPart)
+    local function eval(player, progress)
+        local completed = false
+        promptPart.ProximityPrompt.Triggered:Connect(function(playerWhoTriggered)
+			warn(playerWhoTriggered.Name)
+            if playerWhoTriggered == player then
+                completed = true
+            end
+        end)
+        
+        repeat
+            coroutine.yield()
+        until completed
+        return 1  -- Progress is set to 1 upon completion
+    end
+    
+    return eval, 1  -- Evaluation function and target progress
+end
+
+
+
+
 
 local questIndex:{[QuestLine]:string} = {}
 local questTable:{[string]:QuestLine} = {}

@@ -12,31 +12,50 @@ local QuestLine = require(CustomPackages.QuestLineFolder.QuestLine)
 local QuestService = Knit.CreateService {
     Name = "QuestService",
     Client = {},
-    PlayerQuests = {}  -- Properly define the PlayerQuests table here
+    PlayerQuests = {},
+    Quests = {}  -- Properly define the PlayerQuests table here
 
 }
 
 -- Initialize Quests
 function QuestService:InitQuests()
-    local collectQuest = QuestLine.new("collectQuest", {Title = "Collect Items"})
-    collectQuest:AddObjective(QuestLine.Touch, workspace.ItemPart)  -- Touch an item part to collect it
 
-    local survivalQuest = QuestLine.new("survivalQuest", {Title = "Survive Time"})
-    survivalQuest:AddObjective(QuestLine.Timer, 600, 10)  -- Survive for 10 minutes, update every 10 seconds
+    local QuestDefinitions = require(script.Parent.QuestDefinitions)
+    local folderLoc = workspace:WaitForChild("objectivesLocations")
+    -- Iterate through all the quests and objectives to set up quests
+  
+    local proximityPrompt = Instance.new("ProximityPrompt")
+    proximityPrompt.ActionText = "Interact"
+    proximityPrompt.ObjectText = "Important Object"
+    proximityPrompt.Parent = folderLoc.Part1
 
-    local scoreQuest = QuestLine.new("scoreQuest", {Title = "Reach Score"})
-    scoreQuest:AddObjective(QuestLine.Score, "Score", 100)  -- Reach 100 points on leaderstats
+    local proximityPrompt = Instance.new("ProximityPrompt")
+    proximityPrompt.ActionText = "Interact"
+    proximityPrompt.ObjectText = "Important Object"
+    proximityPrompt.Parent = folderLoc.Part2
+    
+
+    local InteractWithObjectQuest = QuestLine.new("InteractWithObjectQuest", { Title = "Interact with the Object" })
+    InteractWithObjectQuest:AddObjective(QuestLine.Proximity, folderLoc.Part1)
+    InteractWithObjectQuest:AddObjective(QuestLine.Proximity, folderLoc.Part2)
+
 
     self.Quests = {
-        collectQuest = collectQuest,
-        survivalQuest = survivalQuest,
-        scoreQuest = scoreQuest
+        InteractWithObjectQuest = InteractWithObjectQuest,
+      
+
     }
+
+
+    function QuestLine:OnComplete(player)
+        print(player.Name .. " has completed the quest: " .. self.Title)
+        -- Reward the player or trigger the next part of your game's story
+    end
 end
 
 -- Register Player and Assign Quests
 function QuestService:RegisterPlayer(player)
-    local playerData = {collectQuest = 0, survivalQuest = 0, scoreQuest = 0}
+    local playerData = {}
     QuestLine.registerPlayer(player, playerData)
     warn(player.UserId)
     -- Automatically assign quests

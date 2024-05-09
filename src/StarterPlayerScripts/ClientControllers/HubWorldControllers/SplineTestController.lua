@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local Knit = require(ReplicatedStorage.Packages.Knit)
 local CustomPackages = ReplicatedStorage.CustomPackages
+
 local Splines = CustomPackages.Splines
 local CatmullRomSpline = require(Splines.CatmullRomSpline)
 local SplineTestController = Knit.CreateController { Name = "SplineTestController" }
