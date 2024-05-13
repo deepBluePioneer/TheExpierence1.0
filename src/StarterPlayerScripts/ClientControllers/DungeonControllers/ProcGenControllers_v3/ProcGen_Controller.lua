@@ -107,6 +107,9 @@ function ProcGen_Controller:createRoomCells(gridCells, preconfigured_rooms)
     local perimeterCellsTable = {}
 
     local cornerCellsTable= {}
+
+    local perimeterCellsList = {} -- List to store all perimeter cells for trying placements
+
   
     -- Iterate over each room in the preconfigured list
     for _, room in ipairs(preconfigured_rooms) do
@@ -123,8 +126,11 @@ function ProcGen_Controller:createRoomCells(gridCells, preconfigured_rooms)
             attempt = attempt + 1
 
             -- Find a random location for the room on the grid
-            local startX = math.random(1, gridSizeX - roomWidth + 1)
-            local startY = math.random(1, gridSizeY - roomHeight + 1)
+          --  local startX = math.random(1, gridSizeX - roomWidth + 1)
+           --local startY = math.random(1, gridSizeY - roomHeight + 1)
+
+            local startX, startY
+            local foundSpot = false
 
             -- Check if the selected location and its surroundings are available
             local isValidLocation = true
@@ -278,100 +284,104 @@ local function  Start()
     
     Gizmo.Init()
    
-    local gridCells = GridManager:createGrid()
+   -- local gridCells = GridManager:createGrid()
 
-    local roomPartsTable , perimeterCellsTable, cornerCellsTable, gridCells=  ProcGen_Controller:createRoomCells(gridCells,  RoomSizeConfig.rooms )
-    GlobalGridCells = gridCells
-
-
-
-    local trianglesData = CalculateDelaneyRooms:triangulateRooms(roomPartsTable)
-    local points, edges = CalculateDelaneyRooms:createPointsAndEdges(trianglesData)
-    local tree = mst.tree(points,edges)
-    --MSTManager:DrawMST(tree)
-
-    local positionToRoomId = ProcGen_Controller:createPositionToRoomIdMap(roomPartsTable)
-    --MSTManager:printTreeWithRoomIds(tree, positionToRoomId)
-
-    local paths, gridCells = PathfindingManager:luastarInit(GlobalGridCells ,perimeterCellsTable,tree,positionToRoomId)
-    GlobalGridCells = gridCells
+   -- local roomPartsTable , perimeterCellsTable, cornerCellsTable, gridCells=  ProcGen_Controller:createRoomCells(gridCells,  RoomSizeConfig.rooms )
+   -- GlobalGridCells = gridCells
 
 
-    --We ned to sanitize the floor taken cells
-    for i = 1, #GlobalGridCells do
-        for j = 1, #GlobalGridCells[i] do
-            local cell = GlobalGridCells[i][j]
+--[[
 
-             -- Resetting perimeter flags based on the presence of corner flags
-            if cell.Corner_Northwest then
-                if cell.Perimeter_North then
-                    cell.Perimeter_North = false
-                end
-                if cell.Perimeter_West then
-                    cell.Perimeter_West = false
-                end
+local trianglesData = CalculateDelaneyRooms:triangulateRooms(roomPartsTable)
+local points, edges = CalculateDelaneyRooms:createPointsAndEdges(trianglesData)
+local tree = mst.tree(points,edges)
+--MSTManager:DrawMST(tree)
+
+local positionToRoomId = ProcGen_Controller:createPositionToRoomIdMap(roomPartsTable)
+--MSTManager:printTreeWithRoomIds(tree, positionToRoomId)
+
+local paths, gridCells = PathfindingManager:luastarInit(GlobalGridCells ,perimeterCellsTable,tree,positionToRoomId)
+GlobalGridCells = gridCells
+
+
+
+]] 
+--We ned to sanitize the floor taken cells
+for i = 1, #GlobalGridCells do
+    for j = 1, #GlobalGridCells[i] do
+        local cell = GlobalGridCells[i][j]
+
+         -- Resetting perimeter flags based on the presence of corner flags
+        if cell.Corner_Northwest then
+            if cell.Perimeter_North then
+                cell.Perimeter_North = false
             end
-
-            if cell.Corner_Northeast then
-                if cell.Perimeter_North then
-                    cell.Perimeter_North = false
-                end
-                if cell.Perimeter_East then
-                    cell.Perimeter_East = false
-                end
+            if cell.Perimeter_West then
+                cell.Perimeter_West = false
             end
+        end
 
-            if cell.Corner_Southwest then
-                if cell.Perimeter_South then
-                    cell.Perimeter_South = false
-                end
-                if cell.Perimeter_West then
-                    cell.Perimeter_West = false
-                end
+        if cell.Corner_Northeast then
+            if cell.Perimeter_North then
+                cell.Perimeter_North = false
             end
-
-            if cell.Corner_Southeast then
-                if cell.Perimeter_South then
-                    cell.Perimeter_South = false
-                end
-                if cell.Perimeter_East then
-                    cell.Perimeter_East = false
-                end
+            if cell.Perimeter_East then
+                cell.Perimeter_East = false
             end
+        end
 
-            CellPopulator.createWalls(cell.CFrame, workspace, cell)
-            CellPopulator.createCorners(cell.CFrame, workspace, cell)
+        if cell.Corner_Southwest then
+            if cell.Perimeter_South then
+                cell.Perimeter_South = false
+            end
+            if cell.Perimeter_West then
+                cell.Perimeter_West = false
+            end
+        end
+
+        if cell.Corner_Southeast then
+            if cell.Perimeter_South then
+                cell.Perimeter_South = false
+            end
+            if cell.Perimeter_East then
+                cell.Perimeter_East = false
+            end
+        end
+
+        CellPopulator.createWalls(cell.CFrame, workspace, cell)
+        CellPopulator.createCorners(cell.CFrame, workspace, cell)
 
 
-           CellPopulator.createCornerPathPieces(cell.CFrame, workspace, cell)
-            CellPopulator.createCorridorPathPieces(cell.CFrame, workspace, cell)
-          -- cell.Taken = true
+       CellPopulator.createCornerPathPieces(cell.CFrame, workspace, cell)
+        CellPopulator.createCorridorPathPieces(cell.CFrame, workspace, cell)
+      -- cell.Taken = true
 
-            if cell.Perimeter_East or cell.Perimeter_North or cell.Perimeter_South or cell.Perimeter_West then
+        if cell.Perimeter_East or cell.Perimeter_North or cell.Perimeter_South or cell.Perimeter_West then
+        
+            cell.Taken = true
+
+            if cell.Corridor_WallPart then
+
+                if cell.Perimeter_WallPart then
+
+                    cell.Perimeter_WallPart.Parent = nil
+                    cell.Perimeter_WallPart = nil 
+
+                    cell.Corridor_WallPart.Parent = nil 
+                    cell.Corridor_WallPart = nil 
+
+
+                end
+
+           
+            end
             
-                cell.Taken = true
-
-                if cell.Corridor_WallPart then
-
-                    if cell.Perimeter_WallPart then
-
-                        cell.Perimeter_WallPart.Parent = nil
-                        cell.Perimeter_WallPart = nil 
-
-                        cell.Corridor_WallPart.Parent = nil 
-                        cell.Corridor_WallPart = nil 
-
-
-                    end
-
-               
-                end
-                
-
-            end
 
         end
-    end    
+
+    end
+end    
+   
    -- MapManager:CreateUIAscii(GlobalGridCells)
 
 
@@ -381,7 +391,7 @@ end
 
 
 function ProcGen_Controller:KnitInit()
-
+--  Start()
     
 end
 

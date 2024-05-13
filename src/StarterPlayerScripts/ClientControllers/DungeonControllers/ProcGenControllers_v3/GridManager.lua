@@ -24,7 +24,7 @@ function GridManager:createGrid()
     local boxSize = Vector3.new(12, 12, 12)  -- Each box is 12x12x12 units
 
     -- Grid dimensions
-    local gridSize = 40  -- Create a 30x30 grid of boxes
+    local gridSize = 20  -- Create a 30x30 grid of boxes
     local spacing = 12   -- Spacing between boxes
 
     -- Calculate the total size of the grid
