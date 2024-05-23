@@ -1,22 +1,29 @@
+local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local Packages = ReplicatedStorage.Packages
 local Knit = require(Packages.Knit)
-local Players = game:GetService("Players") -- Get the Players service
+local CustomPackages = ReplicatedStorage.CustomPackages
 
-local MonsterController = Knit.CreateController { Name = "MonsterController" }
+local PlayerAddedController = CustomPackages.PlayerAddedController
+local PlayerAddedFunctions =  PlayerAddedController.PlayerAddedFunctions
+
+local MonsterService = Knit.CreateService { Name = "MonsterService" }
 
 -- Variables to control the size and position of the spheres
 local sphereRadius = 1
-local spherePosition = Vector3.new(0, 30, 0) -- Position to place the main sphere higher
-local numberOfSpheres = 10 -- Number of child spheres to create
+local numberOfSpheres = 5 -- Number of child spheres to create
 local constraintLength = .15 -- Desired length of the RodConstraint
 local numberOfTentacles = 5 -- Number of tentacles to create
 local numberOfMonsters = 1 -- Number of monsters to create
 local spawnRadius = 100 -- Radius within which monsters will spawn
 
+local MoveSpeed = 0
+local RotationSpeed = 00--500000
+
 -- Function to create a sphere part
-function MonsterController:CreateSpherePart(size, position, parent, anchored)
+function MonsterService:CreateCylinderPart(size, position, parent, anchored)
     local part = Instance.new("Part")
     part.Shape = Enum.PartType.Cylinder
     part.Size = Vector3.new(size * 2, size * 2, size * 2) -- Set size using diameter
@@ -32,7 +39,7 @@ function MonsterController:CreateSpherePart(size, position, parent, anchored)
 end
 
 -- Function to create progressively smaller child spheres, each touching the previous one
-function MonsterController:CreateChildSpheres(rootPart)
+function MonsterService:CreateChildCylinder(rootPart)
     local previousPart = rootPart
     local currentRadius = sphereRadius
 
@@ -41,7 +48,7 @@ function MonsterController:CreateChildSpheres(rootPart)
         local offset = (previousPart.Size.X / 2) + (currentRadius) -- Calculate position offset to make spheres touch
         local childPosition = previousPart.Position + Vector3.new(offset, 0, 0) -- Position next to the previous sphere
 
-        local childPart = self:CreateSpherePart(currentRadius, childPosition, previousPart, false) -- Create and parent the next child sphere
+        local childPart = self:CreateCylinderPart(currentRadius, childPosition, previousPart, false) -- Create and parent the next child sphere
 
         -- Create attachment for the previous part
         local attachment1 = Instance.new("Attachment")
@@ -65,13 +72,13 @@ function MonsterController:CreateChildSpheres(rootPart)
 end
 
 -- Function to create a tentacle
-function MonsterController:CreateTentacle(position, index, parent, core)
+function MonsterService:CreateTentacle(position, index, parent, core)
     local tentacleModel = Instance.new("Model")
     tentacleModel.Name = "Tentacle" .. index
     tentacleModel.Parent = parent -- Parent the model to the provided parent
 
-    local rootPart = self:CreateSpherePart(sphereRadius, position, tentacleModel, false) -- Create and parent the main sphere, not anchored
-    self:CreateChildSpheres(rootPart) -- Create and parent child spheres to the main sphere
+    local rootPart = self:CreateCylinderPart(sphereRadius, position, tentacleModel, false) -- Create and parent the main sphere, not anchored
+    self:CreateChildCylinder(rootPart) -- Create and parent child spheres to the main sphere
 
     -- Create attachment on the core part for this tentacle
     local coreAttachment = Instance.new("Attachment")
@@ -94,10 +101,10 @@ function MonsterController:CreateTentacle(position, index, parent, core)
     --rodConstraint.Length = (coreAttachment.Position - rootAttachment.Position).Magnitude -- Set the length of the rod constraint dynamically
 end
 
-function MonsterController:MoveCoreTowardsLocalPlayer(corePart)
-    local localPlayer = Players.LocalPlayer
-    local character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
-    local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+function MonsterService:MoveCoreTowardsPlayer(corePart, Character)
+   -- local localPlayer = Players.LocalPlayer
+   -- local character = player.Character or player.CharacterAdded:Wait()
+    local humanoidRootPart = Character:WaitForChild("HumanoidRootPart")
 
     -- Create attachment on the core part
     local coreAttachment = Instance.new("Attachment")
@@ -107,7 +114,7 @@ function MonsterController:MoveCoreTowardsLocalPlayer(corePart)
     local linearVelocity = Instance.new("LinearVelocity")
     linearVelocity.Attachment0 = coreAttachment
     linearVelocity.RelativeTo = Enum.ActuatorRelativeTo.World -- Apply force in world coordinates
-    linearVelocity.MaxForce = 9000000 -- Adjust the maximum force as needed
+    linearVelocity.MaxForce = MoveSpeed -- Adjust the maximum force as needed
     linearVelocity.VectorVelocity = (humanoidRootPart.Position - corePart.Position).Unit * 10 -- Set the velocity towards the player's position
     linearVelocity.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
     linearVelocity.Parent = corePart
@@ -116,35 +123,82 @@ function MonsterController:MoveCoreTowardsLocalPlayer(corePart)
     local angularVelocity = Instance.new("AngularVelocity")
     angularVelocity.Attachment0 = coreAttachment
     angularVelocity.RelativeTo = Enum.ActuatorRelativeTo.World -- Apply rotation in world coordinates
-    angularVelocity.MaxTorque = 500000 -- Adjust the maximum torque as needed
+    angularVelocity.MaxTorque = RotationSpeed -- Adjust the maximum torque as needed
     angularVelocity.Parent = corePart
 
-    -- Update the velocity and angular velocity to follow the player in a loop
-    task.spawn(function()
-        while character.Parent do
-            local direction = (humanoidRootPart.Position - corePart.Position).Unit
-            linearVelocity.VectorVelocity = direction * 10
-            
-            -- Calculate the rotation axis and angular velocity
-            local rotationAxis = Vector3.new(0, 1, 0):Cross(direction).Unit
-            local angularVelocityVector = rotationAxis * 5
-            
-            angularVelocity.AngularVelocity = angularVelocityVector
-            
-            task.wait(0.1) -- Adjust the update interval as needed
-        end
-    end)
+   
+  
+    local function Update()
+        local direction = (humanoidRootPart.Position - corePart.Position).Unit
+        linearVelocity.VectorVelocity = direction * 10
+        
+        -- Calculate the rotation axis and angular velocity
+        local rotationAxis = Vector3.new(0, 1, 0):Cross(direction).Unit
+        local angularVelocityVector = rotationAxis * 5
+        
+        angularVelocity.AngularVelocity = angularVelocityVector
+    end
+
+   
+    local heartBeat = RunService.Heartbeat:Connect(Update)
 end
 
-function MonsterController:GenerateRandomPosition()
+function MonsterService:GenerateRandomPosition()
     local angle = math.random() * 2 * math.pi
     local distance = math.random() * spawnRadius
     local x = math.cos(angle) * distance
     local z = math.sin(angle) * distance
-    return Vector3.new(x, 30, z)
+    return Vector3.new(x, 5, z)
 end
 
-function MonsterController:SpawnMonster(position)
+function MonsterService:BoilSetup(corePart)
+    -- Get the size and position of the core part
+    local coreSize = corePart.Size
+    local corePosition = corePart.Position
+
+    -- Define the offset distance
+    local offsetDistance = 2
+
+    -- Create a table to store the offsets
+    local offsets = {
+        Vector3.new(offsetDistance, 0, 0),
+        Vector3.new(-offsetDistance, 0, 0),
+        Vector3.new(0, offsetDistance, 0),
+        Vector3.new(0, -offsetDistance, 0),
+        Vector3.new(0, 0, offsetDistance)
+    }
+
+    -- Loop through the offsets and create new parts
+    for _, offset in ipairs(offsets) do
+        -- Create a new part
+        local newPart = Instance.new("Part")
+        newPart.Shape = Enum.PartType.Ball
+        newPart.Color = Color3.new(0.941176, 1, 0.270588)
+        newPart.Size = coreSize / 2 -- Half the size of the core part
+        newPart.Position = corePosition + offset
+        newPart.CanCollide = false
+        newPart.Anchored = false
+        newPart.Name = "boil"
+
+        newPart.Parent = corePart
+
+        -- Create a WeldConstraint to attach the new part to the core part
+        local weld = Instance.new("WeldConstraint")
+        weld.Part0 = corePart
+        weld.Part1 = newPart
+        weld.Parent = corePart
+
+        CollectionService:AddTag(newPart, "boil")
+
+    end
+
+
+    return corePart
+end
+
+
+
+function MonsterService:SpawnMonster(position, character)
     local monsterModel = Instance.new("Model")
     monsterModel.Name = "Monster"
     monsterModel.Parent = Workspace -- Add the model to the Workspace
@@ -158,8 +212,8 @@ function MonsterController:SpawnMonster(position)
     corePart.Position = position
     local materialVariantName = "GoryMaterial" -- Replace with the desired material variant name
     corePart.Material = Enum.Material.Salt
-
     corePart.MaterialVariant = materialVariantName
+    corePart = MonsterService:BoilSetup(corePart)
     corePart.Parent = monsterModel
 
     for i = 1, numberOfTentacles do
@@ -172,18 +226,44 @@ function MonsterController:SpawnMonster(position)
         self:CreateTentacle(tentaclePosition, i, monsterModel, corePart)
     end
 
-    self:MoveCoreTowardsLocalPlayer(corePart) -- Move the core part towards the local player
+    self:MoveCoreTowardsPlayer(corePart ,character) -- Move the core part towards the local player
 end
 
-function MonsterController:KnitStart()
+function MonsterService:SetPlayer(_Character)
+   
     for i = 1, numberOfMonsters do
         local randomPosition = self:GenerateRandomPosition()
-        self:SpawnMonster(randomPosition)
+        self:SpawnMonster(randomPosition, _Character)
     end
+   
+
 end
 
-function MonsterController:KnitInit()
-    -- Initialization logic can be added here
+function MonsterService:KnitStart()
+
+
+    require(PlayerAddedFunctions)(
+        function(JoiningPlayer)
+
+           
+        end,
+        function(LeavingPlayer)
+           
+
+        end,
+        function(Player, Character)
+            --player = Character
+            --HumanoidRootPart =  Character:WaitForChild("HumanoidRootPart")
+            self:SetPlayer(Character)
+        end
+    )
+ 
+ 
+end 
+
+function MonsterService:KnitInit()
+   
+
 end
 
-return MonsterController
+return MonsterService
