@@ -47,9 +47,7 @@ end
 
 --DatastoreService:savePlayerData("AA", {Experience  = 5, Gold = 5000})
 
-
-function DatastoreService:KnitStart()
-
+function  init()
     require(PlayerAddedFunctions)(
         function(JoiningPlayer)
             local playerData = DatastoreService:loadPlayerData("StarFissure12")
@@ -67,6 +65,11 @@ function DatastoreService:KnitStart()
         
         end
     )
+end
+
+function DatastoreService:KnitStart()
+
+   
 
    
 end
