@@ -49,7 +49,7 @@ function IKControlController:MoveLimb(target, direction, delay)
     return tween
 end
 
-function IKControlController:KnitStart()
+function  IKControlController:init()
     local Keyboard = Keyboard.new()
     
     local currentTweens = {}
@@ -112,6 +112,10 @@ function IKControlController:KnitStart()
             self:CreateIKControl(Character, "RightFoot", "RightUpperLeg", {1, -2, -1})
         end
     )
+end
+
+function IKControlController:KnitStart()
+   
 end
 
 function IKControlController:KnitInit()

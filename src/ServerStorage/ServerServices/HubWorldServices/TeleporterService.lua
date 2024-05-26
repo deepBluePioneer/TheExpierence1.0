@@ -14,81 +14,48 @@ local Zone = require(ZoneRoot.Zone)
 local TeleportQueueFolder = CustomPackages.TeleportQueue
 local TeleportQueueService = require(TeleportQueueFolder.TeleportQueueService)
 
- ----- Replica Modules -----
- local Replica = CustomPackages.Replica
- local ReplicaService = require(Replica.ReplicaService)
- local TestWriteLib = Replica.TestWriteLib
+-- Replica Modules
+local Replica = CustomPackages.Replica
+local ReplicaService = require(Replica.ReplicaService)
+local TestWriteLib = Replica.TestWriteLib
 
- local Timer = require(Packages.timer)
+local Signal = require(Packages.Signal)
+local Timer = require(Packages.timer)
 
 local DungeonPlaceID = 17282492093  -- Corrected to be a number
 
 local TeleporterService = Knit.CreateService {
     Name = "TeleporterService",
     Client = {},
-    teleporters = {}
+    teleporters = {},
+    TimeUpSignal = Signal.new()
 }
 
 function TeleporterService:InitReplicas()
-    local InstantiatedClassToken = ReplicaService.NewClassToken("InstantiatedReplica")
-    local InstantiatedReplicas = {} 
-  -- Assume TestReplicaOne is a list of messages we want to broadcast
-    local TestReplicaOne = ReplicaService.NewReplica({
-    ClassToken = ReplicaService.NewClassToken("ReplicaOne"), -- Create the token in reference for singleton replicas
-    Data = {
-        Messages = {}, -- {[message_name] = text, ...}
-    },
-    Replication = "All",
-    -- Be aware that if you accidentally pass nil, the replica will be created without a WriteLib
-    WriteLib = TestWriteLib,
+    self.TimerReplica = ReplicaService.NewReplica({
+        ClassToken = ReplicaService.NewClassToken("TimerReplica"),
+        Data = {
+            TimeRemaining = 16,
+        },
+        Replication = "All",
+        WriteLib = TestWriteLib,
     })
-
-
-    for i = 1, 3 do
-        local replica = ReplicaService.NewReplica({
-            ClassToken = InstantiatedClassToken,
-            -- Optional params:
-            Tags = {Index = i}, -- "Tags" is a static table that can't be changed during the lifespan of a replica;
-            -- Use tags for identifying replicas with players (Tags = {Player = player}) or other parameters
-            Data = {
-                TestValue = 0,
-                TestTable = {
-                    NestedValue = "-",
-                },
-            },
-            Parent = TestReplicaOne,
-        })
-        InstantiatedReplicas[i] = replica
-    end
-   
-    -- Create a variable to hold the TestValue
-    local random_replica
-    -- Function to update the value in the replica
-    local function updateReplicaValue()
-        --random_replica = InstantiatedReplicas[1]  -- Assuming this is correctly populated and available
-        --random_replica:SetValue({"TestValue"}, zoneCounter)
-    end
 end
 
 function TeleporterService:KnitInit()
-
-  -- Initialize replicas
     self:InitReplicas()
 
     local teleporterObjects = CollectionService:GetTagged("teleporter")
 
-     -- Iterate through the list of teleporter objects
+    -- Iterate through the list of teleporter objects
     for _, teleporter in ipairs(teleporterObjects) do
         local teleportZone = teleporter:FindFirstChild("TeleportZone")
         if teleportZone then
-            print(teleporter.Name .. " has a TeleportZone")
-            
-          
-           -- Create a unique teleport queue for each teleporter
+            -- Create a unique teleport queue for each teleporter
             local teleportQueue = TeleportQueueService.new({
                 PlaceId = DungeonPlaceID,
-                Id = game:GetService("HttpService"):GenerateGUID(), -- Unique identifier for the queue
-                MaxPlayers = 3, -- Optional maximum players that can be in the queue at once
+                Id = game:GetService("HttpService"):GenerateGUID(),
+                MaxPlayers = 3,
             })
 
             -- Create and store a zone for each teleporter along with its teleport queue
@@ -97,8 +64,8 @@ function TeleporterService:KnitInit()
             self.teleporters[teleporter] = {
                 zone = zone,
                 queue = teleportQueue,
-                zoneCounter = 0 , -- Initialize the zoneCounter for this teleporter
-                timer = nil,  -- Timer not started yet
+                zoneCounter = 0,
+                timer = nil,
                 currentTime = 16
             }
             zone.playerEntered:Connect(function(player)
@@ -106,16 +73,12 @@ function TeleporterService:KnitInit()
             end)
             
             zone.playerExited:Connect(function(player)
-               self:HandlePlayerExited(teleporter, player)
-                
-             
+                self:HandlePlayerExited(teleporter, player)
             end)
         else
             print(teleporter.Name .. " does not have a TeleportZone")
         end
     end
-    
-
 end
 
 function TeleporterService:HandlePlayerEntered(teleporter, player)
@@ -129,11 +92,8 @@ function TeleporterService:HandleQueueResult(teleporter, player, result)
     teleportData.zoneCounter = teleportData.zoneCounter + 1
 
     if result == "Successfully added" then
-      
-        print("Player " .. player.Name .. " successfully added to the queue of " .. teleporterName.." : ".. teleportData.zoneCounter)
-
+        print("Player " .. player.Name .. " successfully added to the queue of " .. teleporterName .. " : " .. teleportData.zoneCounter)
         self:startTimer(teleporter)
-
     else
         self:handleUnsuccessfulAdd(result, player, teleporterName)
     end
@@ -150,17 +110,14 @@ function TeleporterService:HandlePlayerExited(teleporter, player)
     teleportData.queue:Remove(player)
     teleportData.zoneCounter = teleportData.zoneCounter - 1
 
-    print(player.Name .. " has exited the zone of " .. teleporter.Name.." : "..teleportData.zoneCounter)
+    print(player.Name .. " has exited the zone of " .. teleporter.Name .. " : " .. teleportData.zoneCounter)
 
-  -- Check if zoneCounter is zero or negative
     if teleportData.zoneCounter <= 0 then
         if teleportData.zoneCounter == 0 then
             teleportData.currentTime = 16  -- Starting countdown time
         end
         teleportData.zoneCounter = 0  -- Ensure zoneCounter does not go negative
     end
-
-   
 end
 
 function TeleporterService:startTimer(teleporter)
@@ -184,14 +141,16 @@ end
 
 function TeleporterService:timerTick(teleportData, teleporter)
     if teleportData.zoneCounter > 0 then
-
         teleportData.currentTime = teleportData.currentTime - 1
-        print(teleporter.Name .. " Timer: " .. teleportData.currentTime .. " seconds remaining")
+        --print(teleporter.Name .. " Timer: " .. teleportData.currentTime .. " seconds remaining")
+
+        -- Update the TimeRemaining in the replica
+        self.TimerReplica:SetValue({"TimeRemaining"}, teleportData.currentTime)
 
         if teleportData.currentTime <= 0 then
+            self.TimeUpSignal:Fire()
             self:executeTeleport(teleportData, teleporter)
         end
-       
     end
 end
 
@@ -214,11 +173,10 @@ function TeleporterService:executeTeleport(teleportData, teleporter)
 end
 
 function TeleporterService:KnitStart()
-  
-  
-      
-    
-    
+    -- Expose the TimeUpSignal for other services
+    function TeleporterService:GetTimeUpSignal()
+        return self.TimeUpSignal
+    end
 end
 
 return TeleporterService

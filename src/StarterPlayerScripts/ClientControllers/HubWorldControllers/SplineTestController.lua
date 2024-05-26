@@ -151,9 +151,12 @@ end
 
 function SplineTestController:KnitInit()
 
-    GlowPart1 = workspace.GlowPart1
 end
-function SplineTestController:KnitStart()
+
+function init()
+
+    GlowPart1 = workspace.GlowPart1
+
     points = {workspace.P1, workspace.P2, workspace.P3, workspace.P4,workspace.P5,workspace.P6,workspace.P7}
     local newSpline = CatmullRomSpline.new(points, 0.5)
     self:CreateSplineParts(newSpline)
@@ -181,6 +184,9 @@ function SplineTestController:KnitStart()
     particleEmitter.ShapeInOut = "Outward"
     particleEmitter.ShapeStyle = "Volume"
     particleEmitter.Enabled = true
+end
+function SplineTestController:KnitStart()
+   
 
 
 

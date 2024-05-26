@@ -3,7 +3,9 @@ local Knit = require(ReplicatedStorage.Packages.Knit)
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
 
-local TeleporterGUIController = Knit.CreateController { Name = "TeleporterGUIController" }
+local TeleporterGUIController = Knit.CreateController { 
+    Name = "TeleporterGUIController" 
+}
 
 ----- Loaded Modules -----
 local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
@@ -18,24 +20,16 @@ local Computed = Fusion.Computed
 local Teleporters
 local ReplicaController
 
+----- Loaded Modules -----
+local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
+local Replica = CustomPackages:WaitForChild("Replica")
+ReplicaController = require(Replica:WaitForChild("ReplicaController"))
+
 function TeleporterGUIController:KnitInit()
-    
     Teleporters = CollectionService:GetTagged("teleporter")
+    local SETTINGS = {}
+    local ReplicaTestClient = {}
 
-    
-    local SETTINGS = {
-
-    }
-
-    local ReplicaTestClient = {
-
-    }
-
-    ----- Loaded Modules -----
-    local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
-    local Replica = CustomPackages:WaitForChild("Replica")
-    ReplicaController = require(Replica:WaitForChild("ReplicaController"))
-   
     local function GetAllMessages(messages)
         if next(messages) == nil then
             return "Empty!"
@@ -52,10 +46,9 @@ function TeleporterGUIController:KnitInit()
 
     ----- Connections -----
     ReplicaController.ReplicaOfClassCreated("ReplicaOne", function(replica_one)
-        
         local messages = replica_one.Data.Messages
         
-        print("ReplicaOne and all it's children have been replicated!")
+        print("ReplicaOne and all its children have been replicated!")
         print("Initially received state of all replicas:")
         print("  " .. replica_one.Class .. ": " .. GetAllMessages(messages))
         for _, child in ipairs(replica_one.Children) do
@@ -84,63 +77,48 @@ function TeleporterGUIController:KnitInit()
         replica_one:ListenToWrite("DestroyAllMessages", function()
             print("[" .. replica_one.Class .. "]: DestroyAllMessages - " .. GetAllMessages(messages))
         end)
-        
     end)
 
-
-    self:createBillboardGUI(Teleporters)
+    self:createScreenGUI(Teleporters)
 end
 
-
-
-function TeleporterGUIController:createBillboardGUI(Teleporters)
+function TeleporterGUIController:createScreenGUI(Teleporters)
     -- Iterate through the list of teleporter objects
     for _, teleporter in ipairs(Teleporters) do
         -- Find the child named "TeleportZone" in each teleporter
         local teleportZone = teleporter:FindFirstChild("TeleportZone")
         
         if teleportZone then
-
-            local testValue = Value(0)  -- Initialize with a default value
+            local timeRemaining = Value(0)  -- Initialize with a default value
 
             local textValue = Computed(function()
-                return tostring(testValue:get().."/5")  -- Automatically updates text based on testValue
+                return "Next Match in " .. tostring(timeRemaining:get()) .. " seconds"  -- Automatically updates text based on timeRemaining
             end)
 
-            local billboardGui = New "BillboardGui" {
-                Parent = teleporter,
-                Size = UDim2.fromOffset(200, 50),
-                Adornee = teleporter,
-                AlwaysOnTop = true
+            local screenGui = New "ScreenGui" {
+                Parent = Players.LocalPlayer:WaitForChild("PlayerGui"),
+                Name = "TeleporterScreenGui"
             }
-         
 
             local textLabel = New "TextLabel" {
-                Parent = billboardGui,
-                Size = UDim2.fromScale(1, 1),
-                BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-                BackgroundTransparency = 0.5,
+                Parent = screenGui,
+                Size = UDim2.new(0.5, 0, 0.1, 0),  -- Increased width to 0.5
+                Position = UDim2.new(0.25, 0, 0, 0),  -- Adjusted position for centered alignment
+                BackgroundTransparency = 1,  -- Fully transparent background
                 Text = textValue,  -- Text is reactively updated
                 TextColor3 = Color3.fromRGB(0, 0, 0),
-                TextScaled = true
+                TextScaled = true,
+                Font = Enum.Font.GothamBold  -- Change the font to something better
             }
-        
-            -- Setup to listen for TestValue changes and update the Fusion state
-            ReplicaController.ReplicaOfClassCreated("ReplicaOne", function(replica_one)
-                local child = replica_one.Children[1]  -- Example: adjust this access based on your actual data structure
-        
-                child:ListenToChange({"TestValue"}, function(new_value)
-                    testValue:set(new_value)  -- Update the reactive state on change
-                    --print("[" .. child.Class .. "]: (Index: " .. child.Tags.Index .. ") TestValue changed to " .. tostring(new_value))
+
+            -- Setup to listen for TimeRemaining changes and update the Fusion state
+            ReplicaController.ReplicaOfClassCreated("TimerReplica", function(replica_one)
+                replica_one:ListenToChange({"TimeRemaining"}, function(new_value)
+                    timeRemaining:set(new_value)  -- Update the reactive state on change
                 end)
             end)
-
-            
         end
     end
 end
-
-
-
 
 return TeleporterGUIController
