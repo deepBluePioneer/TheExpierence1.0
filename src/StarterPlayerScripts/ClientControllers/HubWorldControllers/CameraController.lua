@@ -14,7 +14,7 @@ local function SetCamPosition()
      local baseplate = workspace:FindFirstChild("Baseplate")
      
      if baseplate then
-         task.wait(3)
+         task.wait(15)
          -- Ensure the camera is scriptable
          camera.CameraType = Enum.CameraType.Scriptable
  
@@ -62,7 +62,7 @@ local function SetCamPosition()
 end
 
 function CameraController:KnitStart()
-    --SetCamPosition()
+   -- SetCamPosition()
 end
 
 function CameraController:KnitInit()

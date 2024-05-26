@@ -90,9 +90,14 @@ function TeleporterGUIController:createScreenGUI(Teleporters)
         
         if teleportZone then
             local timeRemaining = Value(0)  -- Initialize with a default value
+            local timerType = Value("Lobby")  -- Track which timer is active
 
             local textValue = Computed(function()
-                return "Next Match in " .. tostring(timeRemaining:get()) .. " seconds"  -- Automatically updates text based on timeRemaining
+                if timerType:get() == "Lobby" then
+                    return "Next Match in " .. tostring(timeRemaining:get()) .. " seconds"
+                else
+                    return "Game starts in " .. tostring(timeRemaining:get()) .. " seconds"
+                end
             end)
 
             local screenGui = New "ScreenGui" {
@@ -106,14 +111,20 @@ function TeleporterGUIController:createScreenGUI(Teleporters)
                 Position = UDim2.new(0.25, 0, 0, 0),  -- Adjusted position for centered alignment
                 BackgroundTransparency = 1,  -- Fully transparent background
                 Text = textValue,  -- Text is reactively updated
-                TextColor3 = Color3.fromRGB(0, 0, 0),
+                TextColor3 = Color3.fromRGB(255, 255, 255),
                 TextScaled = true,
                 Font = Enum.Font.GothamBold  -- Change the font to something better
             }
 
             -- Setup to listen for TimeRemaining changes and update the Fusion state
-            ReplicaController.ReplicaOfClassCreated("TimerReplica", function(replica_one)
-                replica_one:ListenToChange({"TimeRemaining"}, function(new_value)
+            ReplicaController.ReplicaOfClassCreated("TimerReplica", function(timer_replica)
+                timer_replica:ListenToChange({"TimeRemaining"}, function(new_value)
+                    timerType:set("Lobby")
+                    timeRemaining:set(new_value)  -- Update the reactive state on change
+                end)
+
+                timer_replica:ListenToChange({"GameTimeRemaining"}, function(new_value)
+                    timerType:set("Game")
                     timeRemaining:set(new_value)  -- Update the reactive state on change
                 end)
             end)

@@ -51,12 +51,7 @@ end
 
 function MonsterMovementService:KnitStart()
    
-    local TeleporterService = Knit.GetService("TeleporterService")
-    local timeUpSignal = TeleporterService:GetTimeUpSignal()
-    timeUpSignal:Connect(function()
-        print("Time is up event")
-        -- Add custom logic for when the timer runs out
-    end)
+  
 end
 
 function MonsterMovementService:OrbitPlayer(character, monsters, orbitRadius, orbitSpeed)
