@@ -1,5 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
+local TweenService = game:GetService("TweenService")
 local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Knit = require(Packages:WaitForChild("Knit"))
@@ -15,6 +16,8 @@ local MidiControllerService = Knit.CreateService {
 
 -- Define the colors to alternate between
 local colors = {BrickColor.new("Bright red"), BrickColor.new("Bright green"), BrickColor.new("Bright blue"), BrickColor.new("Bright yellow")}
+
+
 
 function MidiControllerService:PlayTimings()
     local timings = ProtostarTimings["Protostar"]
@@ -52,18 +55,22 @@ function MidiControllerService:PlaySound()
     sound.Looped = false  -- Set to true if you want the sound to loop
 
     -- Play the sound
-    sound:Play()
+  --  sound:Play()
+
+
 end
+
+
 
 function MidiControllerService:KnitStart()
     -- Use coroutines to run PlaySound and PlayTimings in parallel
-    spawn(function()
-        self:PlaySound()
-    end)
+   -- spawn(function()
+       -- self:PlaySound()
+   -- end)
     
-    spawn(function()
-        self:PlayTimings()
-    end)
+   -- spawn(function()
+     --   self:PlayTimings()
+   -- end)
 end
 
 function MidiControllerService:KnitInit()

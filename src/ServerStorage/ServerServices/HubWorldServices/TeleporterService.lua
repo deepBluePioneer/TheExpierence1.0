@@ -1,10 +1,11 @@
-local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local Knit = require(ReplicatedStorage.Packages.Knit)
-
+local CollectionService = game:GetService("CollectionService")
 local CustomPackages = ReplicatedStorage.CustomPackages
-local Packages = ReplicatedStorage.Packages
+
+local Packages = ReplicatedStorage:WaitForChild("Packages")
+local Knit = require(Packages.Knit)
+
 
 -- Zone Modules
 local ZoneRoot = CustomPackages.ZoneRoot
@@ -154,18 +155,59 @@ function TeleporterService:timerTick(teleportData, teleporter)
     end
 end
 
-function TeleporterService:Teleport(teleportQueue)
+function TeleporterService:TeleportToPlace(teleportQueue)
     local flushResult, teleportResult = teleportQueue:Flush()
     if flushResult == TeleportQueueService.FlushResult.Success then
         print("Here's the TeleportAsyncResult:", teleportResult)
     end
 end
 
+function TeleporterService:Teleport(teleportQueue, spawnLocations)
+    local players = teleportQueue:GetPlayers() -- Get players in the queue
+
+    local shuffledLocations = table.clone(spawnLocations)
+    
+    -- Shuffle the spawn locations to randomize
+    local function shuffle(tbl)
+        for i = #tbl, 2, -1 do
+            local j = math.random(i)
+            tbl[i], tbl[j] = tbl[j], tbl[i]
+        end
+    end
+
+    shuffle(shuffledLocations)
+
+    for i, player in ipairs(players) do
+        local character = player.Character
+        if character and shuffledLocations[i] then
+            local spawnLocation = shuffledLocations[i]
+            local primaryPart = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart")
+            if primaryPart then
+                character:PivotTo(spawnLocation.CFrame)
+            else
+                warn("Player " .. player.Name .. " does not have a primary part to move.")
+            end
+        else
+            warn("Not enough spawn locations for all players or player character not found")
+        end
+    end
+end
+
+
+
 function TeleporterService:executeTeleport(teleportData, teleporter)
     if not RunService:IsStudio() then
         warn("Teleporting...")
-        TeleporterService:Teleport(teleportData.queue)
+        local spawnLocations = CollectionService:GetTagged("spawnLoc")
+
+        self:Teleport(teleportData.queue, spawnLocations)
+
+       -- TeleporterService:Teleport(teleportData.queue)
     else
+        local spawnLocations = CollectionService:GetTagged("spawnLoc")
+
+        self:Teleport(teleportData.queue, spawnLocations)
+
         warn("Skipping teleportation because we are in Roblox Studio.")
     end
     teleportData.timer:Stop()

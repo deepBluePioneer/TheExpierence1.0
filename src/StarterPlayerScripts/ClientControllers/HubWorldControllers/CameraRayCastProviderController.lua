@@ -13,7 +13,7 @@ function CameraRayCastProviderController:KnitStart()
     local WeaponsService = Knit.GetService("WeaponsService")
 
     local mouse = Mouse.new()
-    mouse:LockCenter()
+    --mouse:LockCenter()
 
     mouse.LeftDown:Connect(function(player)
         local ray = Mouse:GetRay()
