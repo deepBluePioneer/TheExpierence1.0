@@ -25,7 +25,7 @@ local function OnRayHit(cast, result, velocity, bullet)
     local hit = result.Instance
     -- Check if the hit object is tagged with "boil"
     if CollectionService:HasTag(hit, "boil") then
-        print(hit.Name .. " is tagged with 'boil'")
+      --  print(hit.Name .. " is tagged with 'boil'")
     
     end
 end
@@ -68,20 +68,25 @@ end
 
 
 
-function WeaponsService.Client:SendRay(player, ray)
+function WeaponsService.Client:SendRay(player, rayData, vehiclePrimaryPart)
+    local origin = rayData.origin
+    local direction = rayData.direction
+    
+    -- Exclude the player character and vehicle's primary part
+   -- local playerCharacter = player.Character
+    --warn(playerCharacter)
 
-    local character = player.Character
+ --   local filterInstances = {playerCharacter}
+ 
+    table.insert( castParams.FilterDescendantsInstances, vehiclePrimaryPart)
+  --  castParams.FilterDescendantsInstances = filterInstances
 
-    if character then
-
-        local rootPart = character:FindFirstChild("HumanoidRootPart")
-        if rootPart then
-            local origin = ray.Origin
-            local direction = ray.Direction -- Adjust the length as needed
-            caster:Fire(origin, direction, 500, castBehavior)
-        end
-    end
+    -- Fire the ray with the specified origin, direction, and cast behavior
+    caster:Fire(origin, direction, 500, castBehavior)
 end
+
+
+
 
 
 return WeaponsService
