@@ -1,0 +1,8 @@
+[package]
+name = "4igz/partcache"
+version = "1.0.1"
+description = "A port of PartCache by Xan_TheDragon to Wally. No modifications made so it can work with FastCast."
+authors = ["Xan_TheDragon"]
+registry = "https://github.com/UpliftGames/wally-index"
+exclude = ["foreman.toml"]
+realm = "shared"

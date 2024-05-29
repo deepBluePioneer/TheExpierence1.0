@@ -3,9 +3,14 @@
 registry = "test"
 
 [[package]]
+name = "4igz/partcache"
+version = "1.0.1"
+dependencies = []
+
+[[package]]
 name = "arin3/roblox-knit-template"
 version = "0.1.0"
-dependencies = [["Input", "sleitnick/input@2.3.0"], ["Knit", "sleitnick/knit@1.7.0"], ["PID", "sleitnick/pid@2.1.0"], ["Sequent", "sleitnick/sequent@0.1.0"], ["Shake", "sleitnick/shake@1.1.0"], ["Signal", "sleitnick/signal@2.0.1"], ["TableUtil", "sleitnick/table-util@1.2.1"], ["Trove", "sleitnick/trove@1.2.0"], ["imgizmo", "jakeywastaken/imgizmo@3.5.0"], ["iris", "michael-48/iris@2.2.0"], ["promise", "evaera/promise@4.0.0"], ["timer", "sleitnick/timer@1.1.2"]]
+dependencies = [["Input", "sleitnick/input@2.3.0"], ["Knit", "sleitnick/knit@1.7.0"], ["PID", "sleitnick/pid@2.1.0"], ["Sequent", "sleitnick/sequent@0.1.0"], ["Shake", "sleitnick/shake@1.1.0"], ["Signal", "sleitnick/signal@2.0.1"], ["TableUtil", "sleitnick/table-util@1.2.1"], ["Trove", "sleitnick/trove@1.2.0"], ["imgizmo", "jakeywastaken/imgizmo@3.5.0"], ["iris", "michael-48/iris@2.2.0"], ["partcache", "4igz/partcache@1.0.1"], ["promise", "evaera/promise@4.0.0"], ["timer", "sleitnick/timer@1.1.2"]]
 
 [[package]]
 name = "evaera/promise"

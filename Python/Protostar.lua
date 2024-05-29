@@ -1,7 +1,6 @@
 local timings = {
   ["Protostar"] = {
-  },
-  ["HALion Sonic SE 01"] = {
+
     0,
     86,
     344,
