@@ -5,13 +5,6 @@ local Packages = ReplicatedStorage.Packages
 local Knit = require(Packages.Knit)
 local signal = require(Packages.Signal)
 
-local VehicleMovementController = Knit.CreateController {
-     Name = "VehicleMovementController" ,
-     OnMoveVehicle = signal.new() -- Create the signal within the table
-
-    
-}
-
 local Keyboard = require(Packages.Input).Keyboard
 local keyboard
 local Camera = workspace.CurrentCamera
@@ -19,7 +12,12 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Player = Players.LocalPlayer
 
-function VehicleMovementController:KnitStart()
+local VehicleMovementController = Knit.CreateController {
+     Name = "VehicleMovementController" ,
+     OnMoveVehicle = signal.new() -- Create the signal within the table
+}
+
+function VehicleMovementController:initVehicle()
     task.wait(3)
 
     local VehicleService = Knit.GetService("VehicleService")
@@ -55,6 +53,10 @@ function VehicleMovementController:KnitStart()
 
     keyboard = Keyboard.new()
     self:SetupMovementControls(keyboard)
+end
+
+function VehicleMovementController:KnitStart()
+   
 
 end
 
@@ -190,7 +192,7 @@ function VehicleMovementController:ApplyGravity()
     local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
     if not result then
         -- Vehicle is in the air, apply downward force
-        local gravityForce = Vector3.new(0, -196.2 * self.PrimaryPart.AssemblyMass, 0) -- Adjust gravity force as needed
+        local gravityForce = Vector3.new(0, -100 * self.PrimaryPart.AssemblyMass, 0) -- Adjust gravity force as needed
         self.PrimaryPart:ApplyImpulse(gravityForce)
     end
 end

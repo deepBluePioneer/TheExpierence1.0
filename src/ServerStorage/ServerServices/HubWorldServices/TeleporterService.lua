@@ -198,7 +198,7 @@ end
 
 function TeleporterService:timerGameTick(teleportData, teleporter)
     teleportData.currentGameTime = teleportData.currentGameTime - 1
-    print(teleporter.Name .. " Timer: " .. teleportData.currentGameTime .. " seconds remaining")
+  --  print(teleporter.Name .. " Timer: " .. teleportData.currentGameTime .. " seconds remaining")
 
     -- Update the GameTimeRemaining in the replica
     self.TimerReplica:SetValue({"GameTimeRemaining"}, teleportData.currentGameTime)
@@ -222,9 +222,18 @@ function TeleporterService:startReturnTimer(teleportData, teleporter)
     end
 end
 
+local function formatTime(totalMilliseconds)
+    local totalSeconds = math.floor(totalMilliseconds / 1000)
+    local minutes = math.floor(totalSeconds / 60)
+    local seconds = totalSeconds % 60
+    local milliseconds = totalMilliseconds % 1000
+    return string.format("%02d:%02d.%02d", minutes, seconds, milliseconds)
+end
+
+
 function TeleporterService:setupNewReturnTimer(teleportData, teleporter)
-    teleportData.returnTimer = Timer.new(1) -- 1 second interval
-    teleportData.currentReturnTime = initReturnTime  -- Starting return countdown time
+    teleportData.returnTimer = Timer.new(0.01) -- 100 millisecond interval
+    teleportData.currentReturnTime = initReturnTime * 1000  -- Starting return countdown time in milliseconds
 
     teleportData.returnTimer.Tick:Connect(function()
         self:timerReturnTick(teleportData, teleporter)
@@ -232,16 +241,16 @@ function TeleporterService:setupNewReturnTimer(teleportData, teleporter)
 end
 
 function TeleporterService:timerReturnTick(teleportData, teleporter)
-    teleportData.currentReturnTime = teleportData.currentReturnTime - 1
-    print(teleporter.Name .. " Return Timer: " .. teleportData.currentReturnTime .. " seconds remaining")
+    teleportData.currentReturnTime = teleportData.currentReturnTime - 10
 
-    -- Update the ReturnTimeRemaining in the replica
-    self.TimerReplica:SetValue({"ReturnTimeRemaining"}, teleportData.currentReturnTime)
+    -- Format the time and update the ReturnTimeRemaining in the replica
+    local formattedTime = formatTime(teleportData.currentReturnTime)
+    self.TimerReplica:SetValue({"ReturnTimeRemaining"}, formattedTime)
 
     if teleportData.currentReturnTime <= 0 then
         self.OnReturnTimerEnd:Fire()
         teleportData.returnTimer:Stop()  -- Stop the return timer
-        teleportData.currentReturnTime = initReturnTime  -- Reset return countdown time
+        teleportData.currentReturnTime = initReturnTime * 1000  -- Reset return countdown time
 
         -- Teleport players back to their original locations
         self:returnPlayersToOriginalLocations(teleporter)

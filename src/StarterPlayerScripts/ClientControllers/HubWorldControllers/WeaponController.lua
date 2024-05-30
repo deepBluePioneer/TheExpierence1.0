@@ -25,9 +25,8 @@ local WeaponController = Knit.CreateController {
 
 
 }
+function  WeaponController:initBullet()
 
-
-function WeaponController:KnitInit()
     WeaponsService = Knit.GetService("WeaponsService")
 
     local bulletTemplate = Instance.new("Part")
@@ -44,9 +43,9 @@ function WeaponController:KnitInit()
         -- Handle visual and other effects on hit
         --print("Ray hit:", hit, hitPosition, hitNormal)
     end)
+    
 end
-
-function WeaponController:KnitStart()
+function  WeaponController:initWeapon()
     task.wait(3)
     bulletFireEvent = ReplicatedStorage:WaitForChild("BulletFireEvent")
     FastCast.VisualizeCasts = false
@@ -74,6 +73,8 @@ function WeaponController:KnitStart()
         self:StopAutomaticFiring()
     end)
 end
+
+
 
 function WeaponController:StartAutomaticFiring()
     self.isFiring = true
@@ -159,6 +160,15 @@ function WeaponController:FireRay()
         end)
         caster:Fire(firingPointPosition, direction, 500, castBehavior)  -- Adjust the velocity as needed
     end
+end
+
+
+function WeaponController:KnitInit()
+ 
+end
+
+function WeaponController:KnitStart()
+
 end
 
 

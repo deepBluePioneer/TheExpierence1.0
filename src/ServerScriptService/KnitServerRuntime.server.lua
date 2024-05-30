@@ -14,6 +14,17 @@ local HubWorldServiceID = 17399041158
 local HubWorldServices = ServerServices.HubWorldServices
 local DungeonPlaceServices = ServerServices.DungeonPlaceServices
 
+-- Function to require services recursively
+local function requireServices(directory)
+    for _, service in ipairs(directory:GetChildren()) do
+        if service:IsA("ModuleScript") and service.Name:match("Service$") then
+            require(service)
+        elseif service:IsA("Folder") then
+            requireServices(service)
+        end
+    end
+end
+
 -- Function to require services based on the place id
 local function loadServicesForPlace(placeId)
     local serviceDirectory
@@ -26,11 +37,7 @@ local function loadServicesForPlace(placeId)
         return
     end
 
-    for _, service in ipairs(serviceDirectory:GetChildren()) do
-        if service:IsA("ModuleScript") and service.Name:match("Service$") then
-            require(service)
-        end
-    end
+    requireServices(serviceDirectory)
 end
 
 -- Load the services appropriate for the current game's place ID

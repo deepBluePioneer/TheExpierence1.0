@@ -9,7 +9,9 @@ local PlayerAddedController = CustomPackages.PlayerAddedController
 local PlayerAddedFunctions = PlayerAddedController.PlayerAddedFunctions
 
 local PrefabsFolder = ReplicatedStorage.Prefabs
-local Balloon
+
+local Vehicle = require(script.Parent.Vehicles.VehicleClass)
+
 
 local VehicleService = Knit.CreateService {
     Name = "VehicleService",
@@ -18,67 +20,6 @@ local VehicleService = Knit.CreateService {
 
 VehicleService.Vehicles = {}
 
--- Function to create a balloon model
-function VehicleService:CreateBalloon()
-    local balloon = Instance.new("Part")
-    balloon.Name = "BalloonPart"
-    balloon.Shape = Enum.PartType.Ball
-    balloon.Size = Vector3.new(3, 3, 3) -- Example size
-    balloon.Material = Enum.Material.SmoothPlastic
-    balloon.BrickColor = BrickColor.new("Bright red")
-    balloon.Massless = true
-    balloon.Anchored = false
-    balloon.CanCollide = false
-    return balloon
-end
-
-function CreateBalloon()
-    -- Create and attach balloons
-    local balloonPositions = {
-        Vector3.new(0, 15, 0),
-        Vector3.new(5, 15, 5),
-        Vector3.new(-5, 15, -5)
-    }
-
-    for _, position in ipairs(balloonPositions) do
-        local balloon = self:CreateBalloon()
-        balloon.CFrame = sphere.CFrame
-        balloon.Parent = vehicleModel
-
-        -- Create and configure rope constraint
-        local attachment0 = Instance.new("Attachment")
-        attachment0.Position = sphere.Position -- Set position relative to the sphere
-        attachment0.Parent = sphere
-
-        local attachment1 = Instance.new("Attachment")
-        attachment1.Position = balloon.Position -- Set position relative to the balloon
-        attachment1.Parent = balloon
-
-        local ropeConstraint = Instance.new("RopeConstraint")
-        ropeConstraint.Visible = true
-        ropeConstraint.Attachment0 = attachment0
-        ropeConstraint.Attachment1 = attachment1
-        ropeConstraint.Length =15 -- Set the desired length
-        ropeConstraint.Restitution = 0.5 -- Adjust the restitution to control the bounciness
-        ropeConstraint.Parent = sphere
-
-        local linearVelocity = Instance.new("LinearVelocity")
-        linearVelocity.Attachment0 = attachment1
-        linearVelocity.MaxForce = 9000
-        linearVelocity.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
-        linearVelocity.VectorVelocity = Vector3.new(0, 5000, 0) -- Apply upward force
-        linearVelocity.RelativeTo = Enum.ActuatorRelativeTo.Attachment0
-        linearVelocity.Parent = balloon
-
-        local angularVelocity = Instance.new("AngularVelocity")
-        angularVelocity.Attachment0 = attachment1
-        angularVelocity.AngularVelocity = Vector3.new(0, 1, 0) -- Rotate around the Y-axis
-        angularVelocity.MaxTorque = 5
-        angularVelocity.Parent = balloon
-    end
-
-end
--- Function to create the vehicle model
 -- Function to create the vehicle model
 function VehicleService:CreateVehicle()
     local vehicleModel = Instance.new("Model")
@@ -87,7 +28,7 @@ function VehicleService:CreateVehicle()
     local sphere = Instance.new("Part")
     sphere.Shape = Enum.PartType.Ball
     sphere.Size = Vector3.new(10, 10, 10) -- Example size
-    sphere.Transparency = 1
+    sphere.Transparency = .5
     sphere.Name = "Sphere"
     sphere.Anchored = false
     sphere.CanCollide = true
@@ -98,10 +39,11 @@ function VehicleService:CreateVehicle()
     -- Create the firing point part
     local firingPoint = Instance.new("Part")
     firingPoint.Size = Vector3.new(1, 1, 1) -- Example size
-    firingPoint.Transparency = 0
+    firingPoint.Transparency = .5
     firingPoint.Name = "FiringPoint"
     firingPoint.Anchored = false
     firingPoint.CanCollide = false
+    firingPoint.Massless = true
     firingPoint.Color = Color3.new(1, 0, 0) -- Red color for visibility (can be adjusted)
 
     -- Position the firing point at the front of the sphere
@@ -116,7 +58,59 @@ function VehicleService:CreateVehicle()
     weldConstraint.Part1 = firingPoint
     weldConstraint.Parent = sphere
 
+     -- Create the seat
+    local seat = Instance.new("VehicleSeat")
+    seat.Name = "DriverSeat"
+    seat.Size = Vector3.new(2, 1, 2) -- Example size
+    seat.Anchored = false
+    seat.CanCollide = true
+    seat.Transparency = 0
+    seat.CFrame = sphere.CFrame -- Position the seat at the center of the sphere
+    seat.Parent = sphere
+
+    -- Weld the seat to the sphere
+    local seatWeld = Instance.new("WeldConstraint")
+    seatWeld.Part0 = sphere
+    seatWeld.Part1 = seat
+    seatWeld.Parent = sphere
+
+    self:SeatDetector(seat)
+
+
     return vehicleModel
+end
+
+
+-- Function to detect when the player sits on the seat
+function VehicleService:SeatDetector(seat)
+    seat:GetPropertyChangedSignal("Occupant"):Connect(function()
+        local occupant = seat.Occupant
+        if occupant then
+            local character = occupant.Parent
+            local player = game.Players:GetPlayerFromCharacter(character)
+            if player then
+                print(player.Name .. " has sat on the seat.")
+                self:BindPlayerToVehicle(player, character, seat.Parent)
+
+                -- Additional actions when the player sits on the seat can be added here
+            end
+        else
+            print("Seat is now empty.")
+        end
+    end)
+end
+function VehicleService:BindPlayerToVehicle(player, character, vehicleModel)
+    local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+
+    vehicleModel.PrimaryPart:SetNetworkOwner(player)
+    character:SetPrimaryPartCFrame(vehicleModel.PrimaryPart.CFrame)
+
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0 = vehicleModel.PrimaryPart
+    weld.Part1 = humanoidRootPart
+    weld.Parent = vehicleModel.PrimaryPart
+
+    self.Vehicles[player.UserId] = vehicleModel
 end
 
 function VehicleService:HandleCharacterAdded(Player, Character)
@@ -124,8 +118,8 @@ function VehicleService:HandleCharacterAdded(Player, Character)
     vehicleModel.Parent = Workspace
     local spawnPoint = Workspace:WaitForChild("SpawnLocation")
     vehicleModel:PivotTo(spawnPoint.CFrame)
-    local humanoidRootPart = Character:WaitForChild("HumanoidRootPart")
     
+    local humanoidRootPart = Character:WaitForChild("HumanoidRootPart")
     vehicleModel.PrimaryPart:SetNetworkOwner(Player)
     Character:SetPrimaryPartCFrame(vehicleModel.PrimaryPart.CFrame)
     
@@ -150,12 +144,28 @@ function VehicleService:KnitStart()
         function(JoiningPlayer)
         end,
         function(LeavingPlayer)
-            self:PlayerLeft(LeavingPlayer)
+            --self:PlayerLeft(LeavingPlayer)
         end,
         function(Player, Character)
-            self:HandleCharacterAdded(Player, Character)
+           -- self:HandleCharacterAdded(Player, Character)
         end
     )
+
+        -- Create vehicle at the start
+        local vehicleModel = self:CreateVehicle()
+        vehicleModel.Parent = Workspace
+        local spawnPoint = Workspace:WaitForChild("SpawnLocation")
+        vehicleModel:PivotTo(spawnPoint.CFrame)
+        self.Vehicles["Initial"] = vehicleModel -- Use "Initial" as a key for the initial vehicle
+
+
+          -- Create vehicle at the start
+    local initialVehicle = Vehicle.new()
+    initialVehicle.Model.Parent = Workspace
+    local spawnPoint = Workspace:WaitForChild("SpawnLocation")
+    initialVehicle.Model:PivotTo(spawnPoint.CFrame)
+    self.Vehicles["Initial"] = initialVehicle -- Use "Initial" as a key for the initial vehicle
+        
 end
 
 function VehicleService:KnitInit()

@@ -13,6 +13,11 @@ local VehicleConfigController = Knit.CreateController { Name = "VehicleConfigCon
 
 
 function VehicleConfigController:KnitStart()
+   
+end
+
+function VehicleConfigController:initConfig()
+
     task.wait(3)
    
 
@@ -38,6 +43,7 @@ function VehicleConfigController:KnitStart()
     end):catch(function(err)
         warn("Failed to get vehicle model:", err)
     end)
+    
 end
 
 function VehicleConfigController:DisablePlayerControlsAndAnimations()

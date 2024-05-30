@@ -25,6 +25,7 @@ local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
 local Replica = CustomPackages:WaitForChild("Replica")
 ReplicaController = require(Replica:WaitForChild("ReplicaController"))
 
+
 function TeleporterGUIController:KnitInit()
     Teleporters = CollectionService:GetTagged("teleporter")
     local SETTINGS = {}
@@ -83,20 +84,20 @@ function TeleporterGUIController:KnitInit()
 end
 
 function TeleporterGUIController:createScreenGUI(Teleporters)
-    -- Iterate through the list of teleporter objects
     for _, teleporter in ipairs(Teleporters) do
-        -- Find the child named "TeleportZone" in each teleporter
         local teleportZone = teleporter:FindFirstChild("TeleportZone")
         
         if teleportZone then
-            local timeRemaining = Value(0)  -- Initialize with a default value
-            local timerType = Value("Lobby")  -- Track which timer is active
+            local timeRemaining = Value("00:00.000")  -- Initialize with a default formatted time string
+            local timerType = Value("Lobby")
 
             local textValue = Computed(function()
                 if timerType:get() == "Lobby" then
-                    return "Next Match in " .. tostring(timeRemaining:get()) .. " seconds"
-                else
-                    return "Game starts in " .. tostring(timeRemaining:get()) .. " seconds"
+                    return "Next Match in " .. timeRemaining:get()
+                elseif timerType:get() == "Game" then
+                    return "Game starts in " .. timeRemaining:get()
+                elseif timerType:get() == "Return" then
+                    return timeRemaining:get()
                 end
             end)
 
@@ -107,29 +108,35 @@ function TeleporterGUIController:createScreenGUI(Teleporters)
 
             local textLabel = New "TextLabel" {
                 Parent = screenGui,
-                Size = UDim2.new(0.5, 0, 0.1, 0),  -- Increased width to 0.5
-                Position = UDim2.new(0.25, 0, 0, 0),  -- Adjusted position for centered alignment
-                BackgroundTransparency = 1,  -- Fully transparent background
-                Text = textValue,  -- Text is reactively updated
-                TextColor3 = Color3.fromRGB(255, 255, 255),
+                Size = UDim2.new(0.5, 0, 0.1, 0),
+                Position = UDim2.new(0.25, 0, 0, 0),
+                BackgroundTransparency = 1,
+                Text = textValue,
+                TextColor3 = Color3.fromRGB(248, 246, 128),
                 TextScaled = true,
-                Font = Enum.Font.GothamBold  -- Change the font to something better
+                Font = Enum.Font.GothamBold
             }
 
             -- Setup to listen for TimeRemaining changes and update the Fusion state
             ReplicaController.ReplicaOfClassCreated("TimerReplica", function(timer_replica)
                 timer_replica:ListenToChange({"TimeRemaining"}, function(new_value)
                     timerType:set("Lobby")
-                    timeRemaining:set(new_value)  -- Update the reactive state on change
+                    timeRemaining:set(new_value)
                 end)
 
                 timer_replica:ListenToChange({"GameTimeRemaining"}, function(new_value)
                     timerType:set("Game")
-                    timeRemaining:set(new_value)  -- Update the reactive state on change
+                    timeRemaining:set(new_value)
+                end)
+                
+                timer_replica:ListenToChange({"ReturnTimeRemaining"}, function(new_value)
+                    timerType:set("Return")
+                    timeRemaining:set(new_value)
                 end)
             end)
         end
     end
 end
+
 
 return TeleporterGUIController
