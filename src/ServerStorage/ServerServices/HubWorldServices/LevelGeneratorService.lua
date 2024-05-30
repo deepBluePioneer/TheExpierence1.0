@@ -13,11 +13,7 @@ local LevelGeneratorService = Knit.CreateService {
     Balls = {},  -- Global table to store the spheres
 }
 
-function LevelGeneratorService:KnitStart()
-   
-end
-
-function LevelGeneratorService:KnitInit()
+function init()
      -- Add service startup logic here
      local baseplate = workspace:FindFirstChild("Baseplate")
      if baseplate then
@@ -26,6 +22,14 @@ function LevelGeneratorService:KnitInit()
      else
          warn("Baseplate not found in the workspace.")
      end
+end
+
+function LevelGeneratorService:KnitStart()
+   
+end
+
+function LevelGeneratorService:KnitInit()
+    
 end
 
 function LevelGeneratorService:CreateCircleOfBalls(centerPosition, radius, numberOfBalls)

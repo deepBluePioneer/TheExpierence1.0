@@ -24,9 +24,9 @@ local Timer = require(Packages.timer)
 
 local DungeonPlaceID = 17282492093  -- Corrected to be a number
 
-local initLobbyTime = 15
+local initLobbyTime = 10
 local initGameCountdownTime = 5
-local initReturnTime = 10  -- Duration before returning players
+local initReturnTime = 60  -- Duration before returning players
 
 local TeleporterService = Knit.CreateService {
     Name = "TeleporterService",

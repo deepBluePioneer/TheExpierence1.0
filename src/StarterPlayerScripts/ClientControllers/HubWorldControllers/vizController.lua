@@ -100,45 +100,49 @@ function vizController:AdjustVisualsBasedOnSpectrum(analyzer)
     end)
 end
 
+function init()
+     -- Create the AudioPlayer, AudioAnalyzer, and Wire instances
+     local audioPlayer = Instance.new("AudioPlayer")
+     local audioAnalyzer = Instance.new("AudioAnalyzer")
+     local wire = Instance.new("Wire")
+     local deviceOutput = Instance.new("AudioDeviceOutput")
+ 
+     -- Set the asset ID for the AudioPlayer
+     audioPlayer.AssetId = "rbxassetid://7028518546"  -- Example sound ID
+ 
+     -- Connect the Wire
+     wire.SourceInstance = audioPlayer
+     wire.TargetInstance = audioAnalyzer
+ 
+     -- Parent the instances
+     audioPlayer.Parent = workspace
+     audioAnalyzer.Parent = workspace
+     wire.Parent = workspace
+     deviceOutput.Parent = workspace
+ 
+     -- Connect the AudioPlayer to the AudioDeviceOutput
+     local outputWire = Instance.new("Wire")
+     outputWire.SourceInstance = audioPlayer
+     outputWire.TargetInstance = deviceOutput
+     outputWire.Parent = workspace
+ 
+     -- Play the audio
+     audioPlayer:Play()
+ 
+     -- Wait for the AudioPlayer to be ready
+     while not audioPlayer.IsReady do
+         wait(0.1)
+     end
+ 
+     -- Debug to check if the AudioAnalyzer is correctly attached
+     print("AudioAnalyzer created for AudioPlayer:", audioPlayer.Name)
+ 
+     -- Monitor and adjust visual elements based on the frequency spectrum
+     self:AdjustVisualsBasedOnSpectrum(audioAnalyzer)
+end
+
 function vizController:KnitStart()
-    -- Create the AudioPlayer, AudioAnalyzer, and Wire instances
-    local audioPlayer = Instance.new("AudioPlayer")
-    local audioAnalyzer = Instance.new("AudioAnalyzer")
-    local wire = Instance.new("Wire")
-    local deviceOutput = Instance.new("AudioDeviceOutput")
-
-    -- Set the asset ID for the AudioPlayer
-    audioPlayer.AssetId = "rbxassetid://7028518546"  -- Example sound ID
-
-    -- Connect the Wire
-    wire.SourceInstance = audioPlayer
-    wire.TargetInstance = audioAnalyzer
-
-    -- Parent the instances
-    audioPlayer.Parent = workspace
-    audioAnalyzer.Parent = workspace
-    wire.Parent = workspace
-    deviceOutput.Parent = workspace
-
-    -- Connect the AudioPlayer to the AudioDeviceOutput
-    local outputWire = Instance.new("Wire")
-    outputWire.SourceInstance = audioPlayer
-    outputWire.TargetInstance = deviceOutput
-    outputWire.Parent = workspace
-
-    -- Play the audio
-    audioPlayer:Play()
-
-    -- Wait for the AudioPlayer to be ready
-    while not audioPlayer.IsReady do
-        wait(0.1)
-    end
-
-    -- Debug to check if the AudioAnalyzer is correctly attached
-    print("AudioAnalyzer created for AudioPlayer:", audioPlayer.Name)
-
-    -- Monitor and adjust visual elements based on the frequency spectrum
-    self:AdjustVisualsBasedOnSpectrum(audioAnalyzer)
+   
 end
 
 function vizController:KnitInit()

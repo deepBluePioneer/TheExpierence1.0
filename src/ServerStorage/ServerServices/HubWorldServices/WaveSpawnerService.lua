@@ -12,19 +12,25 @@ local WaveSpawnerService = Knit.CreateService {
     Monsters = {},  -- Global table to store the monsters
 }
 
+
+function init()
+     -- Add service startup logic here
+     local LevelGeneratorService = Knit.GetService("LevelGeneratorService")
+     -- Access the balls table from LevelGeneratorService
+     local balls = LevelGeneratorService.Balls
+ 
+     -- Define the number of monsters to spawn
+     local numberOfMonsters = 1
+     -- Create monsters
+     local monsterModel = self:SpawnMonsters(balls, numberOfMonsters)
+     WaveSpawnerService:CreateZones(balls, monsterModel.monster)
+    
+end
+
 function WaveSpawnerService:KnitStart()
    
 
-    -- Add service startup logic here
-    local LevelGeneratorService = Knit.GetService("LevelGeneratorService")
-    -- Access the balls table from LevelGeneratorService
-    local balls = LevelGeneratorService.Balls
-
-    -- Define the number of monsters to spawn
-    local numberOfMonsters = 1
-    -- Create monsters
-    local monsterModel = self:SpawnMonsters(balls, numberOfMonsters)
-    WaveSpawnerService:CreateZones(balls, monsterModel.monster)
+   
 end
 
 function WaveSpawnerService:KnitInit()

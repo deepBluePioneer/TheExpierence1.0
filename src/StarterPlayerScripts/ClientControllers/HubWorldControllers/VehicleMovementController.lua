@@ -1,14 +1,24 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local CustomPackages = ReplicatedStorage.CustomPackages
 local Packages = ReplicatedStorage.Packages
 local Knit = require(Packages.Knit)
+local signal = require(Packages.Signal)
 
-local VehicleMovementController = Knit.CreateController { Name = "VehicleMovementController" }
+local VehicleMovementController = Knit.CreateController {
+     Name = "VehicleMovementController" ,
+     OnMoveVehicle = signal.new() -- Create the signal within the table
+
+    
+}
+
 local Keyboard = require(Packages.Input).Keyboard
 local keyboard
 local Camera = workspace.CurrentCamera
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local Player = Players.LocalPlayer
+
 function VehicleMovementController:KnitStart()
     task.wait(3)
 
@@ -18,12 +28,29 @@ function VehicleMovementController:KnitStart()
         if vehicleModel then
             self.VehicleModel = vehicleModel
             self.PrimaryPart = vehicleModel.PrimaryPart
+            self:InitializeAlignOrientation()
+
 
         else
             warn("No vehicle model found for the player")
         end
     end):catch(function(err)
         warn("Failed to get vehicle model:", err)
+    end)
+
+    local WeaponController = Knit.GetController("WeaponController")
+
+
+
+    WeaponController.FireRaySignal:Connect(function(rayData)
+        -- Handle the rayData
+        --self:UpdateOrientation(rayData.direction)
+    end)
+
+     -- Call UpdateOrientation in RenderStepped
+     RunService.RenderStepped:Connect(function()
+        local cameraForward = Camera.CFrame.LookVector
+        self:UpdateOrientation(cameraForward)
     end)
 
     keyboard = Keyboard.new()
@@ -78,34 +105,71 @@ function VehicleMovementController:SetupMovementControls(keyboard)
             if self.isMoving.D then
                 self:MoveVehicle(Vector3.new(1, 0, 0))
             end
+         
             task.wait(0.1) -- Adjust the frequency of impulses for smoother acceleration
         end
     end)
 end
 
+function VehicleMovementController:UpdateOrientation(targetDirection)
+    if self.AlignOrientation and self.Attachment then
+        -- Only consider the horizontal component of the target direction
+        local horizontalDirection = Vector3.new(targetDirection.X, 0, targetDirection.Z).Unit
+        local lookAtPosition = self.PrimaryPart.Position + horizontalDirection
+        self.AlignOrientation.CFrame = CFrame.lookAt(self.PrimaryPart.Position, lookAtPosition)
+    end
+end
+
+function VehicleMovementController:InitializeAlignOrientation()
+    if self.PrimaryPart then
+        -- Create an attachment for the PrimaryPart
+        local attachment = Instance.new("Attachment")
+        attachment.Name = "VehicleAttachment"
+        attachment.Parent = self.PrimaryPart
+        self.Attachment = attachment
+
+        -- Create the AlignOrientation constraint
+        self.AlignOrientation = Instance.new("AlignOrientation")
+        self.AlignOrientation.Attachment0 = attachment
+        self.AlignOrientation.RigidityEnabled = true -- Use rigidity for immediate alignment
+        self.AlignOrientation.Responsiveness = 50 -- Adjust responsiveness as needed
+        self.AlignOrientation.MaxTorque = math.huge -- Unlimited torque
+        self.AlignOrientation.Mode = Enum.OrientationAlignmentMode.OneAttachment
+        self.AlignOrientation.PrimaryAxisOnly = false -- Align all axes
+        self.AlignOrientation.AlignType = Enum.AlignType.AllAxes -- Align all axes
+        self.AlignOrientation.Parent = self.PrimaryPart
+    end
+end
+
+
+
 function VehicleMovementController:MoveVehicle(linearDirection)
     if self.PrimaryPart then
         local cameraCF = Camera.CFrame
         local moveDirection = cameraCF:VectorToWorldSpace(linearDirection)
+
         moveDirection = Vector3.new(moveDirection.X, 0, moveDirection.Z).Unit -- Ignore Y-axis for horizontal movement
         local impulse = moveDirection * 15000 -- Adjust impulse as needed
+        self.OnMoveVehicle:Fire(moveDirection)
 
         -- Calculate angular impulse to roll the ball
-        local angularImpulse = Vector3.new(moveDirection.Z, 0, -moveDirection.X) * 9000 -- Adjust angular impulse as needed
+       -- local angularImpulse = Vector3.new(moveDirection.Z, 0, -moveDirection.X) * 9000 -- Adjust angular impulse as needed
 
         self.PrimaryPart:ApplyImpulse(impulse)
-        self.PrimaryPart:ApplyAngularImpulse(angularImpulse)
+        --self.PrimaryPart:ApplyAngularImpulse(angularImpulse)
 
         -- Cap the maximum speed
         self:CapMaxSpeed()
 
         -- Apply downward force if in the air
         self:ApplyGravity()
+         
+
     end
 end
 
 function VehicleMovementController:CapMaxSpeed()
-    local maxSpeed = 50 -- Adjust the maximum speed as needed
+    local maxSpeed = 100 -- Adjust the maximum speed as needed
     local velocity = self.PrimaryPart.AssemblyLinearVelocity
     local speed = velocity.Magnitude
 

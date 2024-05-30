@@ -1,3 +1,4 @@
+local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CustomPackages = ReplicatedStorage.CustomPackages
 local Packages = ReplicatedStorage.Packages
@@ -5,16 +6,50 @@ local Knit = require(Packages.Knit)
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 
-local WeaponController = Knit.CreateController { Name = "WeaponController" }
 local Mouse = require(Packages.Input).Mouse
 local Player = Players.LocalPlayer
+local partcache = require(Packages.partcache)
 
+local FastCast = require(CustomPackages.FastCastFolder.FastCastRedux)
 local WeaponsService
+local bulletCache
+local signal = require(Packages.Signal)
 
 
+local bulletFireEvent
+local WeaponController = Knit.CreateController {
+     Name = "WeaponController",
+     FireRaySignal = signal.new(),
+     OnHitSignal = signal.new() -- Create the signal within the table
+
+
+
+}
+
+
+function WeaponController:KnitInit()
+    WeaponsService = Knit.GetService("WeaponsService")
+
+    local bulletTemplate = Instance.new("Part")
+    bulletTemplate.Shape = Enum.PartType.Ball
+    bulletTemplate.Size = Vector3.new(5, 5, 5)
+    bulletTemplate.Material = Enum.Material.Neon
+    bulletTemplate.BrickColor = BrickColor.new("Bright red")
+    bulletTemplate.Anchored = true
+    bulletTemplate.CanCollide = false
+
+    bulletCache = partcache.new(bulletTemplate, 200)
+
+    WeaponsService.RayHit:Connect(function(player, hit, hitPosition, hitNormal)
+        -- Handle visual and other effects on hit
+        --print("Ray hit:", hit, hitPosition, hitNormal)
+    end)
+end
 
 function WeaponController:KnitStart()
     task.wait(3)
+    bulletFireEvent = ReplicatedStorage:WaitForChild("BulletFireEvent")
+    FastCast.VisualizeCasts = false
 
     local VehicleService = Knit.GetService("VehicleService")
 
@@ -28,26 +63,22 @@ function WeaponController:KnitStart()
     end):catch(function(err)
         warn("Failed to get vehicle model:", err)
     end)
-    
 
     local mouse = Mouse.new()
 
-             -- Setup mouse left button down event to start firing rays
     mouse.LeftDown:Connect(function()
         self:StartAutomaticFiring()
     end)
 
-    -- Setup mouse left button up event to stop firing rays
     mouse.LeftUp:Connect(function()
         self:StopAutomaticFiring()
     end)
-
 end
 
 function WeaponController:StartAutomaticFiring()
     self.isFiring = true
     self.lastFireTime = 0
-    self.fireRate = 0.1 -- Fire rate in seconds (adjust as needed)
+    self.fireRate = 0.15  -- Increase this value to slow down the rate of fire (e.g., 0.5 for slower rate)
 
     self.fireConnection = RunService.RenderStepped:Connect(function()
         local currentTime = tick()
@@ -66,56 +97,71 @@ function WeaponController:StopAutomaticFiring()
     end
 end
 
-function WeaponController:FireRay(PrimaryPart)
-    if self.PrimaryPart then
-        local origin = self.PrimaryPart.Position
 
-        -- Create RaycastParams
+function WeaponController:FireRay()
+    if self.PrimaryPart then
+        -- Get the firing point part
+        local firingPoint = self.PrimaryPart:FindFirstChild("FiringPoint")
+        if not firingPoint then
+            warn("Firing point not found")
+            return
+        end
+        local firingPointPosition = firingPoint.Position
+        local firingPointForward = firingPoint.CFrame.LookVector
+
         local params = RaycastParams.new()
         params.FilterType = Enum.RaycastFilterType.Exclude
         params.FilterDescendantsInstances = {self.VehicleModel, Player.Character}
         params.IgnoreWater = true
 
-        -- Perform the raycast from the mouse position
-        local mouse = Mouse.new()
-        local mouseRay = mouse:GetRay()
-        local result = workspace:Raycast(mouseRay.Origin, mouseRay.Direction * 1000, params)
+        local result = workspace:Raycast(firingPointPosition, firingPointForward * 1000, params)
 
         local targetPoint
         if result then
-            -- If the raycast hits something, use the hit position
             targetPoint = result.Position
         else
-            -- If the raycast doesn't hit anything, use the projected position
-            targetPoint = mouseRay.Origin + mouseRay.Direction * 1000
+            targetPoint = firingPointPosition + firingPointForward * 1000
         end
 
-        -- Ensure the target point is at the same height as the origin
-        targetPoint = Vector3.new(targetPoint.X, origin.Y, targetPoint.Z)
-
-        -- Define the radius for the circle (slightly larger than the ball size)
-        local radius = 6.5 -- Adjust this value based on the ball's size (5) + some margin
-
-        -- Calculate the direction from the vehicle's position to the mouse position
-        local directionFromMouse = (targetPoint - origin).Unit
-
-        -- Calculate the position on the circle's circumference based on the mouse's direction
-        local circleOrigin = origin + directionFromMouse * radius
-
-        -- Calculate the direction from the circle's position to the target point
-        local direction = (targetPoint - circleOrigin).Unit * 1000 -- Adjust ray length as needed
+        local direction = (targetPoint - firingPointPosition).Unit
 
         local rayData = {
-            origin = circleOrigin,
-            direction = direction
+            origin = firingPointPosition,
+            direction = direction,
+            timestamp = tick()  -- Add timestamp here
         }
-        WeaponsService:SendRay(rayData, PrimaryPart)
+
+        -- Emit the signal with the rayData
+        self.FireRaySignal:Fire(rayData)
+        -- WeaponsService:SendRay(rayData, self.PrimaryPart)
+        -- bulletFireEvent:FireServer(rayData, self.PrimaryPart)
+
+        -- Use FastCast to create and manage the bullet on the client
+        local bullet = bulletCache:GetPart()
+        bullet.CFrame = CFrame.new(firingPointPosition)
+        bullet.Parent = workspace
+
+        local castBehavior = FastCast.newBehavior()
+        castBehavior.RaycastParams = params
+        castBehavior.CosmeticBullet = bullet
+        castBehavior.AutoIgnoreContainer = false
+
+        local caster = FastCast.new()
+        caster.LengthChanged:Connect(function(cast, lastPoint, rayDir, displacement, segmentVelocity)
+            local newPoint = lastPoint + (rayDir * displacement)
+            bullet.CFrame = CFrame.new(newPoint, newPoint + rayDir)
+        end)
+        caster.RayHit:Connect(function(cast, result, velocity)
+            if result and CollectionService:HasTag(result.Instance, "enemy") then
+                self.OnHitSignal:Fire(result.Instance)
+            end
+            bulletCache:ReturnPart(bullet)
+        end)
+        caster:Fire(firingPointPosition, direction, 500, castBehavior)  -- Adjust the velocity as needed
     end
 end
 
 
-function WeaponController:KnitInit()
-    WeaponsService = Knit.GetService("WeaponsService")
-end
+
 
 return WeaponController
