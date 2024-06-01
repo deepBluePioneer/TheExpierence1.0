@@ -1,0 +1,25 @@
+name: LDoc
+on: [push, pull_request]
+
+jobs:
+  generate-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      
+      - name: Setup Lua
+        uses: actions/setup-lua@v1
+        with:
+          lua-version: '5.3'
+      
+      - name: Install LDoc
+        run: |
+          luarocks install ldoc
+
+      - name: Generate docs with LDoc (default)
+        run: ldoc src/ReplicatedStorage
+
+      # Uncomment and modify the following step to pass your own arguments
+      # - name: Generate docs with LDoc (custom)
+      #   run: ldoc src/ReplicatedStorage myfile.lua

@@ -1,6 +1,25 @@
--- CustomPackages/PatchesModule.lua
+--- PatchesModule
+-- This module contains definitions for various patches that modify machine stats.
+-- @module PatchesModule
 
-local PatchesModule = {}
+--- Table holding all patch definitions.
+-- @field TurnPatch Patch that modifies the Turn stat.
+-- @field ChargePatch Patch that modifies the Charge stat.
+-- @field GlidePatch Patch that modifies the Glide stat.
+-- @field WeightPatch Patch that modifies the Weight stat.
+-- @field OffensePatch Patch that modifies the Offense stat.
+-- @field DefensePatch Patch that modifies the Defense stat.
+-- @field HPPatch Patch that modifies the HP stat.
+-- @field AllPatch Patch that modifies all stats.
+PatchesModule = {}
+
+--- Patch definition.
+-- @table Patch
+-- @field Stat The name of the stat modified by the patch.
+-- @field Description A description of what the patch does.
+-- @field Value The value by which the stat is modified.
+-- @field Color The color representing the patch.
+-- @field SpriteID The ID of the sprite representing the patch.
 
 PatchesModule.Patches = {
     TurnPatch = {
