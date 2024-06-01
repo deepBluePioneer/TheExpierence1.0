@@ -28,9 +28,10 @@ jobs:
         run: |
           git config --global user.name 'github-actions'
           git config --global user.email 'github-actions@github.com'
-          git clone --depth 1 --branch gh-pages https://${{ secrets.GH_PAT }}@github.com/${{ github.repository }} gh-pages
-          rsync -av --delete doc/ gh-pages/
+          git clone --depth 1 https://${{ secrets.GH_PAT }}@github.com/${{ github.repository }} gh-pages
           cd gh-pages
+          git checkout gh-pages || git checkout --orphan gh-pages
+          rsync -av --delete ../doc/ ./
           git add .
           git commit -m "Update generated documentation" || echo "No changes to commit"
           git push https://${{ secrets.GH_PAT }}@github.com/${{ github.repository }} gh-pages
