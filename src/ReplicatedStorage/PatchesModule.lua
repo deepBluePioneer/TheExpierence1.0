@@ -1,6 +1,6 @@
 --- PatchesModule
 -- This module contains definitions for various patches that modify machine stats.
--- @module PatchesModul
+-- @module PatchesModuls
 
 --- Table holding all patch definitions.
 -- @field TurnPatch Patch that modifies the Turn stat.
