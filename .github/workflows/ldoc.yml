@@ -20,11 +20,11 @@ jobs:
         run: echo "$(realpath ~/.luarocks/bin)" >> $GITHUB_PATH
 
       - name: Generate docs with LDoc (default)
-        run: ldoc -c config.ld src/ReplicatedStorage
+        run: ldoc src/ReplicatedStorage
 
       - name: Upload documentation as artifact
         uses: actions/upload-artifact@v3
         with:
           name: ldoc-html
-          path: docs
+          path: doc
           if-no-files-found: warn
