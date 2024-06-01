@@ -22,6 +22,8 @@ jobs:
       - name: Generate docs with LDoc (default)
         run: ldoc src/ReplicatedStorage
 
-      # Uncomment and modify the following step to pass your own arguments
-      # - name: Generate docs with LDoc (custom)
-      #   run: ldoc src/ReplicatedStorage myfile.lua
+      - name: Upload documentation as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ldoc-html
+          path: docs  # The default output directory for LDoc
