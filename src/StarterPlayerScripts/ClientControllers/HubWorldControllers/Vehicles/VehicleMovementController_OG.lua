@@ -21,15 +21,26 @@ function VehicleMovementController:initVehicle(vehicleModel)
     self.PrimaryPart = vehicleModel.PrimaryPart
     self:InitializeAlignOrientation()
 
+    local WeaponController = Knit.GetController("WeaponController")
+    WeaponController.FireRaySignal:Connect(function(rayData)
+        -- Handle the rayData
+        self:UpdateOrientation(rayData.direction)
+    end)
+
+    -- Call UpdateOrientation in RenderStepped
+    self.RenderSteppedConnection = RunService.RenderStepped:Connect(function()
+        --local cameraForward = Camera.CFrame.LookVector
+        --self:UpdateOrientation(cameraForward)
+        self:UpdateCamera()
+
+    end)
+
     keyboard = Keyboard.new()
     self:SetupMovementControls(keyboard)
-
-    self.RenderSteppedConnection = RunService.RenderStepped:Connect(function()
-        self:CapRotationSpeed() -- Cap the rotation speed each frame
-    end)
 end
 
-function VehicleMovementController:init()
+function  VehicleMovementController:init()
+
     local VehicleService = Knit.GetService("VehicleService")
 
     VehicleService.SeatOccupied:Connect(function(vehicleModel)
@@ -39,6 +50,7 @@ function VehicleMovementController:init()
     VehicleService.SeatEjected:Connect(function()
         self:Cleanup()
     end)
+    
 end
 
 function VehicleMovementController:KnitStart()
@@ -84,13 +96,13 @@ function VehicleMovementController:SetupMovementControls(keyboard)
                 self:MoveVehicle(Vector3.new(0, 0, -1))
             end
             if self.isMoving.A then
-                self:RotateVehicle(1)
+                self:MoveVehicle(Vector3.new(-1, 0, 0))
             end
             if self.isMoving.S then
                 self:MoveVehicle(Vector3.new(0, 0, 1))
             end
             if self.isMoving.D then
-                self:RotateVehicle(-1)
+                self:MoveVehicle(Vector3.new(1, 0, 0))
             end
 
             task.wait(0.1) -- Adjust the frequency of impulses for smoother acceleration
@@ -98,40 +110,45 @@ function VehicleMovementController:SetupMovementControls(keyboard)
     end)
 end
 
+function VehicleMovementController:UpdateOrientation(targetDirection)
+    if self.AlignOrientation and self.Attachment then
+        -- Only consider the horizontal component of the target direction
+        local horizontalDirection = Vector3.new(targetDirection.X, 0, targetDirection.Z).Unit
+        local lookAtPosition = self.PrimaryPart.Position + horizontalDirection
+        self.AlignOrientation.CFrame = CFrame.lookAt(self.PrimaryPart.Position, lookAtPosition)
+    end
+end
+
+function VehicleMovementController:UpdateCamera()
+    if self.PrimaryPart then
+        local cameraOffset = CFrame.new(0, 10, -20) -- Adjust the offset as needed
+        Camera.CFrame = self.PrimaryPart.CFrame * cameraOffset * CFrame.Angles(math.rad(-10), 0, 0) -- Look slightly downward
+        Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, self.PrimaryPart.Position)
+    end
+end
+
 function VehicleMovementController:InitializeAlignOrientation()
     if self.PrimaryPart then
         -- Create an attachment for the PrimaryPart
         local attachment = Instance.new("Attachment")
         attachment.Name = "VehicleAttachment"
-        attachment.CFrame = CFrame.Angles(0, 0, math.rad(90)) -- Set the attachment's orientation to 90 degrees on the Z-axis
         attachment.Parent = self.PrimaryPart
         self.Attachment = attachment
 
-        -- Create the AlignOrientation for horizontal alignment
+        -- Create the AlignOrientation constraint
         self.AlignOrientation = Instance.new("AlignOrientation")
-        self.AlignOrientation.PrimaryAxis = Vector3.new(0, 1, 0)
         self.AlignOrientation.Attachment0 = attachment
-        self.AlignOrientation.RigidityEnabled = true
-        self.AlignOrientation.Responsiveness = 50
-        self.AlignOrientation.MaxTorque = math.huge
+        self.AlignOrientation.RigidityEnabled = true -- Use rigidity for immediate alignment
+        self.AlignOrientation.Responsiveness = 50 -- Adjust responsiveness as needed
+        self.AlignOrientation.MaxTorque = math.huge -- Unlimited torque
         self.AlignOrientation.Mode = Enum.OrientationAlignmentMode.OneAttachment
-        self.AlignOrientation.PrimaryAxisOnly = true
-        self.AlignOrientation.AlignType = Enum.AlignType.PrimaryAxisParallel
+        self.AlignOrientation.PrimaryAxisOnly = false -- Align all axes
+        self.AlignOrientation.AlignType = Enum.AlignType.AllAxes -- Align all axes
         self.AlignOrientation.Parent = self.PrimaryPart
 
-        -- Create an additional AlignOrientation to keep the vehicle upright
-        self.UprightOrientation = Instance.new("AlignOrientation")
-        self.UprightOrientation.PrimaryAxis = Vector3.new(1, 0, 0)
-        self.UprightOrientation.SecondaryAxis = Vector3.new(-1, 0, 0)
-        self.UprightOrientation.Attachment0 = attachment
-        self.UprightOrientation.RigidityEnabled = true
-        self.UprightOrientation.Responsiveness = 50
-        self.UprightOrientation.MaxTorque = math.huge
-        self.UprightOrientation.Mode = Enum.OrientationAlignmentMode.OneAttachment
-        self.UprightOrientation.PrimaryAxisOnly = false
-        self.UprightOrientation.AlignType = Enum.AlignType.PrimaryAxisPerpendicular
-        self.UprightOrientation.Parent = self.PrimaryPart
+        
     end
+
 end
 
 function VehicleMovementController:MoveVehicle(linearDirection)
@@ -154,15 +171,6 @@ function VehicleMovementController:MoveVehicle(linearDirection)
     end
 end
 
-function VehicleMovementController:RotateVehicle(direction)
-    if self.PrimaryPart then
-        local rotationTorque = 2500 -- Adjust torque as needed
-        local torque = Vector3.new(0, rotationTorque * direction, 0)
-
-        self.PrimaryPart:ApplyAngularImpulse(torque)
-    end
-end
-
 function VehicleMovementController:CapMaxSpeed()
     local maxSpeed = 100 -- Adjust the maximum speed as needed
     local velocity = self.PrimaryPart.AssemblyLinearVelocity
@@ -175,17 +183,6 @@ function VehicleMovementController:CapMaxSpeed()
     end
 end
 
-function VehicleMovementController:CapRotationSpeed()
-    local maxRotationSpeed = 2 -- Adjust the maximum rotation speed as needed
-    local angularVelocity = self.PrimaryPart.AssemblyAngularVelocity
-    local rotationSpeed = angularVelocity.Magnitude
-
-    if rotationSpeed > maxRotationSpeed then
-        local excessRotationSpeed = rotationSpeed - maxRotationSpeed
-        local counterTorque = angularVelocity.Unit * -excessRotationSpeed * self.PrimaryPart.AssemblyMass
-        self.PrimaryPart:ApplyAngularImpulse(counterTorque)
-    end
-end
 
 function VehicleMovementController:ApplyGravity()
     local rayOrigin = self.PrimaryPart.Position

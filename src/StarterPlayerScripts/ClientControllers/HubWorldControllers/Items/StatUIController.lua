@@ -75,6 +75,11 @@ function StatUIController:createStatUI(patch, index, statValue)
 end
 
 function StatUIController:KnitStart()
+   
+end
+
+function init()
+
     local screenGui = New "ScreenGui" {
         Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui"),
         ResetOnSpawn = false,
@@ -96,9 +101,6 @@ function StatUIController:KnitStart()
             }
         }
     }
-end
-
-function init()
      -- Setup to listen for changes in the StatReplica and update Fusion state
      ReplicaController.ReplicaOfClassCreated("StatReplica", function(stat_replica)
 

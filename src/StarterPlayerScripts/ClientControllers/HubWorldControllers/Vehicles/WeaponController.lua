@@ -178,7 +178,7 @@ function WeaponController:KnitInit()
  
 end
 
-function WeaponController:KnitStart()
+function WeaponController:init()
     local VehicleService = Knit.GetService("VehicleService")
 
     VehicleService.SeatOccupied:Connect(function(vehicleModel)
@@ -192,7 +192,11 @@ function WeaponController:KnitStart()
         self:Cleanup()
 
     end)
+end
 
+function WeaponController:KnitStart()
+   
+   --WeaponController:init()
     
 
     
