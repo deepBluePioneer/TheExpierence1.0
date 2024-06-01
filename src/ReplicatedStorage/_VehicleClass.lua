@@ -1,10 +1,10 @@
---- @class Vehicle
 --- A class that represents a vehicle with functionality for player interaction.
+-- @classmod Vehicle
 local Vehicle = {}
 Vehicle.__index = Vehicle
 
 --- Creates a new Vehicle instance.
---- @return Vehicle The newly created Vehicle instance.
+-- @return Vehicle The newly created Vehicle instance.
 function Vehicle.new()
     local self = setmetatable({}, Vehicle)
     
@@ -82,7 +82,7 @@ function Vehicle.new()
 end
 
 --- Detects when a player sits on the vehicle seat and binds the player to the vehicle.
---- @param seat VehicleSeat The vehicle seat instance.
+-- @param seat VehicleSeat The vehicle seat instance.
 function Vehicle:SeatDetector(seat)
     local currentPlayer = nil
 
@@ -114,8 +114,8 @@ function Vehicle:SeatDetector(seat)
 end
 
 --- Binds the player to the vehicle by welding the player's HumanoidRootPart to the vehicle.
---- @param player Player The player instance.
---- @param character Model The player's character model.
+-- @param player Player The player instance.
+-- @param character Model The player's character model.
 function Vehicle:BindPlayerToVehicle(player, character)
     local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
    
