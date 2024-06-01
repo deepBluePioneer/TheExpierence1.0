@@ -1,6 +1,9 @@
 name: LDoc
 on: [push, pull_request]
 
+permissions:
+  contents: write
+
 jobs:
   generate-docs:
     runs-on: ubuntu-latest
@@ -32,4 +35,3 @@ jobs:
           git add docs
           git commit -m "Update generated documentation"
           git push origin main
-
