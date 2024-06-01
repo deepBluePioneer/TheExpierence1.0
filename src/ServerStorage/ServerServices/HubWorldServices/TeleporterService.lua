@@ -17,7 +17,6 @@ local TeleportQueueService = require(TeleportQueueFolder.TeleportQueueService)
 -- Replica Modules
 local Replica = CustomPackages.Replica
 local ReplicaService = require(Replica.ReplicaService)
-local TestWriteLib = Replica.TestWriteLib
 
 local Signal = require(Packages.Signal)
 local Timer = require(Packages.timer)
@@ -46,7 +45,6 @@ function TeleporterService:InitReplicas()
             ReturnTimeRemaining = initReturnTime,      -- Example return countdown duration
         },
         Replication = "All",
-        WriteLib = TestWriteLib,
     })
 end
 

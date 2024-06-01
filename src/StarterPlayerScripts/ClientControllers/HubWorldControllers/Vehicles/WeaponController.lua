@@ -45,27 +45,18 @@ function  WeaponController:initBullet()
     end)
     
 end
-function  WeaponController:initWeapon()
-    task.wait(3)
+function  WeaponController:initWeapon(vehicleModel)
+
     bulletFireEvent = ReplicatedStorage:WaitForChild("BulletFireEvent")
     FastCast.VisualizeCasts = false
 
-    local VehicleService = Knit.GetService("VehicleService")
-
-    VehicleService:GetPlayerVehicle():andThen(function(vehicleModel)
-        if vehicleModel then
-            self.VehicleModel = vehicleModel
-            self.PrimaryPart = vehicleModel.PrimaryPart      
-        else
-            warn("No vehicle model found for the player")
-        end
-    end):catch(function(err)
-        warn("Failed to get vehicle model:", err)
-    end)
-
+    self.VehicleModel = vehicleModel
+    self.PrimaryPart = vehicleModel.PrimaryPart      
+    WeaponController:initBullet()
     local mouse = Mouse.new()
 
     mouse.LeftDown:Connect(function()
+        warn("FIRE")
         self:StartAutomaticFiring()
     end)
 
@@ -161,14 +152,50 @@ function WeaponController:FireRay()
         caster:Fire(firingPointPosition, direction, 500, castBehavior)  -- Adjust the velocity as needed
     end
 end
+function WeaponController:Cleanup()
+    if self.fireConnection then
+        self.fireConnection:Disconnect()
+        self.fireConnection = nil
+    end
+    if self.mouseLeftDownConnection then
+        self.mouseLeftDownConnection:Disconnect()
+        self.mouseLeftDownConnection = nil
+    end
+    if self.mouseLeftUpConnection then
+        self.mouseLeftUpConnection:Disconnect()
+        self.mouseLeftUpConnection = nil
+    end
 
+    if self.mouse then
+        self.mouse:Destroy()
+        self.mouse = nil
+    end
+    self.VehicleModel = nil
+    self.PrimaryPart = nil
+end
 
 function WeaponController:KnitInit()
  
 end
 
 function WeaponController:KnitStart()
+    local VehicleService = Knit.GetService("VehicleService")
 
+    VehicleService.SeatOccupied:Connect(function(vehicleModel)
+        WeaponController:initWeapon(vehicleModel)
+    end)
+
+    local VehicleService = Knit.GetService("VehicleService")
+
+    VehicleService.SeatEjected:Connect(function()
+
+        self:Cleanup()
+
+    end)
+
+    
+
+    
 end
 
 

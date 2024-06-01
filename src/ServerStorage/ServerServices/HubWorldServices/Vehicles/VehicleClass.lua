@@ -1,3 +1,12 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Packages = ReplicatedStorage.Packages
+local Knit = require(Packages.Knit)
+
+local CustomPackages = ReplicatedStorage.CustomPackages
+local Replica = CustomPackages.Replica
+local ReplicaService = require(Replica.ReplicaService)
+
 local Vehicle = {}
 Vehicle.__index = Vehicle
 
@@ -13,8 +22,8 @@ function Vehicle.new()
     sphere.Size = Vector3.new(10, 10, 10) -- Example size
     sphere.Transparency = 0.5
     sphere.Name = "Sphere"
-    sphere.Anchored = false
-    sphere.CanCollide = true
+    sphere.Anchored = true
+    sphere.CanCollide = false
     sphere.Parent = self.Model
 
     self.Model.PrimaryPart = sphere
@@ -61,34 +70,57 @@ function Vehicle.new()
     self.Sphere = sphere
     self.Seat = seat
 
+    self.Stats = {
+        HP = 100,
+        Boost = 0,
+        Charge = 0,
+        Turn = 0,
+        Offense = 0,
+        Defense = 0,
+        Weight = 0,
+        Glide = 0
+    }
+
     self:SeatDetector(seat)
 
+  
     return self
 end
 
-
 -- Function to detect when the player sits on the seat
 function Vehicle:SeatDetector(seat)
+    local currentPlayer = nil
+
     seat:GetPropertyChangedSignal("Occupant"):Connect(function()
+        self.Model.PrimaryPart.Anchored = false
+        self.Model.PrimaryPart.CanCollide = true
+        local player 
         local occupant = seat.Occupant
         if occupant then
             local character = occupant.Parent
-            local player = game.Players:GetPlayerFromCharacter(character)
+            player = game.Players:GetPlayerFromCharacter(character)
             if player then
+                currentPlayer = player
                 print(player.Name .. " has sat on the seat.")
-                self:BindPlayerToVehicle(player, character)
+                self:BindPlayerToVehicle(currentPlayer, character)
+                -- Fire the signal to notify the client
+                Knit.GetService("VehicleService").Client.SeatOccupied:Fire(currentPlayer, self.Model)
 
                 -- Additional actions when the player sits on the seat can be added here
             end
         else
-            print("Seat is now empty.")
+            self:UnbindPlayerFromVehicle()
+            Knit.GetService("VehicleService").Client.SeatEjected:Fire(currentPlayer)
+            self.Model.PrimaryPart.Anchored = true
+            self.Model.PrimaryPart.CanCollide = false
+            currentPlayer = nil
         end
     end)
 end
 
 function Vehicle:BindPlayerToVehicle(player, character)
     local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-
+   
     self.Model.PrimaryPart:SetNetworkOwner(player)
     character:SetPrimaryPartCFrame(self.Model.PrimaryPart.CFrame)
 
@@ -99,5 +131,31 @@ function Vehicle:BindPlayerToVehicle(player, character)
 
     self.Player = player
 end
+
+function Vehicle:UnbindPlayerFromVehicle()
+    if self.Player then
+        print("UnbindPlayerFromVehicle")
+
+        self.Model.PrimaryPart:SetNetworkOwner(nil)
+        local humanoidRootPart = self.Player.Character and self.Player.Character:FindFirstChild("HumanoidRootPart")
+        if humanoidRootPart then
+            for _, constraint in pairs(self.Model.PrimaryPart:GetChildren()) do
+                if constraint:IsA("WeldConstraint") and (constraint.Part1 == humanoidRootPart or constraint.Part0 == humanoidRootPart) then
+                    constraint:Destroy()
+                end
+            end
+        end
+        self.Player = nil
+    end
+end
+
+-- Function to print the vehicle's stats
+function Vehicle:PrintStats()
+    print("Vehicle Stats:")
+    for stat, value in pairs(self.Stats) do
+        print(stat .. ": " .. value)
+    end
+end
+
 
 return Vehicle

@@ -9,44 +9,26 @@ local Keyboard = require(Packages.Input).Keyboard
 local keyboard
 local Camera = workspace.CurrentCamera
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local Player = Players.LocalPlayer
 
 local VehicleMovementController = Knit.CreateController {
-     Name = "VehicleMovementController" ,
-     OnMoveVehicle = signal.new() -- Create the signal within the table
+    Name = "VehicleMovementController",
+    OnMoveVehicle = signal.new() -- Create the signal within the table
 }
 
-function VehicleMovementController:initVehicle()
-    task.wait(3)
-
-    local VehicleService = Knit.GetService("VehicleService")
-
-    VehicleService:GetPlayerVehicle():andThen(function(vehicleModel)
-        if vehicleModel then
-            self.VehicleModel = vehicleModel
-            self.PrimaryPart = vehicleModel.PrimaryPart
-            self:InitializeAlignOrientation()
-
-
-        else
-            warn("No vehicle model found for the player")
-        end
-    end):catch(function(err)
-        warn("Failed to get vehicle model:", err)
-    end)
+function VehicleMovementController:initVehicle(vehicleModel)
+    self.VehicleModel = vehicleModel
+    self.PrimaryPart = vehicleModel.PrimaryPart
+    self:InitializeAlignOrientation()
 
     local WeaponController = Knit.GetController("WeaponController")
-
-
-
     WeaponController.FireRaySignal:Connect(function(rayData)
         -- Handle the rayData
-        --self:UpdateOrientation(rayData.direction)
+        self:UpdateOrientation(rayData.direction)
     end)
 
-     -- Call UpdateOrientation in RenderStepped
-     RunService.RenderStepped:Connect(function()
+    -- Call UpdateOrientation in RenderStepped
+    self.RenderSteppedConnection = RunService.RenderStepped:Connect(function()
         local cameraForward = Camera.CFrame.LookVector
         self:UpdateOrientation(cameraForward)
     end)
@@ -56,8 +38,15 @@ function VehicleMovementController:initVehicle()
 end
 
 function VehicleMovementController:KnitStart()
-   
+    local VehicleService = Knit.GetService("VehicleService")
 
+    VehicleService.SeatOccupied:Connect(function(vehicleModel)
+        VehicleMovementController:initVehicle(vehicleModel)
+    end)
+
+    VehicleService.SeatEjected:Connect(function()
+        self:Cleanup()
+    end)
 end
 
 function VehicleMovementController:SetupMovementControls(keyboard)
@@ -68,7 +57,7 @@ function VehicleMovementController:SetupMovementControls(keyboard)
         D = false
     }
 
-    keyboard.KeyDown:Connect(function(key)
+    self.keyDownConnection = keyboard.KeyDown:Connect(function(key)
         if key == Enum.KeyCode.D then
             self.isMoving.D = true
         elseif key == Enum.KeyCode.A then
@@ -80,7 +69,7 @@ function VehicleMovementController:SetupMovementControls(keyboard)
         end
     end)
 
-    keyboard.KeyUp:Connect(function(key)
+    self.keyUpConnection = keyboard.KeyUp:Connect(function(key)
         if key == Enum.KeyCode.D then
             self.isMoving.D = false
         elseif key == Enum.KeyCode.A then
@@ -93,8 +82,8 @@ function VehicleMovementController:SetupMovementControls(keyboard)
     end)
 
     -- Start a loop to apply impulses
-    task.spawn(function()
-        while true do
+    self.MovementLoop = task.spawn(function()
+        while self.VehicleModel do
             if self.isMoving.W then
                 self:MoveVehicle(Vector3.new(0, 0, -1))
             end
@@ -107,7 +96,7 @@ function VehicleMovementController:SetupMovementControls(keyboard)
             if self.isMoving.D then
                 self:MoveVehicle(Vector3.new(1, 0, 0))
             end
-         
+
             task.wait(0.1) -- Adjust the frequency of impulses for smoother acceleration
         end
     end)
@@ -140,10 +129,11 @@ function VehicleMovementController:InitializeAlignOrientation()
         self.AlignOrientation.PrimaryAxisOnly = false -- Align all axes
         self.AlignOrientation.AlignType = Enum.AlignType.AllAxes -- Align all axes
         self.AlignOrientation.Parent = self.PrimaryPart
+
+        
     end
+
 end
-
-
 
 function VehicleMovementController:MoveVehicle(linearDirection)
     if self.PrimaryPart then
@@ -152,21 +142,16 @@ function VehicleMovementController:MoveVehicle(linearDirection)
 
         moveDirection = Vector3.new(moveDirection.X, 0, moveDirection.Z).Unit -- Ignore Y-axis for horizontal movement
         local impulse = moveDirection * 15000 -- Adjust impulse as needed
+
         self.OnMoveVehicle:Fire(moveDirection)
 
-        -- Calculate angular impulse to roll the ball
-       -- local angularImpulse = Vector3.new(moveDirection.Z, 0, -moveDirection.X) * 9000 -- Adjust angular impulse as needed
-
         self.PrimaryPart:ApplyImpulse(impulse)
-        --self.PrimaryPart:ApplyAngularImpulse(angularImpulse)
 
         -- Cap the maximum speed
         self:CapMaxSpeed()
 
         -- Apply downward force if in the air
         self:ApplyGravity()
-         
-
     end
 end
 
@@ -182,6 +167,7 @@ function VehicleMovementController:CapMaxSpeed()
     end
 end
 
+
 function VehicleMovementController:ApplyGravity()
     local rayOrigin = self.PrimaryPart.Position
     local rayDirection = Vector3.new(0, -10, 0) -- Ray downwards to check ground
@@ -195,6 +181,39 @@ function VehicleMovementController:ApplyGravity()
         local gravityForce = Vector3.new(0, -100 * self.PrimaryPart.AssemblyMass, 0) -- Adjust gravity force as needed
         self.PrimaryPart:ApplyImpulse(gravityForce)
     end
+end
+
+function VehicleMovementController:Cleanup()
+    if self.RenderSteppedConnection then
+        self.RenderSteppedConnection:Disconnect()
+        self.RenderSteppedConnection = nil
+    end
+    if self.MovementLoop then
+        task.cancel(self.MovementLoop)
+        self.MovementLoop = nil
+    end
+    if self.AlignOrientation then
+        self.AlignOrientation:Destroy()
+        self.AlignOrientation = nil
+    end
+    if self.Attachment then
+        self.Attachment:Destroy()
+        self.Attachment = nil
+    end
+    if self.keyDownConnection then
+        self.keyDownConnection:Disconnect()
+        self.keyDownConnection = nil
+    end
+    if self.keyUpConnection then
+        self.keyUpConnection:Disconnect()
+        self.keyUpConnection = nil
+    end
+    if keyboard then
+        keyboard:Destroy()
+        keyboard = nil
+    end
+    self.VehicleModel = nil
+    self.PrimaryPart = nil
 end
 
 function VehicleMovementController:KnitInit()
