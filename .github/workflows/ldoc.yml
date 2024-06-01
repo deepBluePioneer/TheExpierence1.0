@@ -22,9 +22,15 @@ jobs:
       - name: Generate docs with LDoc (default)
         run: ldoc src/ReplicatedStorage
 
-      - name: Upload documentation as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ldoc-html
-          path: doc
-          if-no-files-found: warn
+      - name: Deploy to GitHub Pages
+        run: |
+          git config --global user.name 'github-actions'
+          git config --global user.email 'github-actions@github.com'
+          git clone --depth 1 --branch gh-pages https://github.com/${{ github.repository }} gh-pages
+          rsync -av --delete doc/ gh-pages/
+          cd gh-pages
+          git add .
+          git commit -m "Update generated documentation" || echo "No changes to commit"
+          git push origin gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
