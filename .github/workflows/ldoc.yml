@@ -14,7 +14,10 @@ jobs:
           sudo apt-get install -y lua5.3 lua5.3-dev luarocks
 
       - name: Install LDoc
-        run: luarocks install ldoc
+        run: luarocks install ldoc --local
+
+      - name: Add local LuaRocks bin to PATH
+        run: echo "::add-path::$(realpath ~/.luarocks/bin)"
 
       - name: Generate docs with LDoc (default)
         run: ldoc src/ReplicatedStorage
