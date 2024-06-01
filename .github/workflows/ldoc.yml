@@ -17,7 +17,7 @@ jobs:
         run: luarocks install ldoc --local
 
       - name: Add local LuaRocks bin to PATH
-        run: echo "::add-path::$(realpath ~/.luarocks/bin)"
+        run: echo "$(realpath ~/.luarocks/bin)" >> $GITHUB_PATH
 
       - name: Generate docs with LDoc (default)
         run: ldoc src/ReplicatedStorage
