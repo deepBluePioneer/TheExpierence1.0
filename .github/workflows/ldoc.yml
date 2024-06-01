@@ -7,15 +7,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      
-      - name: Setup Lua
-        uses: actions/setup-lua@v1
-        with:
-          lua-version: '5.3'
-      
-      - name: Install LDoc
+
+      - name: Install Lua and LuaRocks
         run: |
-          luarocks install ldoc
+          sudo apt-get update
+          sudo apt-get install -y lua5.3 lua5.3-dev luarocks
+
+      - name: Install LDoc
+        run: luarocks install ldoc
 
       - name: Generate docs with LDoc (default)
         run: ldoc src/ReplicatedStorage
