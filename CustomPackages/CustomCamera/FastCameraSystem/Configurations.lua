@@ -50,7 +50,7 @@ Module.FaceCharacterAlpha = 0.5
 
 Module.MouseCameraEasingStyle = nil         -- If left nil, this will default to a fast quint fallback
 Module.MouseCameraEasingDirection = nil     -- If left nil, this will default to enum.easing.out direction
-Module.MouseCameraSmoothness = 0.03
+Module.MouseCameraSmoothness = 0.08
 Module.AspectRatio = Vector2int16.new(15, 5) -- X, Y
 Module.MouseAlpha = 0.5
 Module.MouseYOffset = 1

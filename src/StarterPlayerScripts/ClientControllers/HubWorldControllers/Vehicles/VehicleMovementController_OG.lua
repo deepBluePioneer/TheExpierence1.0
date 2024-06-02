@@ -29,18 +29,15 @@ function VehicleMovementController:initVehicle(vehicleModel)
 
     -- Call UpdateOrientation in RenderStepped
     self.RenderSteppedConnection = RunService.RenderStepped:Connect(function()
-        --local cameraForward = Camera.CFrame.LookVector
-        --self:UpdateOrientation(cameraForward)
+        self:UpdateOrientationFromVelocity()
         self:UpdateCamera()
-
     end)
 
     keyboard = Keyboard.new()
     self:SetupMovementControls(keyboard)
 end
 
-function  VehicleMovementController:init()
-
+function VehicleMovementController:init()
     local VehicleService = Knit.GetService("VehicleService")
 
     VehicleService.SeatOccupied:Connect(function(vehicleModel)
@@ -50,7 +47,6 @@ function  VehicleMovementController:init()
     VehicleService.SeatEjected:Connect(function()
         self:Cleanup()
     end)
-    
 end
 
 function VehicleMovementController:KnitStart()
@@ -96,13 +92,13 @@ function VehicleMovementController:SetupMovementControls(keyboard)
                 self:MoveVehicle(Vector3.new(0, 0, -1))
             end
             if self.isMoving.A then
-                self:MoveVehicle(Vector3.new(-1, 0, 0))
+                self:RotateVehicle(1)
             end
             if self.isMoving.S then
                 self:MoveVehicle(Vector3.new(0, 0, 1))
             end
             if self.isMoving.D then
-                self:MoveVehicle(Vector3.new(1, 0, 0))
+                self:RotateVehicle(-1)
             end
 
             task.wait(0.1) -- Adjust the frequency of impulses for smoother acceleration
@@ -110,12 +106,14 @@ function VehicleMovementController:SetupMovementControls(keyboard)
     end)
 end
 
-function VehicleMovementController:UpdateOrientation(targetDirection)
-    if self.AlignOrientation and self.Attachment then
-        -- Only consider the horizontal component of the target direction
-        local horizontalDirection = Vector3.new(targetDirection.X, 0, targetDirection.Z).Unit
-        local lookAtPosition = self.PrimaryPart.Position + horizontalDirection
-        self.AlignOrientation.CFrame = CFrame.lookAt(self.PrimaryPart.Position, lookAtPosition)
+function VehicleMovementController:UpdateOrientationFromVelocity()
+    if self.AlignOrientation and self.Attachment and self.PrimaryPart then
+        local velocity = self.PrimaryPart.AssemblyLinearVelocity
+        if velocity.Magnitude > 0.1 then -- Only update if the velocity is significant
+            local horizontalVelocity = Vector3.new(velocity.X, 0, velocity.Z).Unit
+            local lookAtPosition = self.PrimaryPart.Position + horizontalVelocity
+            self.AlignOrientation.CFrame = CFrame.lookAt(self.PrimaryPart.Position, lookAtPosition)
+        end
     end
 end
 
@@ -145,10 +143,7 @@ function VehicleMovementController:InitializeAlignOrientation()
         self.AlignOrientation.PrimaryAxisOnly = false -- Align all axes
         self.AlignOrientation.AlignType = Enum.AlignType.AllAxes -- Align all axes
         self.AlignOrientation.Parent = self.PrimaryPart
-
-        
     end
-
 end
 
 function VehicleMovementController:MoveVehicle(linearDirection)
@@ -171,6 +166,18 @@ function VehicleMovementController:MoveVehicle(linearDirection)
     end
 end
 
+function VehicleMovementController:RotateVehicle(direction)
+    if self.PrimaryPart then
+        local velocity = self.PrimaryPart.AssemblyLinearVelocity.Magnitude
+        local maxSpeed = 100 -- Adjust the maximum speed as needed
+        local rotationTorque = math.clamp(2500 * (1 - (velocity / maxSpeed)), 500, 2500) -- Adjust torque based on speed
+
+        local torque = Vector3.new(0, rotationTorque * direction, 0)
+
+        self.PrimaryPart:ApplyAngularImpulse(torque)
+    end
+end
+
 function VehicleMovementController:CapMaxSpeed()
     local maxSpeed = 100 -- Adjust the maximum speed as needed
     local velocity = self.PrimaryPart.AssemblyLinearVelocity
@@ -182,7 +189,6 @@ function VehicleMovementController:CapMaxSpeed()
         self.PrimaryPart:ApplyImpulse(counterForce)
     end
 end
-
 
 function VehicleMovementController:ApplyGravity()
     local rayOrigin = self.PrimaryPart.Position

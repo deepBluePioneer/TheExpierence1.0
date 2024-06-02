@@ -34,6 +34,7 @@ local Module = {}
 --------------------------------------------------------------------
 
 local Configs = require(script.Parent:WaitForChild("Configurations"))
+local SmoothDamp = require(script.Parent:WaitForChild("SmoothDamp"))
 
 --------------------------------------------------------------------
 --------------------------  Services  ------------------------------
@@ -358,52 +359,19 @@ Module.OverTheShoulder = function(_, CameraAngleX, CameraAngleY, Lerp)
 	Camera.CFrame = GetViewMatrix(Eye, Focus)
 end
 
-
-Module.IsometricCamera = function(_, CameraDepth, HeightOffset, FOV)
-	CameraDepth = CameraDepth or Configs.IsometricCameraDepth
-	HeightOffset = HeightOffset or Configs.IsometricHeightOffset
-	Camera.FieldOfView = FOV or Configs.IsometricFieldOfView
+Module.VehicleFollower = function(_, CameraAngleX, CameraAngleY, Lerp, target)	
+	--Module.CameraAngleX = CameraAngleX or Module.CameraAngleX
+	--Module.CameraAngleY = CameraAngleY or Module.CameraAngleY	
 	DisableRobloxCamera()
 
-	local Root = HumanoidRootPart.Position + Vector3.new(0, HeightOffset, 0)
-	local Eye = Root + Vector3.new(CameraDepth, CameraDepth, CameraDepth)	
-	Camera.CFrame = GetViewMatrix(Eye, Root)
-end
+	local Origin = CFrame.new((target.CFrame.Position)) * GetRotationXY(math.rad(CameraAngleX), math.rad(CameraAngleY))
+	local Eye = GetPositionToWorldByOffset(Origin)
+	local Focus = GetPositionToWorldByOffset(Origin, Configs.CamLockOffset.X, Configs.CamLockOffset.Y, -10000)
 
-
-Module.SideScrollingCamera = function(_, CameraDepth, HeightOffset, FOV)
-	CameraDepth = CameraDepth or Configs.SideCameraDepth
-	HeightOffset = HeightOffset or Configs.SideHeightOffset
-	Camera.FieldOfView = FOV or Configs.SideFieldOfView
-	DisableRobloxCamera()
-
-	local Focus = HumanoidRootPart.Position + Vector3.new(0, HeightOffset, 0)
-	local Eye = Vector3.new(Focus.X, Focus.Y, CameraDepth)
-	Camera.CFrame =  GetViewMatrix(Eye, Focus)
-end
-
-
-Module.TopDownCamera = function(_, FaceMouse, MouseSensitivity, Offset, Direction, Distance)
-	FaceMouse = FaceMouse or Configs.TopDownFaceMouse
-	MouseSensitivity = MouseSensitivity or Configs.TopDownMouseSensitivity
-	Distance = Distance or Configs.TopDownDistance
-	Direction = Direction or DownVector
-	Offset = Offset or Configs.TopDownOffset
-	DisableRobloxCamera()
-
-	local M = UserInputService:GetMouseLocation()
-	local Axis = Vector3.new(-((M.y-ScreenSizeY*0.5)*PixelCoordinateRatioY),0,((M.x-ScreenSizeX*0.5)*PixelCoordinateRatioX))
-	
-	local Eye = (Distance + (Root.Position+Offset)) + Axis * MouseSensitivity 
-	local Focus = Eye + Direction
 	Camera.CFrame = GetViewMatrix(Eye, Focus)
-	
-	if FaceMouse then
-		local Forward = (Root.Position - Mouse.Hit.Position).Unit
-		local Right = Vector3.new(-Forward.Z, 0, Forward.X) -- Forward:Cross(YAxis)
-		Root.CFrame = CFrame.fromMatrix(Root.Position, -Right, Vector3.yAxis)
-	end
 end
+
+
 
 
 Module.HeadFollowCamera = function(_, Alpha)
@@ -420,34 +388,33 @@ Module.HeadFollowCamera = function(_, Alpha)
 end
 
 
-Module.FaceCharacterToMouse = function(_, Alpha, GoalCF)
-	GoalCF = GoalCF or GetViewMatrix(Root.Position, Vector3.new(Mouse.Hit.Position.X, Root.Position.Y, Mouse.Hit.Position.Z))
-	Root.CFrame = Root.CFrame:Lerp(GoalCF, Alpha or Configs.FaceCharacterAlpha)
-end
- 
 
-Module.FollowMouse = function(Dt, Alpha, XOffset, YOffset)
-	Alpha = Alpha or Configs.MouseAlpha
-	XOffset = XOffset or Configs.MouseXOffset
-	YOffset = YOffset or Configs.MouseYOffset
-	DisableRobloxCamera()
 
-	local Easing = Configs.MouseCameraEasingStyle and TweenService:GetValue(Configs.MouseCameraSmoothness, Configs.MouseCameraEasingStyle, Configs.MouseCameraEasingDirection or Enum.EasingDirection.Out)
-	local Goal = Head.CFrame * CFrame.new(0, Configs.AspectRatio.Y, Configs.AspectRatio.X) * GetRotationXY(XOffset, math.rad(YOffset))
-	if Easing then
-		Camera.CFrame = Camera.CFrame:Lerp(Goal, Easing)
-	else
-		local a = Configs.MouseCameraSmoothness-1
-		Camera.CFrame = Camera.CFrame:Lerp(Goal, (a*a*a*a*a)+1)
-	end
-	
-	local P = Mouse.Hit.Position
-	local Distance = (Head.CFrame.Position - P).Magnitude
-	local Difference = Head.CFrame.Y-P.Y
-	local X, Y = -math.atan(Difference/Distance)*0.5, (((Head.CFrame.Position-P).Unit):Cross(Torso.CFrame.LookVector)).Y
+local smooth = SmoothDamp.new()
 
-	Neck.C0 = TransformMotor(Neck, NeckOriginC0, X, Y, 1, 0.5)
-	Waist.C0 = TransformMotor(Waist, WaistOriginC0, X, Y*0.5, 0, 0.5)
+Module.FollowMouse = function(Dt, Alpha, XOffset, YOffset, SmoothTime)
+    Alpha = Alpha or Configs.MouseAlpha
+    XOffset = 0
+    YOffset = 0
+    SmoothTime = SmoothTime or 0.05 -- Default smoothing time if not provided
+
+    DisableRobloxCamera()
+
+    local Easing = Configs.MouseCameraEasingStyle and TweenService:GetValue(Configs.MouseCameraSmoothness, Configs.MouseCameraEasingStyle, Configs.MouseCameraEasingDirection or Enum.EasingDirection.Out)
+    local Goal = Head.CFrame * CFrame.new(0, Configs.AspectRatio.Y, Configs.AspectRatio.X) * GetRotationXY(XOffset, math.rad(YOffset))
+    
+    local currentPos = Camera.CFrame.p  -- Get the current camera position
+    local targetPos = Goal.p  -- Get the target position from the goal CFrame
+    
+    if Easing then
+        local camPos = smooth:Update(currentPos, targetPos, SmoothTime)
+        Camera.CFrame = CFrame.new(camPos, Head.Position)
+    else
+        local a = Configs.MouseCameraSmoothness - 1
+        local smoothness = (a * a * a * a * a) + 1
+        local camPos = smooth:Update(currentPos, targetPos, SmoothTime)
+        Camera.CFrame = CFrame.new(camPos, Head.Position)
+    end
 end
 
 

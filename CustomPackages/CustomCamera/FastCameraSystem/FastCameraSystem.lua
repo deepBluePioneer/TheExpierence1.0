@@ -35,7 +35,7 @@ Module.Connections = {}
 ---------------------------  Imports   -----------------------------
 --------------------------------------------------------------------
 
-local CameraModes = require(script:WaitForChild("CameraModes"))
+local CameraModes = require(script.Parent:WaitForChild("CameraModes"))
 
 --------------------------------------------------------------------
 --------------------------  Services  ------------------------------

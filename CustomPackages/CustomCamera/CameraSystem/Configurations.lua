@@ -4,7 +4,7 @@ local Module = {}
 ------------------  Over The Shoulder Camera  ----------------------
 --------------------------------------------------------------------
 
-Module.CamLockOffset = Vector3.new(5, 3, 15) 
+Module.CamLockOffset = Vector3.new(1, 3, 15) 
 
 --------------------------------------------------------------------
 -----------------------  Isometric Camera  -------------------------
@@ -50,9 +50,9 @@ Module.FaceCharacterAlpha = 0.5
 
 Module.MouseCameraEasingStyle = nil         -- If left nil, this will default to a fast quint fallback
 Module.MouseCameraEasingDirection = nil     -- If left nil, this will default to enum.easing.out direction
-Module.MouseCameraSmoothness = 0.03
+Module.MouseCameraSmoothness = 0.15
 Module.AspectRatio = Vector2int16.new(15, 5) -- X, Y
-Module.MouseAlpha = 0.5
+Module.MouseAlpha = 0.7
 Module.MouseYOffset = 1
 Module.MouseXOffset = 270
 

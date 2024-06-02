@@ -12,17 +12,10 @@ local CameraSystem = require(CustomCamera.CameraSystem.CameraSystem)
 local Config = require(CustomCamera.CameraSystem.Configurations)
 
 function CameraVehicleController:init()
-    -- Initialize the camera system
-    --CameraSystem.EnableShiftLockCamera()
-    
-    -- Create a Vector3Value for CamLockOffset
-    self.camLockOffsetBindable = Instance.new("Vector3Value")
-    self.camLockOffsetBindable.Value = Vector3.new(1, 3, 15)
-    self.camLockOffsetBindable:GetPropertyChangedSignal("Value"):Connect(function()
-        Config.CamLockOffset = self.camLockOffsetBindable.Value
-    end)
+  
 
     local VehicleService = Knit.GetService("VehicleService")
+    CameraSystem.FollowMouse()
 
     -- Connect to the SeatOccupied event
     VehicleService.SeatOccupied:Connect(function(vehicleModel)
@@ -30,7 +23,9 @@ function CameraVehicleController:init()
         self.primaryPart = vehicleModel.PrimaryPart
         self.lastPosition = self.primaryPart.Position
         self.lastVelocity = self.primaryPart.Velocity
-        CameraSystem.TrackPrimaryPartCamera(self.primaryPart)
+
+       
+         --Config.CamLockOffset = Vector3.new(1, 5, 20)
     end)
 
     -- Update the camera offset based on the vehicle's speed and turning direction

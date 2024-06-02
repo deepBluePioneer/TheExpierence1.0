@@ -297,6 +297,8 @@ Module.FollowMouse = function(Dt, Alpha, XOffset, YOffset)
 	Alpha = Alpha or Configs.MouseAlpha
 	XOffset = XOffset or Configs.MouseXOffset
 	YOffset = YOffset or Configs.MouseYOffset
+	XOffset =0
+	YOffset = 0
 	DisableRobloxCamera()
 
 	local Easing = Configs.MouseCameraEasingStyle and TweenService:GetValue(Configs.MouseCameraSmoothness, Configs.MouseCameraEasingStyle, Configs.MouseCameraEasingDirection or Enum.EasingDirection.Out)
