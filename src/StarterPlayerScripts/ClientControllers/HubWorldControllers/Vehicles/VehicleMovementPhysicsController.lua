@@ -141,9 +141,8 @@ function VehicleMovementController:MoveVehicle(linearDirection)
 
         moveDirection = Vector3.new(moveDirection.X, 0, moveDirection.Z).Unit -- Ignore Y-axis for horizontal movement
         local impulse = moveDirection * 15000 -- Adjust impulse as needed
-
+       
         self.OnMoveVehicle:Fire(moveDirection)
-
         self.PrimaryPart:ApplyImpulse(impulse)
 
         -- Cap the maximum speed
