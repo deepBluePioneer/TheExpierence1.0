@@ -34,7 +34,7 @@ function ItemService:KnitStart()
     self.zone = Zone.new(zoneParts)
 
     -- Create a random amount of parts in the zone
-    self:CreateRandomPatchesInZone()
+    --self:CreateRandomPatchesInZone()
 end
 
 function ItemService:KnitInit()

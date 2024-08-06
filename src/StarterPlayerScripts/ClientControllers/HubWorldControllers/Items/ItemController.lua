@@ -105,7 +105,7 @@ function ItemController:KnitStart()
     end)
 
     for patchName, _ in pairs(PatchesModule.Patches) do
-        createPatchPart(patchName)
+        --createPatchPart(patchName)
     end
    
 

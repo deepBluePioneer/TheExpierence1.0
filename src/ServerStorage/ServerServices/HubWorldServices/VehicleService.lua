@@ -105,7 +105,7 @@ end
 
 
 function VehicleService:KnitInit()
-    VehicleService:InitVehicle()
+   -- VehicleService:InitVehicle()
 
 
 end

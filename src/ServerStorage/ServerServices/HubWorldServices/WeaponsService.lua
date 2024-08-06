@@ -36,7 +36,7 @@ local function OnRayHit(cast, result, velocity)
    -- WeaponsService.Client.RayHit:Fire(cast.UserData.Player, hit, hitPosition, hitNormal)
 end
 
-function WeaponsService:KnitInit()
+local function initPool()
 
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
     local bulletFireEvent = Instance.new("UnreliableRemoteEvent")
@@ -82,10 +82,6 @@ function WeaponsService:KnitInit()
         self:HandleBulletFiring(player, rayData, vehiclePrimaryPart)
     end)
 
-  
-end
-
-function WeaponsService:KnitStart()
     require(PlayerAddedFunctions)(
         function(JoiningPlayer)
             -- Player added logic
@@ -97,6 +93,17 @@ function WeaponsService:KnitStart()
             castParams.FilterDescendantsInstances = {Character}
         end
     )
+end
+
+function WeaponsService:KnitInit()
+
+    
+
+  
+end
+
+function WeaponsService:KnitStart()
+ 
 end
 
 --[[
