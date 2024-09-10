@@ -119,7 +119,7 @@ local function createParts(totalParts, partsPerRow, spacing, startPosition, butt
     end
 end
 
-function initButtons:KnitStart()
+function init()
     local spacing = 50 -- Adjust the spacing between parts as needed
     local totalParts = 1024
     local partsPerRow = math.floor(math.sqrt(totalParts)) -- Calculate number of parts per row
@@ -156,6 +156,10 @@ function initButtons:KnitStart()
     buttonsModel.Parent = workspace
 
     createParts(totalParts, partsPerRow, spacing, startPosition, buttonsModel)
+end
+
+function initButtons:KnitStart()
+    
 end
 
 function initButtons:KnitInit()

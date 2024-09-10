@@ -20,21 +20,24 @@ local ItemService = Knit.CreateService {
 
     },
 }
+function init()
+      -- Get zone parts from CollectionService using the tag zoneName
+      local zoneParts = CollectionService:GetTagged(zoneName)
+      if #zoneParts == 0 then
+          warn("No parts found with the tag:", zoneName)
+          return
+      end
+  
+      -- Define the zone using the tagged parts
+      self.zone = Zone.new(zoneParts)
+  
+      -- Create a random amount of parts in the zone
+      --self:CreateRandomPatchesInZone()
+end
 
 function ItemService:KnitStart()
     
-    -- Get zone parts from CollectionService using the tag zoneName
-    local zoneParts = CollectionService:GetTagged(zoneName)
-    if #zoneParts == 0 then
-        warn("No parts found with the tag:", zoneName)
-        return
-    end
-
-    -- Define the zone using the tagged parts
-    self.zone = Zone.new(zoneParts)
-
-    -- Create a random amount of parts in the zone
-    --self:CreateRandomPatchesInZone()
+  
 end
 
 function ItemService:KnitInit()
