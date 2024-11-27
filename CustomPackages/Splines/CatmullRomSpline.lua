@@ -513,17 +513,48 @@ function CatmullRomSplineFunctions:CreateTween(instance: Instance, tweenInfo: Tw
 		if prop == "PlaybackState" then
 			local playbackState = newTween.PlaybackState
 			if playbackState == Enum.PlaybackState.Playing then
+				-- Start tracking time for spinning
+				local accumulatedRotation = 0
+				local spinSpeed = math.rad(90) -- 90 degrees per second
+	
 				numValueChangedConnection = numValue.Changed:Connect(function(t)
 					for _, propName in pairs(propertyTable) do
-						local pos = relativeToSplineLength and CatmullRomSplineFunctions.CalculatePositionRelativeToLength(self, t) or CatmullRomSplineFunctions.CalculatePositionAt(self, t)
-						local derivative = relativeToSplineLength and CatmullRomSplineFunctions.CalculateDerivativeRelativeToLength(self, t) or CatmullRomSplineFunctions.CalculateDerivativeAt(self, t)
-						local val = (typeof(pos) == "Vector3" and typeof(derivative) == "Vector3") and CFrame.new(pos, pos + derivative) or pos
-						if typeof(instance[propName]) == "number" or typeof(instance[propName] == "Vector2") or typeof(instance[propName]) == "CFrame" then
+						-- Calculate position and derivative
+						local pos = relativeToSplineLength
+							and CatmullRomSplineFunctions.CalculatePositionRelativeToLength(self, t)
+							or CatmullRomSplineFunctions.CalculatePositionAt(self, t)
+						local derivative = relativeToSplineLength
+							and CatmullRomSplineFunctions.CalculateDerivativeRelativeToLength(self, t)
+							or CatmullRomSplineFunctions.CalculateDerivativeAt(self, t)
+	
+						-- Base CFrame from spline position and derivative
+						local baseCFrame = (typeof(pos) == "Vector3" and typeof(derivative) == "Vector3")
+							and CFrame.new(pos, pos + derivative)
+							or pos
+	
+						-- Increment rotation based on spin speed and delta time
+						accumulatedRotation = accumulatedRotation + spinSpeed * t
+	
+						-- Add spinning around the Y-axis
+						local spinningCFrame = CFrame.Angles(0, 0, accumulatedRotation)
+	
+						-- Add a 90-degree rotation offset
+						local rotationCFrame = CFrame.Angles(math.rad(90), 0, 0)
+	
+						-- Combine all transformations
+						local val = baseCFrame * rotationCFrame * spinningCFrame
+	
+						-- Update the instance's property
+						if propName == "CFrame" then
 							instance[propName] = val
-						elseif typeof(instance[propName] == "Vector3") then
+						elseif typeof(instance[propName]) == "Vector3" then
 							instance[propName] = val.Position
 						else
-							error("CatmullRomSplineObject:CreateTween() could not set the value of the instance property " .. tostring(propName) .. ", not a numerical value!")
+							error(
+								"CatmullRomSplineObject:CreateTween() could not set the value of the instance property "
+								.. tostring(propName)
+								.. ", not a numerical value!"
+							)
 						end
 					end
 				end)
@@ -535,6 +566,7 @@ function CatmullRomSplineFunctions:CreateTween(instance: Instance, tweenInfo: Tw
 			end
 		end
 	end)
+	
 	--// return tween
 	return newTween
 end

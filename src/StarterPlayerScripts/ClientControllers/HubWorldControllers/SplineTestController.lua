@@ -1,28 +1,25 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
 local Knit = require(ReplicatedStorage.Packages.Knit)
 local CustomPackages = ReplicatedStorage.CustomPackages
 
 local Splines = CustomPackages.Splines
 local CatmullRomSpline = require(Splines.CatmullRomSpline)
 local SplineTestController = Knit.CreateController { Name = "SplineTestController" }
-local ParticleFolder = CustomPackages.Particles
-local ParticleSystem  = require(ParticleFolder.ParticlePackage)
 
 local points
-local GlowPart1
+local Saw
 
 
 function SplineTestController:CreateSplineParts(newSpline)
-      -- Create a new BillboardGui for each part
-      local PointBillboard = Instance.new("BillboardGui", TargetPart)
-      PointBillboard.Size = UDim2.new(1, 0, 1, 0)
-      --billboardGui.Adornee = TargetPart
 
-      -- Create a Frame inside the BillboardGui
-      local frame = Instance.new("Frame", PointBillboard)
-      frame.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
-      frame.Size = UDim2.new(1, 0, 1, 0)
+    -- Create a new BillboardGui for each part
+    local PointBillboard = Instance.new("BillboardGui", TargetPart)
+    PointBillboard.Size = UDim2.new(1, 0, 1, 0)
+
+    -- Create a Frame inside the BillboardGui
+    local frame = Instance.new("Frame", PointBillboard)
+    frame.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+    frame.Size = UDim2.new(1, 0, 1, 0)
     
     local BezierFolder = Instance.new("Folder", workspace)
     local PointsFolder = Instance.new("Folder", BezierFolder)
@@ -133,7 +130,6 @@ function SplineTestController:CreateSplineParts(newSpline)
     end
     UpdateBezier()
 
-
     local LastChangeTick = tick()
     for _, controlPart in pairs(points) do
         controlPart.Changed:Connect(function()
@@ -144,51 +140,29 @@ function SplineTestController:CreateSplineParts(newSpline)
         end)
     end
 
-    local GlowPartTweenInfo = TweenInfo.new(5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true, 0)
-    local Tween1 = newSpline:CreateTween(GlowPart1, GlowPartTweenInfo, {"CFrame"})
+    local GlowPartTweenInfo = TweenInfo.new(5, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, true, 0)
+    local Tween1 = newSpline:CreateTween(Saw, GlowPartTweenInfo, {"CFrame"}, true)
     Tween1:Play()
+
+
+
 end
 
 function SplineTestController:KnitInit()
 
 end
 
-function init()
+local function init()
 
-    GlowPart1 = workspace.GlowPart1
-
+    Saw = workspace.Saw.PrimaryPart
     points = {workspace.P1, workspace.P2, workspace.P3, workspace.P4,workspace.P5,workspace.P6,workspace.P7}
-    local newSpline = CatmullRomSpline.new(points, 0.5)
-    self:CreateSplineParts(newSpline)
-    
-    local MeshID = "rbxassetid://110892923"
-    local TextureID = "rbxassetid://110892681"
-
-    local particleEmitter = ParticleSystem.new(GlowPart1, MeshID, TextureID)
-
-    -- Configure the particle emitter
-    particleEmitter.Rate = 100
-    particleEmitter.Color = ColorSequence.new(Color3.new(1, 0, 0), Color3.new(1, 1, 0))
-    particleEmitter.Size = NumberSequence.new(0.5, 2)
-    --particleEmitter.Transparency = NumberSequence.new(0, 1)
-    particleEmitter.Speed = 5
-    particleEmitter.SpreadAngle = Vector2.new(15, 15)
-    particleEmitter.RotSpeed = {
-        X = NumberRange.new(-360, 360),
-        Y = NumberRange.new(-360, 360),
-        Z = NumberRange.new(-360, 360),
-    }
-    particleEmitter.Lifetime = NumberRange.new(1, 2)
-    particleEmitter.Acceleration = Vector3.new(0, -0.5, 0)
-    particleEmitter.EmissionDirection = "Back"
-    particleEmitter.ShapeInOut = "Outward"
-    particleEmitter.ShapeStyle = "Volume"
-    particleEmitter.Enabled = true
+    local newSpline = CatmullRomSpline.new(points, 0)
+    SplineTestController:CreateSplineParts(newSpline)
+   
 end
 function SplineTestController:KnitStart()
-   
 
-
+    init()
 
 end
 return SplineTestController

@@ -120,42 +120,7 @@ local function createParts(totalParts, partsPerRow, spacing, startPosition, butt
 end
 
 function initButtons:KnitStart()
-    local spacing = 50 -- Adjust the spacing between parts as needed
-    local totalParts = 1024
-    local partsPerRow = math.floor(math.sqrt(totalParts)) -- Calculate number of parts per row
-    local partsPerColumn = math.ceil(totalParts / partsPerRow) -- Calculate number of rows
-
-    -- Calculate the total dimensions of the grid
-    local gridTotalWidth = (partsPerRow - 1) * spacing + 5
-    local gridTotalDepth = (partsPerColumn - 1) * spacing + 5
-
-    -- Find or create the baseplate
-    local baseplate = workspace:FindFirstChild("Baseplate")
-    if not baseplate then
-        baseplate = Instance.new("Part")
-        baseplate.Name = "Baseplate"
-        baseplate.Anchored = true
-        baseplate.Position = Vector3.new(0, 0, 0)
-        baseplate.Parent = workspace
-    end
-
-    -- Adjust the baseplate size to fit the grid
-    baseplate.Size = Vector3.new(gridTotalWidth + spacing, 1, gridTotalDepth + spacing)
-    baseplate.Position = Vector3.new(0, -0.5, 0) -- Adjust Y position to align with the grid
-
-    -- Create the walls and ceiling
-    createWallsAndCeiling(baseplate)
-
-    -- Calculate the start position to center the grid on the baseplate and position above it
-    local startPosition = baseplate.Position - Vector3.new(gridTotalWidth / 2, 0, gridTotalDepth / 2)
-    startPosition = startPosition + Vector3.new(0, baseplate.Size.Y / 2 + 2.5, 0) -- Adjust to be above the baseplate
-
-    -- Create a model to group all buttons
-    local buttonsModel = Instance.new("Model")
-    buttonsModel.Name = "Buttons"
-    buttonsModel.Parent = workspace
-
-    createParts(totalParts, partsPerRow, spacing, startPosition, buttonsModel)
+   
 end
 
 function initButtons:KnitInit()

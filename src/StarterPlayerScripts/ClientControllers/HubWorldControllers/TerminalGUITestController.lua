@@ -85,6 +85,7 @@ end
 
 function TerminalGUITestController:KnitInit()
 
+    --init()
 
 end
 function TerminalGUITestController:KnitStart()

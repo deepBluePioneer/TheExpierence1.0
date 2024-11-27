@@ -35,7 +35,19 @@ function PlayerConfigService:HandleCharacterAdded(Player, Character)
     -- Set the player's walk speed to a faster value
     local humanoid = Character:FindFirstChildOfClass("Humanoid")
     if humanoid then
-        humanoid.WalkSpeed = 45 -- Default is 16, change to desired speed
+        humanoid.WalkSpeed = 20 -- Default is 16, change to desired speed
+    end
+
+    -- Configure the camera to LockFirstPerson
+    local camera = workspace.CurrentCamera
+    if camera then
+       -- camera.CameraType = Enum.CameraType.Custom
+       -- Player.CameraMode = Enum.CameraMode.LockFirstPerson
+       -- Player.CameraMinZoomDistance = 0.5
+       -- Player.CameraMaxZoomDistance = 0.5
+        print(Player.Name .. "'s camera set to LockFirstPerson mode.")
+    else
+        warn("Unable to access the CurrentCamera for " .. Player.Name)
     end
 end
 
