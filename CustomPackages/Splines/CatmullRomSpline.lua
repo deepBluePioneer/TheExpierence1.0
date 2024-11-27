@@ -480,7 +480,7 @@ end
 --// should tween relative to the Catmull-Rom spline's length, or just as t goes from 0 to 1.
 --// the propertyTable should be a table containing strings
 --// for example: {"CFrame"} or {"Position"}
-function CatmullRomSplineFunctions:CreateTween(instance: Instance, tweenInfo: TweenInfo, propertyTable: {string}, relativeToSplineLength: boolean?): Tween
+function CatmullRomSplineFunctions:_CreateTween(instance: Instance, tweenInfo: TweenInfo, propertyTable: {string}, relativeToSplineLength: boolean?): Tween
 	--// check if the given instance is really an instance
 	if typeof(instance) == "Instance" then
 	else
@@ -569,6 +569,82 @@ function CatmullRomSplineFunctions:CreateTween(instance: Instance, tweenInfo: Tw
 	
 	--// return tween
 	return newTween
+end
+
+function CatmullRomSplineFunctions:CreateTween(instance: Instance, tweenInfo: TweenInfo, propertyTable: {string}, relativeToSplineLength: boolean?)
+	-- Validate input
+	if typeof(instance) ~= "Instance" then
+		error("CatmullRomSplineObject:CreateTween() expected an instance as the first input, got " .. tostring(instance) .. "!")
+	end
+
+	-- Validate properties
+	for _, propName in pairs(propertyTable) do
+		local success, result = pcall(function()
+			return instance[propName]
+		end)
+		if not success or result == nil then
+			error("CatmullRomSplineObject:CreateTween() was given properties in the property table that do not belong to the instance!")
+		end
+	end
+
+	-- Motion properties
+	local velocity = 0 -- Initial velocity
+	local damping = 0.95 -- Damping factor to simulate friction or resistance
+	local acceleration = 1 -- Acceleration toward the target
+	local progress = 0 -- Progress along the spline (0 to 1)
+
+	-- RenderStepped connection
+	local connection
+	connection = game:GetService("RunService").RenderStepped:Connect(function(deltaTime)
+		for _, propName in pairs(propertyTable) do
+			-- Calculate the current and target positions
+			local pos = relativeToSplineLength
+				and CatmullRomSplineFunctions.CalculatePositionRelativeToLength(self, progress)
+				or CatmullRomSplineFunctions.CalculatePositionAt(self, progress)
+			local derivative = relativeToSplineLength
+				and CatmullRomSplineFunctions.CalculateDerivativeRelativeToLength(self, progress)
+				or CatmullRomSplineFunctions.CalculateDerivativeAt(self, progress)
+
+			-- Calculate velocity
+			local direction = derivative.Unit
+			velocity = velocity + acceleration * deltaTime
+			velocity = velocity * damping -- Apply damping
+
+			-- Update progress along the spline
+			progress = progress + velocity * deltaTime
+			if progress >= 1 then
+				progress = 0 -- Loop back to the start for cyclic motion
+			end
+
+			-- Calculate CFrame transformations
+			local baseCFrame = (typeof(pos) == "Vector3" and typeof(derivative) == "Vector3")
+				and CFrame.new(pos, pos + derivative)
+				or pos
+			local spinningCFrame = CFrame.Angles(0, 0, progress * math.rad(360)) -- Spinning effect
+			local rotationCFrame = CFrame.Angles(math.rad(90), 0, 0) -- 90-degree rotation
+
+			-- Combine transformations
+			local val = baseCFrame * rotationCFrame * spinningCFrame
+
+			-- Update the instance's property
+			if propName == "CFrame" then
+				instance[propName] = val
+			elseif typeof(instance[propName]) == "Vector3" then
+				instance[propName] = val.Position
+			else
+				error("CatmullRomSplineObject:CreateTween() could not set the value of the instance property " .. tostring(propName) .. ", not a numerical value!")
+			end
+		end
+	end)
+
+	-- Return a cleanup function to disconnect RenderStepped
+	return {
+		Stop = function()
+			if connection then
+				connection:Disconnect()
+			end
+		end
+	}
 end
 
 
