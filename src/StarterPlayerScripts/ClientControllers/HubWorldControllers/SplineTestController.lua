@@ -142,7 +142,9 @@ function SplineTestController:CreateSplineParts(newSpline)
 
     --local GlowPartTweenInfo = TweenInfo.new(5, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, true, 0)
    -- local Tween1 = newSpline:CreateTween(Saw, GlowPartTweenInfo, {"CFrame"}, true)
-    local splineTween = newSpline:CreateTween(Saw, nil, {"CFrame"}, true)
+    --local splineTween = newSpline:CreateTween(Saw, nil, {"CFrame"}, true)
+   -- local splineTween = newSpline:CreateTweenWithLinearVelocity(Saw, {"CFrame"}, true)
+
 
     --Tween1:Play()
 
@@ -157,7 +159,7 @@ end
 local function init()
 
     Saw = workspace.Saw.PrimaryPart
-    points = {workspace.P1, workspace.P2, workspace.P3, workspace.P4,workspace.P5,workspace.P6,workspace.P7}
+    points = {workspace.P1, workspace.P2, workspace.P5 ,workspace.P7}
     local newSpline = CatmullRomSpline.new(points, 0)
     SplineTestController:CreateSplineParts(newSpline)
    

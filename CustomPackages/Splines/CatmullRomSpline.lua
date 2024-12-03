@@ -590,7 +590,7 @@ function CatmullRomSplineFunctions:CreateTween(instance: Instance, tweenInfo: Tw
 	-- Motion properties
 	local velocity = 0 -- Initial velocity
 	local damping = 0.95 -- Damping factor to simulate friction or resistance
-	local acceleration = 1 -- Acceleration toward the target
+	local acceleration = 5 -- Acceleration toward the target
 	local progress = 0 -- Progress along the spline (0 to 1)
 
 	-- RenderStepped connection
@@ -615,12 +615,13 @@ function CatmullRomSplineFunctions:CreateTween(instance: Instance, tweenInfo: Tw
 			if progress >= 1 then
 				progress = 0 -- Loop back to the start for cyclic motion
 			end
+			local spinSpeed = 30 -- Spin speed multiplier; increase for faster spinning
 
 			-- Calculate CFrame transformations
 			local baseCFrame = (typeof(pos) == "Vector3" and typeof(derivative) == "Vector3")
 				and CFrame.new(pos, pos + derivative)
 				or pos
-			local spinningCFrame = CFrame.Angles(0, 0, progress * math.rad(360)) -- Spinning effect
+			local spinningCFrame = CFrame.Angles(0, 0, progress * math.rad(360 *spinSpeed )) -- Spinning effect
 			local rotationCFrame = CFrame.Angles(math.rad(90), 0, 0) -- 90-degree rotation
 
 			-- Combine transformations
@@ -646,6 +647,75 @@ function CatmullRomSplineFunctions:CreateTween(instance: Instance, tweenInfo: Tw
 		end
 	}
 end
+
+function CatmullRomSplineFunctions:CreateTweenWithLinearVelocity(instance: Instance, propertyTable: {string}, relativeToSplineLength: boolean?)
+    -- Validate input
+    if typeof(instance) ~= "Instance" then
+        error("CatmullRomSplineObject:CreateTweenWithLinearVelocity() expected an instance as the first input, got " .. tostring(instance) .. "!")
+    end
+
+    -- Validate properties
+    for _, propName in pairs(propertyTable) do
+        local success, result = pcall(function()
+            return instance[propName]
+        end)
+        if not success or result == nil then
+            error("CatmullRomSplineObject:CreateTweenWithLinearVelocity() was given properties in the property table that do not belong to the instance!")
+        end
+    end
+
+    -- Ensure LinearVelocity constraint exists or create one
+    local linearVelocity = instance:FindFirstChildOfClass("LinearVelocity")
+    if not linearVelocity then
+        linearVelocity = Instance.new("LinearVelocity")
+        linearVelocity.Name = "SplineLinearVelocity"
+        linearVelocity.Attachment0 = Instance.new("Attachment", instance) -- Create an attachment for the LinearVelocity
+        linearVelocity.MaxForce = math.huge -- Allow unlimited force
+        linearVelocity.Parent = instance -- Parent the LinearVelocity to the instance
+    end
+
+    local progress = 0 -- Progress along the spline (0 to 1)
+    local velocityMagnitude = 100 -- Speed of movement along the spline (adjust as needed)
+
+    -- RenderStepped connection
+    local connection
+    connection = game:GetService("RunService").RenderStepped:Connect(function(deltaTime)
+        for _, propName in pairs(propertyTable) do
+            -- Calculate the current position and derivative (direction)
+            local pos = relativeToSplineLength
+                and CatmullRomSplineFunctions.CalculatePositionRelativeToLength(self, progress)
+                or CatmullRomSplineFunctions.CalculatePositionAt(self, progress)
+            local derivative = relativeToSplineLength
+                and CatmullRomSplineFunctions.CalculateDerivativeRelativeToLength(self, progress)
+                or CatmullRomSplineFunctions.CalculateDerivativeAt(self, progress)
+
+            -- Update LinearVelocity direction and speed
+            if typeof(pos) == "Vector3" and typeof(derivative) == "Vector3" then
+                linearVelocity.VectorVelocity = derivative.Unit * velocityMagnitude
+            else
+                error("CatmullRomSplineObject:CreateTweenWithLinearVelocity() encountered invalid position or derivative data!")
+            end
+
+            -- Update progress along the spline
+            progress = progress + (velocityMagnitude * deltaTime) / 2 -- Normalize by spline length if necessary
+            if progress >= 1 then
+                progress = 0 -- Loop back to the start for cyclic motion
+            end
+        end
+    end)
+
+    -- Return a cleanup function to stop the tween
+    return {
+        Stop = function()
+            if connection then
+                connection:Disconnect()
+            end
+            -- Optionally stop the LinearVelocity
+            linearVelocity.VectorVelocity = Vector3.zero
+        end
+    }
+end
+
 
 
 --// return class
