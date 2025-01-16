@@ -3,15 +3,12 @@ local StarterPlayer = game:GetService("StarterPlayer")
 local StarterPlayerScripts = StarterPlayer.StarterPlayerScripts
 local Knit = require(ReplicatedStorage.Packages.Knit)
 
--- Define the Place IDs for different game environments
-local DungeonPlaceID = 17399051565
-local HubWorldServiceID = 17399041158
+-- Define the single Place ID
+local PlaceID = 114700333834518 -- Set your Place ID here
 
--- References to controller directories
+-- Specify a single controller directory
 local ClientControllers = StarterPlayerScripts.Source.ClientControllers
-local HubWorldControllers = ClientControllers.HubWorldControllers
-local DungeonControllers = ClientControllers.DungeonControllers.ProcGenControllers_v3
-local ProcGenControllers = DungeonControllers
+local ControllerDirectory = ClientControllers.SpaceProtoControllers -- Specify your controller directory here
 
 -- Function to require controllers recursively
 local function requireControllers(directory)
@@ -24,24 +21,18 @@ local function requireControllers(directory)
     end
 end
 
--- Function to require controllers based on the place id
+-- Function to load controllers based on the place id
 local function loadControllersForPlace(placeId)
-    local controllerDirectory
-    if placeId == HubWorldServiceID then
-        controllerDirectory = HubWorldControllers
-        print(controllerDirectory)
-    elseif placeId == DungeonPlaceID then
-        controllerDirectory = ProcGenControllers
-        print(controllerDirectory)
+    if placeId == PlaceID then
+        -- Load the specified controller directory for the Place ID
+        print("Loading controllers from: " .. ControllerDirectory.Name)
+        requireControllers(ControllerDirectory)
     else
         warn("Unrecognized Place ID, no controllers loaded")
-        return
     end
-
-    requireControllers(controllerDirectory)
 end
 
--- Load the controllers appropriate for the current game's place ID
+-- Load the controllers for the specified place ID
 loadControllersForPlace(game.PlaceId)
 
 -- Start Knit

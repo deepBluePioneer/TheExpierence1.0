@@ -31,25 +31,23 @@ function HoverController:KnitStart()
     vectorForce.Force = Vector3.zero -- Initial force
     vectorForce.Parent = missile
 
-    -- Configure AlignOrientation
-    local alignOrientation = Instance.new("AlignOrientation")
-    alignOrientation.Name = "HoverAlign"
-    alignOrientation.Attachment0 = attachment
-    alignOrientation.Responsiveness = 20 -- Adjust as needed
-    alignOrientation.MaxTorque = math.huge
-    alignOrientation.Mode = Enum.OrientationAlignmentMode.OneAttachment
-    alignOrientation.Parent = missile
-
     -- Hover parameters
     local targetHeight = 10 -- Target hover height
-    local damping = 0.9 -- Damping factor for velocity stabilization
-    local forwardForceMagnitude = 5000 -- Adjust for desired forward speed
+    local proportionalGain = 200 -- Adjust for stricter height control
+    local dampingGain = 50 -- Adjust for vertical damping
+    local defaultSpringConstant = 5 -- Default spring constant for horizontal oscillation
+    local tightenedSpringConstant = 50 -- Spring constant when aligned with the target
+    local dampingFactor = 0.85 -- Damping factor for inertia
 
     -- Gizmo properties
     Gizmo.PushProperty("Transparency", 0.5)
 
-    -- Track the target player's HumanoidRootPart
+    -- Track the target player's HumanoidRootPart and Highlight
     local targetPlayerRootPart = nil
+    local playerHighlight = Instance.new("Highlight")
+    playerHighlight.Enabled = false
+    playerHighlight.FillColor = Color3.new(1, 0, 0) -- Red for highlight
+    playerHighlight.OutlineColor = Color3.new(1, 1, 1) -- White outline
 
     -- Player management
     require(PlayerAddedFunctions)(
@@ -60,12 +58,19 @@ function HoverController:KnitStart()
             -- Player leaving logic
         end,
         function(Player, Character)
-            -- Update target player root part
+            -- Update target player root part and attach highlight
             if Character then
                 targetPlayerRootPart = Character:FindFirstChild("HumanoidRootPart")
+                if targetPlayerRootPart then
+                    playerHighlight.Adornee = Character
+                    playerHighlight.Parent = Workspace
+                end
             end
         end
     )
+
+    -- Velocity for inertia (X and Z axes)
+    local horizontalVelocity = Vector3.zero -- Initial velocity for the missile
 
     -- Update force and rotation dynamically
     game:GetService("RunService").RenderStepped:Connect(function()
@@ -78,59 +83,76 @@ function HoverController:KnitStart()
         local rayDirection = Vector3.new(0, -1000, 0)
         local rayResult = Workspace:Raycast(rayOrigin, rayDirection, rayParams)
 
+        local hoverForce = Vector3.zero -- To maintain vertical stability
+
         if rayResult then
             local distance = (rayOrigin - rayResult.Position).Magnitude
             local error = targetHeight - distance
 
-            -- Calculate hover force
+            -- Calculate hover force using PID-like control
             local antiGravity = missile.AssemblyMass * Workspace.Gravity
-            local hoverForce = antiGravity + (error * 100) -- Adjust multiplier for responsiveness
+            local verticalVelocity = missile.AssemblyLinearVelocity.Y
+            local proportionalForce = error * proportionalGain
+            local dampingForce = -verticalVelocity * dampingGain
 
-            -- Apply hover force (Y-axis)
-            vectorForce.Force = Vector3.new(vectorForce.Force.X, hoverForce, vectorForce.Force.Z)
+            local verticalForce = antiGravity + proportionalForce + dampingForce
+            hoverForce = Vector3.new(0, verticalForce, 0)
 
-            -- Align to ground normal
-            alignOrientation.CFrame = CFrame.new(Vector3.new(), rayResult.Normal) * CFrame.Angles(-math.pi / 2, 0, 0)
-
-            -- Draw Gizmo arrows
+            -- Draw Gizmo arrow for raycast
             Gizmo.PushProperty("Color3", Color3.new(0, 1, 0)) -- Green for raycast
             Gizmo.Arrow:Draw(rayOrigin, rayOrigin + rayDirection.Unit * 5, 0.1, 0.3, 0.5, true)
-
-            Gizmo.PushProperty("Color3", Color3.new(0, 0, 1)) -- Blue for missile's look rotation
-            local missileLookDir = missile.CFrame.LookVector
-            Gizmo.Arrow:Draw(rayOrigin, rayOrigin + missileLookDir * 5, 0.1, 0.3, 0.5, true)
         else
             -- No ground detected, apply minimal force to stabilize
-            vectorForce.Force = Vector3.new(vectorForce.Force.X, missile.AssemblyMass * Workspace.Gravity, vectorForce.Force.Z)
+            hoverForce = Vector3.new(0, missile.AssemblyMass * Workspace.Gravity, 0)
         end
 
-        -- Rotate towards the player if the target exists
+        -- Rotate and overshoot towards the player (X and Z axes)
         if targetPlayerRootPart then
             local targetPosition = targetPlayerRootPart.Position
             local missilePosition = missile.Position
-            local directionToTarget = (targetPosition - missilePosition).Unit
-        
+
+            -- Calculate spring force for overshooting (X and Z axes)
+            local horizontalDisplacement = Vector3.new(
+                targetPosition.X - missilePosition.X,
+                0,
+                targetPosition.Z - missilePosition.Z
+            )
+            local alignment = horizontalVelocity.Unit:Dot(horizontalDisplacement.Unit)
+            local alignmentThreshold = 0.95 -- Adjust threshold for alignment sensitivity
+
+            -- Adjust spring constant based on alignment
+            local springConstant = alignment >= alignmentThreshold and tightenedSpringConstant or defaultSpringConstant
+
+            -- Update spring force
+            local springForce = horizontalDisplacement * springConstant
+            horizontalVelocity = (horizontalVelocity + springForce) * dampingFactor -- Apply damping
+
+            -- Combine forces (X, Y, Z)
+            local combinedForce = Vector3.new(horizontalVelocity.X, hoverForce.Y, horizontalVelocity.Z)
+            vectorForce.Force = combinedForce
+
+            -- Enable or disable highlight based on alignment
+            if alignment >= alignmentThreshold then
+                playerHighlight.Enabled = true
+            else
+                playerHighlight.Enabled = false
+            end
+
+            -- Calculate rotation axis and angle for LookVector alignment
             local currentLookVector = missile.CFrame.LookVector
-            local rotationAxis = currentLookVector:Cross(directionToTarget) -- Axis of rotation
-            local angle = math.acos(currentLookVector:Dot(directionToTarget)) -- Angle of rotation
-        
-            -- Apply rotation directly using AngularVelocity
-            local angularVelocity = rotationAxis.Unit * angle * rotationSpeed
-            bodyAngularVelocity.AngularVelocity = angularVelocity
+            local targetDirection = horizontalDisplacement.Unit
+            local rotationAxis = currentLookVector:Cross(targetDirection)
+            local rotationAngle = math.acos(math.clamp(currentLookVector:Dot(targetDirection), -1, 1))
+
+            if rotationAxis.Magnitude > 0.001 then
+                local rotation = CFrame.fromAxisAngle(rotationAxis.Unit, rotationAngle)
+                missile.CFrame = missile.CFrame * rotation
+            end
+
+            -- Visualize Gizmo arrows
+            Gizmo.PushProperty("Color3", Color3.new(1, 1, 1)) -- White for horizontal velocity
+            Gizmo.Arrow:Draw(missilePosition, missilePosition + horizontalVelocity.Unit * 100, 0.1, 0.3, 0.5, true)
         end
-
-        -- Apply forward force using the missile's current LookVector
-        local forwardVector = missile.CFrame.LookVector
-        local forwardForce = forwardVector * forwardForceMagnitude
-        forwardForce = Vector3.new(forwardForce.X, 0, forwardForce.Z) -- Restrict to X and Z axes
-        vectorForce.Force = Vector3.new(forwardForce.X, vectorForce.Force.Y, forwardForce.Z)
-
-        -- Draw Gizmo arrow for forward force (blue arrow direction)
-        Gizmo.PushProperty("Color3", Color3.new(0, 0, 1)) -- Blue for LookVector forward force
-        Gizmo.Arrow:Draw(missile.Position, missile.Position + forwardVector * 5, 0.1, 0.3, 0.5, true)
-
-        -- Apply damping to reduce excessive oscillation
-        missile.AssemblyLinearVelocity *= damping
     end)
 end
 
