@@ -3,14 +3,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 local Knit = require(ReplicatedStorage.Packages.Knit)
 
--- Reference to server-side services
+-- Define Place IDs
+local CTF_HubWorld_PlaceID = 73294104737372
+local CTF_Level_1_PlaceID = 104252418179975
+
+-- Reference to server-side services directories
 local ServerServices = ServerStorage.Source.ServerServices
-
--- Define the single Place ID
-local PlaceID = 114700333834518 -- Set your Place ID here
-
--- Define service directories for the place
-local ServiceDirectory = ServerServices.SpaceProtoServices -- Adjust this based on the Place ID
+local ServiceDirectory_1 = ServerServices.CTF_HubWorld_Services
+local ServiceDirectory_2 = ServerServices.CTF_Level_1_Services
 
 -- Function to require services recursively
 local function requireServices(directory)
@@ -23,16 +23,18 @@ local function requireServices(directory)
     end
 end
 
--- Function to load services based on the place id
+-- Function to load services based on the current PlaceId
 local function loadServicesForPlace(placeId)
-    if placeId == PlaceID then
-        requireServices(ServiceDirectory)
+    if placeId == CTF_HubWorld_PlaceID then
+        requireServices(ServiceDirectory_1)
+    elseif placeId == CTF_Level_1_PlaceID then
+        requireServices(ServiceDirectory_2)
     else
-        warn("Unrecognized Place ID, no services loaded")
+        warn("Unrecognized Place ID, no services loaded:", placeId)
     end
 end
 
--- Load the services for the specified place ID
+-- Load the services for the current PlaceId
 loadServicesForPlace(game.PlaceId)
 
 -- Start Knit

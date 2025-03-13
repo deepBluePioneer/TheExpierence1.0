@@ -10,10 +10,7 @@ function StartController:KnitStart()
 end
 
 function StartController:KnitInit()
-
-    print("HEELoo")
-
-    -- Add controller initialization logic here
+    print("Hello")
 end
 
 return StartController

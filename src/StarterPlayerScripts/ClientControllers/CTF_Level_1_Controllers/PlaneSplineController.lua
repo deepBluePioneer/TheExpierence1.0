@@ -4,11 +4,13 @@ local CustomPackages = ReplicatedStorage.CustomPackages
 
 local Splines = CustomPackages.Splines
 local CatmullRomSpline = require(Splines.CatmullRomSpline)
-local SplineTestController = Knit.CreateController { Name = "SplineTestController" }
+local PlaneSplineController = Knit.CreateController { Name = "SplineTestController" }
+local Workspace = game:GetService("Workspace")
 
 local points
 
-function SplineTestController:CreateSplineParts(newSpline)
+
+function PlaneSplineController:CreateSplineParts(newSpline)
 
     -- Create a new BillboardGui for each part
     local PointBillboard = Instance.new("BillboardGui", TargetPart)
@@ -37,7 +39,7 @@ function SplineTestController:CreateSplineParts(newSpline)
         local TargetPart = Instance.new("Part", PointsFolder)
         TargetPart.Size = Vector3.new(0.85, 0.85, 0.85)
         TargetPart.Color = Color3.fromRGB(255, 15, 159)
-        TargetPart.Transparency = .5
+        TargetPart.Transparency = 1
         TargetPart.CanCollide = false
         TargetPart.Anchored = true
         TargetPart.Locked = true
@@ -52,7 +54,7 @@ function SplineTestController:CreateSplineParts(newSpline)
         local TargetPart = Instance.new("Part", PointsFolder)
         TargetPart.Size = Vector3.new(0.85, 0.85, 0.85)
         TargetPart.Color = Color3.fromRGB(255, 15, 159)
-        TargetPart.Transparency =.5
+        TargetPart.Transparency = 1
         TargetPart.CanCollide = false
         TargetPart.Anchored = true
         TargetPart.Locked = true
@@ -68,7 +70,7 @@ function SplineTestController:CreateSplineParts(newSpline)
         local TargetPart = Instance.new("Part", TangentsFolder)
         TargetPart.Size = Vector3.new(0.25, 0.25, 0.25)
         TargetPart.Color = Color3.fromRGB(200, 144, 255)
-        TargetPart.Transparency = .5
+        TargetPart.Transparency = 1
         TargetPart.CanCollide = false
         TargetPart.Anchored = true
         TargetPart.Locked = true
@@ -81,7 +83,7 @@ function SplineTestController:CreateSplineParts(newSpline)
         TargetPart.Size = Vector3.new(0.55, 0.55, 1)
         TargetPart.Color = Color3.fromRGB(33, 33, 40)
         TargetPart.CanCollide = false
-        TargetPart.Transparency = .5
+        TargetPart.Transparency = 1
 
         TargetPart.Anchored = true
         TargetPart.Locked = true
@@ -150,21 +152,26 @@ function SplineTestController:CreateSplineParts(newSpline)
 
 end
 
-function SplineTestController:KnitInit()
+function PlaneSplineController:KnitInit()
 
 end
 
 local function init()
 
-    Saw = workspace.Saw.PrimaryPart
-    points = {workspace.P1, workspace.P2, workspace.P5 ,workspace.P7}
+    local part_P1 = Workspace:WaitForChild("P1")
+    local part_P2 = Workspace:WaitForChild("P2")
+    local part_P3 = Workspace:WaitForChild("P3")
+    local part_P4 = Workspace:WaitForChild("P4")
+    
+
+   points = {part_P1, part_P2, part_P3, part_P4}
     local newSpline = CatmullRomSpline.new(points, 0)
-    SplineTestController:CreateSplineParts(newSpline)
+    PlaneSplineController:CreateSplineParts(newSpline)
    
 end
-function SplineTestController:KnitStart()
+function PlaneSplineController:KnitStart()
 
     init()
 
 end
-return SplineTestController
+return PlaneSplineController
