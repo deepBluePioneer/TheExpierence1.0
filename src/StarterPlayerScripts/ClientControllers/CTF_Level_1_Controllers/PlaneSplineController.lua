@@ -62,7 +62,7 @@ function PlaneSplineController:CreateSplineParts(newSpline)
         local point = PointBillboard:Clone()
         point.Parent = TargetPart
         point.Frame.BackgroundColor3 = Color3.fromRGB(33, 255, 114)
-        point.Enabled = false
+        point.Enabled = true
         table.insert(EquidistantPoints, TargetPart)
     end
     local Tangents = {}
@@ -83,8 +83,6 @@ function PlaneSplineController:CreateSplineParts(newSpline)
         TargetPart.Size = Vector3.new(0.55, 0.55, 1)
         TargetPart.Color = Color3.fromRGB(33, 33, 40)
         TargetPart.CanCollide = false
-        TargetPart.Transparency = 1
-
         TargetPart.Anchored = true
         TargetPart.Locked = true
         TargetPart.Name = tostring(i)
@@ -101,8 +99,8 @@ function PlaneSplineController:CreateSplineParts(newSpline)
         TargetPart.Name = tostring(i)
         table.insert(ControlLines, TargetPart)
     end
-
-
+    
+    
     local function UpdateBezier()
         for i = 1, NumPoints do
             local t = (i - 1) / (#DefaultPoints - 1)
@@ -129,7 +127,8 @@ function PlaneSplineController:CreateSplineParts(newSpline)
         end
     end
     UpdateBezier()
-
+    
+    
     local LastChangeTick = tick()
     for _, controlPart in pairs(points) do
         controlPart.Changed:Connect(function()
@@ -140,13 +139,49 @@ function PlaneSplineController:CreateSplineParts(newSpline)
         end)
     end
 
-    --local GlowPartTweenInfo = TweenInfo.new(5, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, true, 0)
-   -- local Tween1 = newSpline:CreateTween(Saw, GlowPartTweenInfo, {"CFrame"}, true)
-    --local splineTween = newSpline:CreateTween(Saw, nil, {"CFrame"}, true)
-   -- local splineTween = newSpline:CreateTweenWithLinearVelocity(Saw, {"CFrame"}, true)
+   
 
+    local RunService = game:GetService("RunService")
 
-    --Tween1:Play()
+    local function TweenPlaneAlongSpline(plane, spline, tweenInfo)
+        local RunService = game:GetService("RunService")
+        local startTime = tick()
+        local duration = tweenInfo.Time
+    
+        local connection
+        connection = RunService.Heartbeat:Connect(function()
+            local elapsed = (tick() - startTime) % duration
+            local alpha = elapsed / duration
+    
+            local position = spline:CalculatePositionRelativeToLength(alpha)
+            local direction = spline:CalculateDerivativeRelativeToLength(alpha)
+    
+            -- Prevent zero-length direction
+            if direction.Magnitude < 0.01 then
+                direction = Vector3.new(0, 0, 1)
+            else
+                direction = direction.Unit
+            end
+    
+            local up = Vector3.new(0, 1, 0)
+    
+            -- Properly calculate right and corrected up vector
+            local right = up:Cross(direction).Unit
+            local correctedUp = direction:Cross(right).Unit
+    
+            plane.CFrame = CFrame.fromMatrix(position, right, correctedUp, direction)
+        end)
+    
+        return connection
+    end
+    
+    
+    -- Example usage:
+   -- local plane = workspace.plane.PrimaryPart
+    --local GlowPartTweenInfo = TweenInfo.new(.5, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, true, 0)
+    --local splineTweenConnection = TweenPlaneAlongSpline(plane, newSpline, GlowPartTweenInfo)
+    
+    
 
 
 
@@ -164,14 +199,14 @@ local function init()
     local part_P4 = Workspace:WaitForChild("P4")
     
 
-   points = {part_P1, part_P2, part_P3, part_P4}
-    local newSpline = CatmullRomSpline.new(points, 0)
+    points = {part_P1, part_P2, part_P3, part_P4}
+    local newSpline = CatmullRomSpline.new(points, .5)
     PlaneSplineController:CreateSplineParts(newSpline)
    
 end
 function PlaneSplineController:KnitStart()
 
-    init()
+   -- init()
 
 end
 return PlaneSplineController

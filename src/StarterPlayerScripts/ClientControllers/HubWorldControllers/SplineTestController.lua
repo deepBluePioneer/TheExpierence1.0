@@ -138,15 +138,12 @@ function SplineTestController:CreateSplineParts(newSpline)
         end)
     end
 
-    --local GlowPartTweenInfo = TweenInfo.new(5, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, true, 0)
    -- local Tween1 = newSpline:CreateTween(Saw, GlowPartTweenInfo, {"CFrame"}, true)
     --local splineTween = newSpline:CreateTween(Saw, nil, {"CFrame"}, true)
    -- local splineTween = newSpline:CreateTweenWithLinearVelocity(Saw, {"CFrame"}, true)
 
 
-    --Tween1:Play()
-
-
+   
 
 end
 

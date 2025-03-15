@@ -1,18 +1,22 @@
--- Access necessary services and the Knit framework
+-- ServerScriptService.KnitServerInit
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
+
 local Knit = require(ReplicatedStorage.Packages.Knit)
 
 -- Define Place IDs
 local CTF_HubWorld_PlaceID = 73294104737372
 local CTF_Level_1_PlaceID = 104252418179975
 
--- Reference to server-side services directories
+-- Server-side service directories
 local ServerServices = ServerStorage.Source.ServerServices
 local ServiceDirectory_1 = ServerServices.CTF_HubWorld_Services
 local ServiceDirectory_2 = ServerServices.CTF_Level_1_Services
 
--- Function to require services recursively
+-- Components directory
+local Components = ReplicatedStorage.Source.Components
+
+-- Recursively require services
 local function requireServices(directory)
     for _, service in ipairs(directory:GetChildren()) do
         if service:IsA("ModuleScript") and service.Name:match("Service$") then
@@ -23,7 +27,18 @@ local function requireServices(directory)
     end
 end
 
--- Function to load services based on the current PlaceId
+-- Recursively require components
+local function requireComponents(directory)
+    for _, component in ipairs(directory:GetChildren()) do
+        if component:IsA("ModuleScript") then
+            require(component)
+        elseif component:IsA("Folder") then
+            requireComponents(component)
+        end
+    end
+end
+
+-- Load services based on PlaceId
 local function loadServicesForPlace(placeId)
     if placeId == CTF_HubWorld_PlaceID then
         requireServices(ServiceDirectory_1)
@@ -34,12 +49,19 @@ local function loadServicesForPlace(placeId)
     end
 end
 
--- Load the services for the current PlaceId
+-- Initialize services and components
 loadServicesForPlace(game.PlaceId)
+requireComponents(Components)
 
--- Start Knit
+-- Start Knit and THEN spawn flags after components are fully initialized
 Knit.Start():andThen(function()
-    print("Knit Started on the Server")
+    print("[Server] Knit Started Successfully with Components.")
+
+    -- Explicitly spawn flags after Knit and components initialize
+    local FlagService = Knit.GetService("FlagService")
+    FlagService:ClearFlags()  -- optional, ensures clean start
+    FlagService:SpawnFlags()
+
 end):catch(function(err)
-    warn("Error starting Knit:", err)
+    warn("[Server] Error starting Knit:", err)
 end)
