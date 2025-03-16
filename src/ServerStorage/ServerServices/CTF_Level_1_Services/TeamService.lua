@@ -49,15 +49,24 @@ function TeamService:GetTeamWithSpace()
     return availableTeams[math.random(#availableTeams)]
 end
 
--- Assign player to a balanced team
+-- Assign player to a balanced team and set default attributes
 function TeamService:AssignPlayerToTeam(player)
     local team = self:GetTeamWithSpace()
 
     if team then
         player.Team = team
-        print(player.Name .. " assigned to team:", team.Name)
+        player:SetAttribute("HasFlag", false) -- Initialize 'HasFlag' as false
+        print(player.Name .. " assigned to team:", team.Name, " | HasFlag: ", player:GetAttribute("HasFlag"))
     else
         warn("All teams full, couldn't assign team to player:", player.Name)
+    end
+end
+
+-- Update player's HasFlag attribute (true when they pick up the flag, false when dropped)
+function TeamService:SetPlayerHasFlag(player, hasFlag)
+    if player then
+        player:SetAttribute("HasFlag", hasFlag)
+        print(player.Name .. " HasFlag set to: " .. tostring(hasFlag))
     end
 end
 
@@ -71,6 +80,7 @@ function TeamService:KnitInit()
 
     Players.PlayerRemoving:Connect(function(player)
         player.Team = nil -- Clear team when player leaves
+        player:SetAttribute("HasFlag", nil) -- Clear the attribute
     end)
 end
 
