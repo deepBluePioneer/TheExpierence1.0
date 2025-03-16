@@ -8,11 +8,24 @@ local PREFAB_FOLDER = ReplicatedStorage:WaitForChild("Prefabs")
 
 local FlagService = Knit.CreateService {
     Name = "FlagService",
-    Client = {},
+    Client = {
+        FlagsSpawned = Knit.CreateSignal() -- ✅ Signal to notify clients
+    },
 }
 
 function FlagService:KnitInit()
     self.SpawnsByTeam = {}
+end
+
+function FlagService:KnitStart()
+
+    
+
+    task.delay(1, function()
+        self:ClearFlags()
+        self:SpawnFlags()
+        print("Flags spawned successfully after delay.")
+    end)
 end
 
 function FlagService:RegisterSpawn(team, cframe)
@@ -116,7 +129,6 @@ function FlagService:HandleFlagPickup(player, flag)
     end)
 end
 
-
 function FlagService:SpawnFlags()
     local prefab = nil
     for _, obj in ipairs(CollectionService:GetTagged(FLAG_PREFAB_TAG)) do
@@ -125,17 +137,23 @@ function FlagService:SpawnFlags()
             break
         end
     end
-    assert(prefab and prefab.PrimaryPart, "Flag prefab needs PrimaryPart and 'Flag' tag.")
+
+    local flagClones = {} -- ✅ Store flag instances for client use
 
     for team, spawnCFrame in pairs(self.SpawnsByTeam) do
         local flagClone = prefab:Clone()
-        flagClone:SetAttribute("FlagColor", team) -- Store team name in flag attribute
+        flagClone:SetAttribute("FlagColor", team)
         flagClone:PivotTo(spawnCFrame)
+        flagClone.Parent = workspace
+
+        -- ✅ Add to flagClones table
+        flagClones[team] = flagClone
 
         local promptLoc = flagClone:FindFirstChild("PromptLoc")
         if promptLoc then
             local proximityPrompt = promptLoc:FindFirstChildOfClass("ProximityPrompt")
             if proximityPrompt then
+                proximityPrompt.Enabled = true
                 proximityPrompt.Triggered:Connect(function(player)
                     self:HandleFlagPickup(player, flagClone)
                 end)
@@ -143,13 +161,19 @@ function FlagService:SpawnFlags()
                 warn("ProximityPrompt missing inside PromptLoc.")
             end
         else
-            warn("PromptLoc part missing in Flag prefab.")
+            warn("PromptLoc missing in Flag prefab.")
         end
 
-        flagClone.Parent = workspace
         print("Spawned flag for team:", team)
     end
+
+    warn(flagClones)
+
+    task.wait(2)
+    -- ✅ Fire event and send flag instances to clients
+    self.Client.FlagsSpawned:FireAll(flagClones)
 end
+
 
 function FlagService:ClearFlags()
     for _, flag in ipairs(CollectionService:GetTagged(FLAG_PREFAB_TAG)) do
@@ -159,13 +183,6 @@ function FlagService:ClearFlags()
     end
 end
 
-function FlagService:KnitStart()
-    task.delay(1, function()
-        self:ClearFlags()
-        self:SpawnFlags()
-        print("Flags spawned successfully after delay.")
-    end)
-end
 function FlagService:ResetFlag(teamColor)
     if not self.SpawnsByTeam[teamColor] then
         warn("No spawn location found for team:", teamColor)

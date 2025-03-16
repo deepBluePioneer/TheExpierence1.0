@@ -1,10 +1,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Packages = ReplicatedStorage:WaitForChild("Packages")
-local Players = game:GetService("Players")
 local Component = require(Packages.Component)
 local Knit = require(Packages.Knit)
-
-local CollectionService = game:GetService("CollectionService")
 
 local FlagService
 local FLAG_TAG = "Flag"

@@ -57,10 +57,7 @@ requireComponents(Components)
 Knit.Start():andThen(function()
     print("[Server] Knit Started Successfully with Components.")
 
-    -- Explicitly spawn flags after Knit and components initialize
-    local FlagService = Knit.GetService("FlagService")
-    FlagService:ClearFlags()  -- optional, ensures clean start
-    FlagService:SpawnFlags()
+   
 
 end):catch(function(err)
     warn("[Server] Error starting Knit:", err)

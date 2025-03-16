@@ -8,6 +8,8 @@ local ZoneRoot = CustomPackages.ZoneRoot
 local Zone = require(ZoneRoot.Zone)
 local CollectionService = game:GetService("CollectionService")
 
+local ReplicaService = require(CustomPackages.Replica.ReplicaService)
+
 local FlagReturnService = Knit.CreateService {
     Name = "FlagReturnService",
     Client = {},
@@ -16,8 +18,32 @@ local FlagReturnService = Knit.CreateService {
 -- Get FlagService for flag respawning
 local FlagService
 
+-- Initialize Score Replica
+function FlagReturnService:InitReplica()
+    self.ScoreReplica = ReplicaService.NewReplica({
+        ClassToken = ReplicaService.NewClassToken("FlagGameScore"),
+        Data = {
+            RedTeamScore = 0,
+            BlueTeamScore = 0
+        },
+        Replication = "All",
+    })
+end
+
+-- Function to update team scores
+function FlagReturnService:UpdateScore(team)
+    if team == "Red" then
+        self.ScoreReplica:SetValue({"RedTeamScore"}, self.ScoreReplica.Data.RedTeamScore + 1)
+    elseif team == "Blue" then
+        self.ScoreReplica:SetValue({"BlueTeamScore"}, self.ScoreReplica.Data.BlueTeamScore + 1)
+    end
+end
+
 function FlagReturnService:KnitInit()
     FlagService = Knit.GetService("FlagService") -- Get FlagService reference
+
+    -- Initialize Replica for score tracking
+    self:InitReplica()
 
     local FlagReturnZones = CollectionService:GetTagged("FlagReturnZone")
 
@@ -40,15 +66,14 @@ function FlagReturnService:KnitInit()
                     if playerTeam == zoneTeamColor then
                         print(player.Name .. " has successfully returned the enemy flag!")
 
-                
+                        -- Update team score
+                        self:UpdateScore(playerTeam)
 
                         -- Reset player's flag attributes
                         player:SetAttribute("HasFlag", false)
 
                         -- Respawn the flag
                         FlagService:ResetFlag(playerTeam == "Red" and "Blue" or "Red") 
-
-                        -- Handle flag scoring logic here if needed
                     else
                         print(player.Name .. " entered a flag return zone but does not have the correct flag.")
                     end
@@ -64,8 +89,5 @@ function FlagReturnService:KnitInit()
         end
     end
 end
-
-
-
 
 return FlagReturnService
