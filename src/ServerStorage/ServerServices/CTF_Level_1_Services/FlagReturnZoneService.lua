@@ -7,7 +7,6 @@ local Knit = require(Packages.Knit)
 local ZoneRoot = CustomPackages.ZoneRoot
 local Zone = require(ZoneRoot.Zone)
 local CollectionService = game:GetService("CollectionService")
-local Players = game:GetService("Players")
 
 local FlagReturnService = Knit.CreateService {
     Name = "FlagReturnService",

@@ -3,9 +3,6 @@ local CollectionService = game:GetService("CollectionService")
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Knit = require(Packages.Knit)
 
-local Teams = game:GetService("Teams")
-local Players = game:GetService("Players")
-
 local FLAG_PREFAB_TAG = "Flag"
 local PREFAB_FOLDER = ReplicatedStorage:WaitForChild("Prefabs")
 
