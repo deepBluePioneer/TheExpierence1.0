@@ -4,14 +4,12 @@ local StarterPlayerScripts = StarterPlayer.StarterPlayerScripts
 local Knit = require(ReplicatedStorage.Packages.Knit)
 
 -- Define the Place IDs for different game environments
-local DungeonPlaceID = 17399051565
-local HubWorldServiceID = 17399041158
+local HubWorldServiceID = 128423752054643
 
 -- References to controller directories
 local ClientControllers = StarterPlayerScripts.Source.ClientControllers
 local HubWorldControllers = ClientControllers.HubWorldControllers
-local DungeonControllers = ClientControllers.DungeonControllers.ProcGenControllers_v3
-local ProcGenControllers = DungeonControllers
+
 
 -- Function to require controllers recursively
 local function requireControllers(directory)
@@ -29,13 +27,6 @@ local function loadControllersForPlace(placeId)
     local controllerDirectory
     if placeId == HubWorldServiceID then
         controllerDirectory = HubWorldControllers
-        print(controllerDirectory)
-    elseif placeId == DungeonPlaceID then
-        controllerDirectory = ProcGenControllers
-        print(controllerDirectory)
-    else
-        warn("Unrecognized Place ID, no controllers loaded")
-        return
     end
 
     requireControllers(controllerDirectory)
