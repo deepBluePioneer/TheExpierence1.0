@@ -21,7 +21,7 @@ local ReplicaService = require(Replica.ReplicaService)
 local Signal = require(Packages.Signal)
 local Timer = require(Packages.timer)
 
-local DungeonPlaceID = 17282492093  -- Corrected to be a number
+local DungeonPlaceID = 102436797186064  -- Corrected to be a number
 
 local initLobbyTime = 10
 local initGameCountdownTime = 5
