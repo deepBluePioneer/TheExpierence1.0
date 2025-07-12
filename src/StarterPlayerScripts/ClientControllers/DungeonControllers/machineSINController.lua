@@ -2,102 +2,177 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
 
 local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Knit = require(Packages.Knit)
+local promise = require(Packages.Promise)
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
 
 local machineSINController = Knit.CreateController { Name = "machineSINController" }
 
-function machineSINController:KnitInit()
-    -- Initialization logic
-end
-
 function machineSINController:KnitStart()
-    task.wait(5) -- Allow time for workspace replication
+	task.wait(5)
 
-    local machines = CollectionService:GetTagged("machine")
-    print("Found", #machines, "machines")
+	local machines = CollectionService:GetTagged("machine")
+	print("Found", #machines, "machines")
 
-    for _, machine in ipairs(machines) do
-        if not machine:IsDescendantOf(workspace) then continue end
+	for _, machine in ipairs(machines) do
+		if not machine:IsDescendantOf(workspace) then continue end
 
-        print("Machine:", machine:GetFullName())
+		print("Machine:", machine:GetFullName())
 
-        local controllerManager = machine:FindFirstChildWhichIsA("ControllerManager", true)
-        local groundController = machine:FindFirstChildWhichIsA("GroundController", true)
-        local groundSensor = machine:FindFirstChildWhichIsA("ControllerPartSensor", true)
-        local rootPart = machine:FindFirstChild("RootPart") or machine:FindFirstChildWhichIsA("BasePart", true)
+		local controllerManager = machine:FindFirstChildWhichIsA("ControllerManager", true)
+		local groundController = machine:FindFirstChildWhichIsA("GroundController", true)
+		local groundSensor = machine:FindFirstChildWhichIsA("ControllerPartSensor", true)
+		local rootPart = machine:FindFirstChild("RootPart")
+		local seat = machine:FindFirstChildWhichIsA("Seat", true)
 
-        if not (controllerManager and groundController and groundSensor and rootPart) then
-            warn("Missing controller components for machine:", machine.Name)
-            continue
-        end
+		local attachment = rootPart:FindFirstChild("BankAttachment") or Instance.new("Attachment")
+		attachment.Name = "BankAttachment"
+		attachment.Parent = rootPart
 
-        -- Assign essential controller references
-        groundSensor.UpdateType = "OnRead"
-        controllerManager.RootPart = rootPart
-        controllerManager.GroundSensor = groundSensor
-        controllerManager.ActiveController = groundController
+		local torque = Instance.new("VectorForce")
+		torque.Name = "BankTorque"
+		torque.Attachment0 = attachment
+		torque.Force = Vector3.zero
+		torque.RelativeTo = Enum.ActuatorRelativeTo.Attachment0
+		torque.ApplyAtCenterOfMass = true
+		torque.Parent = rootPart
 
-        -- Movement settings
-        controllerManager.BaseMoveSpeed = 50
-        controllerManager.BaseTurnSpeed = 5
-        groundController.MoveSpeedFactor = 1
-        groundController.TurnSpeedFactor = 1
-        groundController.AccelerationTime = 0
-        groundController.DecelerationTime = 0
-        groundController.Friction = 1
+		local angVel = Instance.new("AngularVelocity")
+		angVel.Name = "BankDamp"
+		angVel.Attachment0 = attachment
+		angVel.MaxTorque = 10000
+		angVel.RelativeTo = Enum.ActuatorRelativeTo.Attachment0
+		angVel.AngularVelocity = Vector3.zero
+		angVel.Parent = rootPart
 
-        -- Hover bobbing config
-        local baseOffset = 0.75
-        local amplitude = 0.15
-        local frequency = 1.5
-        local currentOffset = baseOffset
+		groundSensor.UpdateType = "OnRead"
+		controllerManager.RootPart = rootPart
+		controllerManager.GroundSensor = groundSensor
+		controllerManager.ActiveController = groundController
 
-        -- Movement input tracking
-        local inputVector = Vector3.zero
+		controllerManager.BaseMoveSpeed = 50
+		controllerManager.BaseTurnSpeed = 0
+		groundController.MoveSpeedFactor = 1
+		groundController.TurnSpeedFactor = 1
+		groundController.AccelerationTime = 0
+		groundController.DecelerationTime = 0
+		groundController.Friction = 1
 
-        local function getMoveDirection()
-            local cam = workspace.CurrentCamera
-            if not cam then return Vector3.zero end
+		local baseOffset = 0.75
+		local amplitude = 0.15
+		local frequency = 1.5
+		local currentOffset = baseOffset
+		local steeringInput = 0
+		local isSeated = false
 
-            local forward = cam.CFrame.LookVector * inputVector.Z
-            local right = cam.CFrame.RightVector * inputVector.X
-            local move = forward + right
-            return move.Magnitude > 0 and move.Unit or Vector3.zero
-        end
+		local currentRoll = 0
+		local currentPitch = 0
 
-        -- Input events
-        UserInputService.InputBegan:Connect(function(input, processed)
-            if processed then return end
-            if input.KeyCode == Enum.KeyCode.W then inputVector += Vector3.new(0, 0, 1) end
-            if input.KeyCode == Enum.KeyCode.S then inputVector -= Vector3.new(0, 0, 1) end
-            if input.KeyCode == Enum.KeyCode.A then inputVector -= Vector3.new(1, 0, 0) end
-            if input.KeyCode == Enum.KeyCode.D then inputVector += Vector3.new(1, 0, 0) end
-        end)
+		RunService.RenderStepped:Connect(function(dt)
+			if not isSeated then return end
 
-        UserInputService.InputEnded:Connect(function(input)
-            if input.KeyCode == Enum.KeyCode.W then inputVector -= Vector3.new(0, 0, 1) end
-            if input.KeyCode == Enum.KeyCode.S then inputVector += Vector3.new(0, 0, 1) end
-            if input.KeyCode == Enum.KeyCode.A then inputVector += Vector3.new(1, 0, 0) end
-            if input.KeyCode == Enum.KeyCode.D then inputVector -= Vector3.new(1, 0, 0) end
-        end)
+			local t = tick()
+			local targetOffset = baseOffset + math.sin(t * frequency) * amplitude
+			currentOffset += (targetOffset - currentOffset) * 0.1
+			groundController.GroundOffset = currentOffset
 
-        -- Continuous update
-        RunService.RenderStepped:Connect(function()
-            -- Hover offset bobbing
-            local t = tick()
-            local targetOffset = baseOffset + math.sin(t * frequency) * amplitude
-            currentOffset += (targetOffset - currentOffset) * 0.1
-            groundController.GroundOffset = currentOffset
+			-- --- Input handling ---
+			local steerAccel = 0.02
+			local steerDecay = 0.1
+			local pitchAccel = 0.02
+			local pitchDecay = 0.1
 
-            -- Apply movement and facing
-            local moveDir = getMoveDirection()
-            controllerManager.MovingDirection = moveDir
-            controllerManager.FacingDirection = -moveDir -- optional
-        end)
-    end
+			-- Yaw steering (A/D)
+			if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+				steeringInput += steerAccel
+			elseif UserInputService:IsKeyDown(Enum.KeyCode.A) then
+				steeringInput -= steerAccel
+			else
+				steeringInput += (-steeringInput) * steerDecay
+			end
+
+			-- Pitch steering (W/S)
+			local pitchInput = 0
+			if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+				pitchInput = -1
+			elseif UserInputService:IsKeyDown(Enum.KeyCode.S) then
+				pitchInput = 1
+			end
+
+			steeringInput = math.clamp(steeringInput, -1, 1)
+
+			-- Apply physics banking
+			torque.Force = rootPart.CFrame.RightVector * steeringInput * -100
+			angVel.AngularVelocity = Vector3.new(0, 0, -rootPart.RotVelocity.Z * 2)
+
+			-- Smooth yaw turning
+			local currentLook = rootPart.CFrame.LookVector
+			local turnAmount = 2 -- smaller = tighter steering, larger = more subtle
+			local targetLook = (currentLook + rootPart.CFrame.RightVector * steeringInput * turnAmount).Unit
+			local smoothedLook = currentLook:Lerp(targetLook, 0.05)
+			local baseCFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + smoothedLook, rootPart.CFrame.UpVector)
+
+			-- --- Visual tilt (roll and pitch) ---
+			local targetRoll = math.rad(steeringInput * -5)
+			local targetPitch = math.rad(pitchInput * 5)
+
+			currentRoll += (targetRoll - currentRoll) * 0.15
+			currentPitch += (targetPitch - currentPitch) * 0.15
+
+			rootPart.CFrame = baseCFrame * CFrame.Angles(currentPitch, 0, currentRoll)
+
+			-- Movement direction
+			controllerManager.MovingDirection = rootPart.CFrame.LookVector
+		end)
+
+
+
+		local function followCameraFunction()
+			if not seat.Occupant or seat.Occupant.Parent ~= LocalPlayer.Character then
+				Camera.CameraType = Enum.CameraType.Custom
+				RunService:UnbindFromRenderStep("FollowVehicleCamera")
+				isSeated = false
+				return
+			end
+
+			local rootCFrame = rootPart.CFrame
+			local cameraHeight = 8
+			local cameraDistance = 15
+
+			local cameraPos = rootCFrame.Position
+				+ rootCFrame.UpVector * cameraHeight
+				- rootCFrame.LookVector * cameraDistance
+
+			local flatLookDirection = Vector3.new(rootCFrame.LookVector.X, 0, rootCFrame.LookVector.Z).Unit
+			local lookTarget = cameraPos + flatLookDirection
+
+			local baseCFrame = CFrame.new(cameraPos, lookTarget)
+
+			-- Optional: camera roll based on steeringInput (max ~8 degrees)
+			local maxRollAngle = math.rad(0)
+			local rollAngle = steeringInput * maxRollAngle
+			Camera.CFrame = baseCFrame * CFrame.Angles(0, 0, rollAngle)
+		end
+
+		seat:GetPropertyChangedSignal("Occupant"):Connect(function()
+			local occupant = seat.Occupant
+			isSeated = occupant and occupant.Parent == LocalPlayer.Character
+
+			if isSeated then
+				Camera.CameraType = Enum.CameraType.Scriptable
+				RunService:BindToRenderStep("FollowVehicleCamera", Enum.RenderPriority.Camera.Value + 1, followCameraFunction)
+			else
+				Camera.CameraType = Enum.CameraType.Custom
+				RunService:UnbindFromRenderStep("FollowVehicleCamera")
+			end
+		end)
+	end
 end
 
 return machineSINController
