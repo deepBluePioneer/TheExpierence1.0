@@ -165,7 +165,7 @@ function machineSINController:KnitStart()
 			if not smoothedCameraCFrame then
 				smoothedCameraCFrame = targetCFrame
 			else
-				smoothedCameraCFrame = smoothedCameraCFrame:Lerp(targetCFrame, 0.5) 
+				smoothedCameraCFrame = smoothedCameraCFrame:Lerp(targetCFrame, 0.25) 
 			end
 
 			Camera.CFrame = smoothedCameraCFrame
