@@ -85,8 +85,6 @@ function machineSINController:KnitStart()
 			-- --- Input handling ---
 			local steerAccel = 0.02
 			local steerDecay = 0.1
-			local pitchAccel = 0.02
-			local pitchDecay = 0.1
 
 			-- Yaw steering (A/D)
 			if UserInputService:IsKeyDown(Enum.KeyCode.D) then
@@ -133,32 +131,47 @@ function machineSINController:KnitStart()
 
 
 
+		-- Store current camera CFrame for smoothing
+		local smoothedCameraCFrame = nil
+
 		local function followCameraFunction()
 			if not seat.Occupant or seat.Occupant.Parent ~= LocalPlayer.Character then
 				Camera.CameraType = Enum.CameraType.Custom
 				RunService:UnbindFromRenderStep("FollowVehicleCamera")
 				isSeated = false
+				smoothedCameraCFrame = nil
 				return
 			end
 
-			local rootCFrame = rootPart.CFrame
+			-- Build yaw-only CFrame (no tilt)
+			local rootPosition = rootPart.Position
+			local flatLookVector = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z).Unit
+			local flatRightVector = flatLookVector:Cross(Vector3.new(0, 1, 0)).Unit
+			local flatUpVector = flatRightVector:Cross(flatLookVector).Unit
+			local rootCFrame = CFrame.fromMatrix(rootPosition, flatRightVector, flatUpVector)
+
+			-- Target camera position and look direction
 			local cameraHeight = 8
 			local cameraDistance = 15
 
 			local cameraPos = rootCFrame.Position
-				+ rootCFrame.UpVector * cameraHeight
-				- rootCFrame.LookVector * cameraDistance
+				+ flatUpVector * cameraHeight
+				- flatLookVector * cameraDistance
 
-			local flatLookDirection = Vector3.new(rootCFrame.LookVector.X, 0, rootCFrame.LookVector.Z).Unit
-			local lookTarget = cameraPos + flatLookDirection
+			local lookTarget = cameraPos + flatLookVector
+			local targetCFrame = CFrame.new(cameraPos, lookTarget)
 
-			local baseCFrame = CFrame.new(cameraPos, lookTarget)
+			-- Smooth transition
+			if not smoothedCameraCFrame then
+				smoothedCameraCFrame = targetCFrame
+			else
+				smoothedCameraCFrame = smoothedCameraCFrame:Lerp(targetCFrame, 0.5) 
+			end
 
-			-- Optional: camera roll based on steeringInput (max ~8 degrees)
-			local maxRollAngle = math.rad(0)
-			local rollAngle = steeringInput * maxRollAngle
-			Camera.CFrame = baseCFrame * CFrame.Angles(0, 0, rollAngle)
+			Camera.CFrame = smoothedCameraCFrame
 		end
+
+
 
 		seat:GetPropertyChangedSignal("Occupant"):Connect(function()
 			local occupant = seat.Occupant
