@@ -105,7 +105,7 @@ local function setupMachine(machine)
 	airController.MoveMaxForce = 50000
 	airController.TurnMaxTorque = 5000
 	airController.BalanceMaxTorque = 3000
-	airController.BalanceSpeed = 3
+	airController.BalanceSpeed = 0
 
 	local baseOffset = 0.75
 	local amplitude = 0.15
@@ -144,15 +144,7 @@ local function setupMachine(machine)
 
 		-- Ground check
 		local isGrounded = groundSensor.SensedPart ~= nil
-		controllerManager.ActiveController = isGrounded and groundController or airController
-
-		-- Preserve forward motion manually (optional)
-		if not isGrounded then
-			local velocity = rootPart.AssemblyLinearVelocity
-			local forwardDir = rootPart.CFrame.LookVector
-			local horizontalVel = Vector3.new(forwardDir.X, 0, forwardDir.Z).Unit * velocity.Magnitude
-			rootPart.AssemblyLinearVelocity = Vector3.new(horizontalVel.X, velocity.Y, horizontalVel.Z)
-		end
+		--controllerManager.ActiveController = isGrounded and groundController or airController
 
 		-- Align to slope
 		local upVector = (isGrounded and groundSensor.HitNormal.Magnitude > 0) and groundSensor.HitNormal.Unit or Vector3.yAxis
@@ -161,7 +153,6 @@ local function setupMachine(machine)
 		local smoothedForward = forward:Lerp(targetForward, 0.05)
 
 		local rightVector = smoothedForward:Cross(upVector).Unit
-		local alignedForward = upVector:Cross(rightVector).Unit
 		local alignedCFrame = CFrame.fromMatrix(rootPart.Position, rightVector, upVector)
 
 		-- Visual tilt
@@ -172,11 +163,8 @@ local function setupMachine(machine)
 
 		rootPart.CFrame = alignedCFrame * CFrame.Angles(currentPitch, 0, currentRoll)
 		
-
 		local trueForward = alignedCFrame.LookVector
 		controllerManager.MovingDirection = trueForward
-
-
 
 	end)
 
