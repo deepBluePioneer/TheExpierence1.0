@@ -8,38 +8,14 @@ local Players = game:GetService("Players")
 -- Packages
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Knit = require(Packages.Knit)
+local gizmo = require(Packages.imgizmo)
 
 -- References
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 -- Controller
-local machineSINController = Knit.CreateController { Name = "machineSINController" }
-
--- Bank + Damping setup
-local function setupPhysics(rootPart)
-	local attachment = rootPart:FindFirstChild("BankAttachment") or Instance.new("Attachment")
-	attachment.Name = "BankAttachment"
-	attachment.Parent = rootPart
-
-	local torque = Instance.new("VectorForce")
-	torque.Name = "BankTorque"
-	torque.Attachment0 = attachment
-	torque.Force = Vector3.zero
-	torque.RelativeTo = Enum.ActuatorRelativeTo.Attachment0
-	torque.ApplyAtCenterOfMass = true
-	torque.Parent = rootPart
-
-	local angVel = Instance.new("AngularVelocity")
-	angVel.Name = "BankDamp"
-	angVel.Attachment0 = attachment
-	angVel.MaxTorque = 10000
-	angVel.RelativeTo = Enum.ActuatorRelativeTo.Attachment0
-	angVel.AngularVelocity = Vector3.zero
-	angVel.Parent = rootPart
-
-	return torque, angVel
-end
+local ProtoController = Knit.CreateController { Name = "ProtoController" }
 
 -- Camera follow logic
 local function createCameraFollow(seat, rootPart)
@@ -65,7 +41,7 @@ local function createCameraFollow(seat, rootPart)
 		local lookTarget = cameraPos + flatLook
 		local targetCFrame = CFrame.new(cameraPos, lookTarget)
 
-		smoothedCameraCFrame = smoothedCameraCFrame and smoothedCameraCFrame:Lerp(targetCFrame, 0.25) or targetCFrame
+		smoothedCameraCFrame = smoothedCameraCFrame and smoothedCameraCFrame:Lerp(targetCFrame, 0.5) or targetCFrame
 		Camera.CFrame = smoothedCameraCFrame
 	end
 
@@ -76,13 +52,9 @@ end
 local function setupMachine(machine)
 	local controllerManager = machine:FindFirstChildWhichIsA("ControllerManager", true)
 	local groundController = machine:FindFirstChildWhichIsA("GroundController", true)
-	local airController = machine:FindFirstChildWhichIsA("AirController", true)
-
 	local groundSensor = machine:FindFirstChildWhichIsA("ControllerPartSensor", true)
 	local rootPart = machine:FindFirstChild("RootPart")
 	local seat = machine:FindFirstChildWhichIsA("Seat", true)
-
-	local torque, angVel = setupPhysics(rootPart)
 
 	-- Configure controllers
 	groundSensor.UpdateType = "OnRead"
@@ -90,57 +62,87 @@ local function setupMachine(machine)
 	controllerManager.GroundSensor = groundSensor
 	controllerManager.ActiveController = groundController
 
-	controllerManager.BaseMoveSpeed = 50
-	controllerManager.BaseTurnSpeed = 0
-
-	groundController.MoveSpeedFactor = 2
-	groundController.TurnSpeedFactor = 1
-	groundController.AccelerationTime = 0
-	groundController.DecelerationTime = 0
-	groundController.Friction = 1
-
-	-- Air config
-	airController.MaintainLinearMomentum = true
-	airController.MaintainAngularMomentum = true
-	airController.MoveMaxForce = 50000
-	airController.TurnMaxTorque = 5000
-	airController.BalanceMaxTorque = 3000
-	airController.BalanceSpeed = 0
-
-	local steeringInput = 0
+	groundController.GroundOffset = 3
+	groundSensor.SearchDistance = 5
 	local isSeated = false
-	local currentRoll = 0
-	local currentPitch = 0
 
+	-- Attachments and forces
+	local attachment = Instance.new("Attachment")
+	attachment.Name = "RootAttachment"
+	attachment.Parent = rootPart
+
+	local thrustForce = Instance.new("VectorForce")
+	thrustForce.Name = "ThrustForce"
+	thrustForce.Attachment0 = attachment
+	thrustForce.RelativeTo = Enum.ActuatorRelativeTo.World
+	thrustForce.ApplyAtCenterOfMass = true
+	thrustForce.Force = Vector3.zero
+	thrustForce.Parent = rootPart
+
+	local liftForce = Instance.new("VectorForce")
+	liftForce.Name = "LiftForce"
+	liftForce.Attachment0 = attachment
+	liftForce.RelativeTo = Enum.ActuatorRelativeTo.World
+	liftForce.ApplyAtCenterOfMass = true
+	liftForce.Force = Vector3.zero
+	liftForce.Parent = rootPart
+
+	local angularVelocity = Instance.new("AngularVelocity")
+	angularVelocity.Attachment0 = attachment
+	angularVelocity.RelativeTo = Enum.ActuatorRelativeTo.Attachment0
+	angularVelocity.MaxTorque = math.huge
+	angularVelocity.AngularVelocity = Vector3.zero
+	angularVelocity.Parent = rootPart
+
+	-- Movement parameters
+	local maxSpeed = 60
+	local thrust = 5000
+	local dragFactor = 8
+	local steeringForce = 3000
+	local turnSpeed = math.rad(80)
+
+	local fallVelocity = 0
 	local gravityTarget = 196.2
-	local gravityLerpTime = 1.5 -- seconds
+	local gravityLerpTime = 2.5
 	local gravityTimer = 0
 	local gravityDisabled = false
+
+	local steerInput = 0
+	UserInputService.InputBegan:Connect(function(input, processed)
+		if processed then return end
+		if input.KeyCode == Enum.KeyCode.A then steerInput = -1 end
+		if input.KeyCode == Enum.KeyCode.D then steerInput = 1 end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input.KeyCode == Enum.KeyCode.A and steerInput == -1 then steerInput = 0 end
+		if input.KeyCode == Enum.KeyCode.D and steerInput == 1 then steerInput = 0 end
+	end)
 
 	RunService.RenderStepped:Connect(function(dt)
 		if not isSeated then return end
 
-		local steerAccel, steerDecay = 0.02, 0.1
-		if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-			steeringInput += steerAccel
-		elseif UserInputService:IsKeyDown(Enum.KeyCode.A) then
-			steeringInput -= steerAccel
-		else
-			steeringInput += (-steeringInput) * steerDecay
+		local velocity = rootPart.Velocity
+		local gravity = workspace.Gravity
+		local mass = rootPart.AssemblyMass
+
+		local up = Vector3.new(0, 1, 0)
+		if groundSensor.SensedPart then
+			up = groundSensor.HitNormal
 		end
 
-		local pitchInput = 0
-		if UserInputService:IsKeyDown(Enum.KeyCode.W) then pitchInput = -1 end
-		if UserInputService:IsKeyDown(Enum.KeyCode.S) then pitchInput = 1 end
+		local forward = (rootPart.CFrame.LookVector - up * rootPart.CFrame.LookVector:Dot(up)).Unit
+		local right = forward:Cross(up).Unit
 
-		steeringInput = math.clamp(steeringInput, -1, 1)
+		if groundSensor.SensedPart then
+			fallVelocity = 0
+			liftForce.Force = up * gravity * mass
+		else
+			fallVelocity += gravity * dt * 0.4
+			liftForce.Force = Vector3.new(0, -fallVelocity * mass, 0)
+		end
 
-		torque.Force = rootPart.CFrame.RightVector * steeringInput * -100
-		angVel.AngularVelocity = Vector3.new(0, 0, -rootPart.RotVelocity.Z * 2)
-
-		-- Ground check
 		local isGrounded = groundSensor.SensedPart ~= nil
-
 		if not isGrounded then
 			if not gravityDisabled then
 				workspace.Gravity = 0
@@ -160,28 +162,24 @@ local function setupMachine(machine)
 			end
 		end
 
-		-- Align to slope
-		local upVector = (isGrounded and groundSensor.HitNormal.Magnitude > 0) and groundSensor.HitNormal.Unit or Vector3.yAxis
-		local forward = rootPart.CFrame.LookVector
-		local targetForward = (forward + rootPart.CFrame.RightVector * steeringInput * 2).Unit
-		local smoothedForward = forward:Lerp(targetForward, 0.05)
+		local slopeGravity = -gravity * mass * up
+		local slopeDragForce = up:Dot(forward) * slopeGravity.Magnitude
 
-		local rightVector = smoothedForward:Cross(upVector).Unit
-		local alignedCFrame = CFrame.fromMatrix(rootPart.Position, rightVector, upVector)
+		local currentSpeed = velocity:Dot(forward)
+		local thrustVector = Vector3.zero
+		if currentSpeed < maxSpeed then
+			thrustVector = forward * (thrust + slopeDragForce)
+		end
 
-		-- Visual tilt
-		local targetRoll = math.rad(steeringInput * -50)
-		local targetPitch = math.rad(pitchInput * 5)
-		currentRoll += (targetRoll - currentRoll) * 0.15
-		currentPitch += (targetPitch - currentPitch) * 0.15
+		local lateralVelocity = velocity:Dot(right)
+		local lateralCorrection = -right * lateralVelocity * mass * 4 -- stronger correction
 
-		rootPart.CFrame = alignedCFrame * CFrame.Angles(currentPitch, 0, currentRoll)
+		local drag = forward * -currentSpeed * dragFactor
 
-		local trueForward = alignedCFrame.LookVector
-		controllerManager.MovingDirection = trueForward
+		thrustForce.Force = thrustVector + drag + lateralCorrection
+		angularVelocity.AngularVelocity = Vector3.new(0, -steerInput * turnSpeed, 0)
 	end)
 
-	-- Seat detection + camera follow
 	local followCamera = createCameraFollow(seat, rootPart)
 	seat:GetPropertyChangedSignal("Occupant"):Connect(function()
 		isSeated = seat.Occupant and seat.Occupant.Parent == LocalPlayer.Character
@@ -196,7 +194,7 @@ local function setupMachine(machine)
 	end)
 end
 
-local function Init()
+function ProtoController:KnitStart()
 	task.wait(5)
 	local machines = CollectionService:GetTagged("machine")
 	print("Found", #machines, "machines")
@@ -209,9 +207,4 @@ local function Init()
 	end
 end
 
--- KnitStart
-function machineSINController:KnitStart()
-
-end
-
-return machineSINController
+return ProtoController

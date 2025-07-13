@@ -15,14 +15,8 @@ local patchZoneService = Knit.CreateService {
 }
 
 function patchZoneService:KnitStart()
-	-- Get all tagged containers
 	local zoneTagged = CollectionService:GetTagged(objectSpawnerZones)
-	if #zoneTagged == 0 then
-		warn("No tagged zone containers found for:", objectSpawnerZones)
-		return
-	end
 
-	-- Extract all BaseParts from tagged containers
 	local zoneParts = {}
 	for _, container in ipairs(zoneTagged) do
 		for _, part in ipairs(container:GetDescendants()) do
@@ -32,34 +26,64 @@ function patchZoneService:KnitStart()
 		end
 	end
 
-	if #zoneParts == 0 then
-		warn("No BaseParts found inside tagged containers")
-		return
-	end
-
-	-- Create the Zone
 	self.zone = Zone.new(zoneParts)
 
-	-- Get a random point inside the zone
 	local position, touchingParts = self.zone:getRandomPoint()
 	if not position then
 		warn("Could not get valid position in zone")
 		return
 	end
 
-	-- Create the unanchored part
+	task.wait(5)
 	local part = Instance.new("Part")
-	part.Size = Vector3.new(15, 15, 15)
+	part.Size = Vector3.new(10, 10, 0.001)
 	part.Anchored = false
 	part.CanCollide = true
-	part.Position = position + Vector3.new(0, 5, 0) -- slightly above surface
+	part.Transparency = 1
+	part.Position = position + Vector3.new(0, 10, 0)
 	part.Name = "PatchObject"
 	part.Parent = workspace
-   -- part.MaterialVariant = "UVGrid"
-	-- Track the part so we can get itemEntered/itemExited events
+
+	-- Add tag
+	CollectionService:AddTag(part, "powerupPatch")
+
+
+	-- Add decals
+	for _, face in { Enum.NormalId.Front, Enum.NormalId.Back } do
+		local decal = Instance.new("Decal")
+		decal.Face = face
+		decal.Texture = "rbxassetid://112425153579607"
+		decal.Parent = part
+	end
+
+	-- Add attachment (shared by AlignOrientation + VectorForce)
+	local attachment = Instance.new("Attachment")
+	attachment.Parent = part
+
+	-- Keep upright
+	local align = Instance.new("AlignOrientation")
+	align.Attachment0 = attachment
+	align.Mode = Enum.OrientationAlignmentMode.OneAttachment
+	align.RigidityEnabled = true
+	align.Responsiveness = 200
+	align.AlignType = Enum.AlignType.Parallel
+	align.PrimaryAxisOnly = false
+	align.Parent = part
+
+	-- Apply upward force to cancel most gravity, leaving a slow fall
+	local gravity = workspace.Gravity -- usually 196.2
+	local mass = part:GetMass()
+	local netDownwardForce = -1250 -- adjust this for desired fall speed
+
+	local vectorForce = Instance.new("VectorForce")
+	vectorForce.Attachment0 = attachment
+	vectorForce.Force = Vector3.new(0, -(mass * gravity - math.abs(netDownwardForce)), 0)
+	vectorForce.RelativeTo = Enum.ActuatorRelativeTo.World
+	vectorForce.ApplyAtCenterOfMass = true
+	vectorForce.Parent = part
+
 	self.zone:trackItem(part)
 
-	-- Optional: log when the part enters or exits the zone
 	self.zone.itemEntered:Connect(function(item)
 		print("Item entered zone:", item.Name)
 	end)

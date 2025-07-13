@@ -7,7 +7,8 @@ local CollectionService = game:GetService("CollectionService")
 local PatchLookController = Knit.CreateController { Name = "PatchLookController" }
 
 function PatchLookController:KnitStart()
-	task.wait(5)
+	task.wait(10)
+    warn("looking")
 
 	local Players = game:GetService("Players")
 	local LocalPlayer = Players.LocalPlayer
