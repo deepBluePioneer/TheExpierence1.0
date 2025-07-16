@@ -18,16 +18,20 @@ local Camera = workspace.CurrentCamera
 local ProtoController = Knit.CreateController { Name = "ProtoController" }
 ProtoController.isCharging = false -- Global flag for camera
 
--- Camera follow logic
 local function createCameraFollow(seat, rootPart)
 	local smoothedCameraCFrame = nil
 	local lateralOffset = 0
+	local currentFOV = Camera.FieldOfView
+	local defaultFOV = 70
+	local zoomedFOV = 60
+	local currentTilt = 0
 
 	local function followCamera()
 		if not seat.Occupant or seat.Occupant.Parent ~= LocalPlayer.Character then
 			Camera.CameraType = Enum.CameraType.Custom
 			RunService:UnbindFromRenderStep("FollowVehicleCamera")
 			smoothedCameraCFrame = nil
+			Camera.FieldOfView = defaultFOV
 			return
 		end
 
@@ -40,9 +44,18 @@ local function createCameraFollow(seat, rootPart)
 		local cameraHeight = 8
 		local cameraDistance = 15
 
-		local targetLateralOffset = ProtoController.isCharging and 5 or 0
+		-- Lateral offset when charging and steering
+		local targetLateralOffset = 0
+		if ProtoController.isCharging then
+			if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+				targetLateralOffset = -5
+			elseif UserInputService:IsKeyDown(Enum.KeyCode.D) then
+				targetLateralOffset = 5
+			end
+		end
 		lateralOffset += (targetLateralOffset - lateralOffset) * 0.1
 
+		-- Camera position calculation
 		local cameraPos = rootCFrame.Position
 			+ up * cameraHeight
 			- flatLook * cameraDistance
@@ -51,12 +64,25 @@ local function createCameraFollow(seat, rootPart)
 		local lookTarget = cameraPos + flatLook
 		local targetCFrame = CFrame.new(cameraPos, lookTarget)
 
-		smoothedCameraCFrame = smoothedCameraCFrame and smoothedCameraCFrame:Lerp(targetCFrame, 0.5) or targetCFrame
+		-- Smooth tilt based on lateral offset
+		local targetTilt = math.rad(lateralOffset * -2.5) -- Tilt scale
+		currentTilt += (targetTilt - currentTilt) * 0.1
+		local tiltCFrame = CFrame.Angles(0, 0, currentTilt)
+
+		-- Final camera with tilt
+		smoothedCameraCFrame = smoothedCameraCFrame and smoothedCameraCFrame:Lerp(targetCFrame * tiltCFrame, 0.5) or (targetCFrame * tiltCFrame)
 		Camera.CFrame = smoothedCameraCFrame
+
+		-- FOV smoothing
+		local targetFOV = ProtoController.isCharging and zoomedFOV or defaultFOV
+		currentFOV += (targetFOV - currentFOV) * 0.1
+		Camera.FieldOfView = currentFOV
 	end
 
 	return followCamera
 end
+
+
 
 -- Setup machine physics and movement loop
 local function setupMachine(machine)
