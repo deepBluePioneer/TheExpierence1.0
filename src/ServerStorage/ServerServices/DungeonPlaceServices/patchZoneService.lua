@@ -28,7 +28,7 @@ end
 -- Spawn Patch and Create Its Zone
 function patchZoneService:spawnPatch(position)
 	local part = Instance.new("Part")
-	part.Size = Vector3.new(10, 10, 0.001)
+	part.Size = Vector3.new(7, 7, 7)
 	part.Anchored = false
 	part.CanCollide = true
 	part.Transparency = 1
@@ -38,12 +38,28 @@ function patchZoneService:spawnPatch(position)
 
 	CollectionService:AddTag(part, "powerupPatch")
 
-	for _, face in { Enum.NormalId.Front, Enum.NormalId.Back } do
-		local decal = Instance.new("Decal")
-		decal.Face = face
-		decal.Texture = "rbxassetid://112425153579607"
-		decal.Parent = part
-	end
+	-- Add BillboardGui instead of Decals
+	local billboardGui = Instance.new("BillboardGui")
+	billboardGui.Name = "PatchBillboard"
+	billboardGui.Size = UDim2.new(11, 0, 11, 0) -- scale-based size (5% of screen height/width)
+	billboardGui.StudsOffset = Vector3.new(0, 0, 0) -- no visual lift
+	billboardGui.AlwaysOnTop = false
+	billboardGui.Adornee = part
+	billboardGui.MaxDistance = math.huge
+	billboardGui.LightInfluence = 0
+	billboardGui.Parent = part
+
+	local imageLabel = Instance.new("ImageLabel")
+	imageLabel.Name = "PatchImage"
+	imageLabel.AnchorPoint = Vector2.new(0.5, 0.6)
+	imageLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+	imageLabel.Size = UDim2.new(1, 0, 1, 0) -- fill full BillboardGui area
+	imageLabel.BackgroundTransparency = 1
+	imageLabel.Image = "rbxassetid://112425153579607"
+	imageLabel.Parent = billboardGui
+
+
+
 
 	local attachment = Instance.new("Attachment")
 	attachment.Parent = part
