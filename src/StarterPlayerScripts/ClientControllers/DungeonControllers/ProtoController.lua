@@ -230,6 +230,8 @@ local function setupMachine(machine)
 		end
 	end)
 
+	local currentUp = Vector3.new(0, 1, 0)
+
 	RunService.RenderStepped:Connect(function(dt)
 		if not isSeated then return end
 
@@ -243,11 +245,17 @@ local function setupMachine(machine)
 		local gravity = workspace.Gravity
 		local mass = rootPart.AssemblyMass
 
-		local up = Vector3.new(0, 1, 0)
+		-- Smooth alignment to ground normal
+		local targetUp = Vector3.new(0, 1, 0)
 		if groundSensor.SensedPart then
-			up = groundSensor.HitNormal
+			targetUp = groundSensor.HitNormal
 		end
 
+		-- Smooth the up vector
+		currentUp = currentUp:Lerp(targetUp, dt * 8)
+		local up = currentUp.Unit
+
+		-- Construct forward/right aligned with smoothed up
 		local forward = (rootPart.CFrame.LookVector - up * rootPart.CFrame.LookVector:Dot(up)).Unit
 		local right = forward:Cross(up).Unit
 
@@ -259,7 +267,6 @@ local function setupMachine(machine)
 			liftForce.Force = Vector3.new(0, -fallVelocity * mass, 0) + collisionDownForce
 		end
 
-		-- Decay the collision force over time
 		collisionDownForce = collisionDownForce:Lerp(Vector3.zero, dt * 3)
 
 		local isGrounded = groundSensor.SensedPart ~= nil
@@ -293,8 +300,6 @@ local function setupMachine(machine)
 			else
 				thrustVector = Vector3.zero
 			end
-
-
 		elseif currentSpeed < maxSpeed then
 			thrustVector = forward * (thrust + slopeDragForce)
 		end
@@ -315,6 +320,7 @@ local function setupMachine(machine)
 		thrustForce.Force = thrustVector + drag + lateralCorrection + boostVelocity
 		angularVelocity.AngularVelocity = Vector3.new(pitchInput * pitchSpeed, -steerInput * turnSpeed, steerInput * rollSpeed)
 	end)
+
 
 	local followCamera = createCameraFollow(seat, rootPart)
 	seat:GetPropertyChangedSignal("Occupant"):Connect(function()
