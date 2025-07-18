@@ -31,7 +31,7 @@ function TeleporterGUIController:KnitInit()
     
     ReplicaController.RequestData() --Should only be called once according to thte documentation
 
-    self:createScreenGUI(Teleporters)
+    --self:createScreenGUI(Teleporters)
 end
 
 function TeleporterGUIController:createScreenGUI(Teleporters)
