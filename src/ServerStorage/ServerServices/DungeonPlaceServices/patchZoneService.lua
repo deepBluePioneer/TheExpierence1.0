@@ -5,6 +5,9 @@ local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Knit = require(Packages.Knit)
 local CollectionService = game:GetService("CollectionService")
 
+local ParticleRoot = CustomPackages:WaitForChild("Particles")
+local ParticleSystem =require(ParticleRoot:WaitForChild("ParticlePackage"))
+
 -- Modules
 local ZoneRoot = CustomPackages:WaitForChild("ZoneRoot")
 local Zone = require(ZoneRoot:WaitForChild("Zone"))
@@ -24,7 +27,43 @@ function patchZoneService:HandleCharacterAdded(Player, Character)
 		humanoid.WalkSpeed = 45
 	end
 end
+function patchZoneService:ParticlesManager() --Spawn at postion
+    -- Create the part to act as the emitter anchor
+    local part = Instance.new("Part")
+    part.Name = "ParticleAnchor"
+    part.Anchored = true
+    part.CanCollide = false
+    part.Size = Vector3.new(.5, .5, .5)
+    part.Position = Vector3.new(0, 5, 0) -- Adjust position as needed
+    part.Transparency = 0
+    part.Parent = workspace
 
+	 local MeshID = "rbxassetid://110892923"
+    local TextureID = "rbxassetid://110892681"
+
+    local particleEmitter = ParticleSystem.new(part, MeshID, TextureID)
+    -- Create emitter with no mesh or texture
+
+    -- Configure the emitter
+    particleEmitter.Rate = 50
+    particleEmitter.Color = ColorSequence.new(Color3.new(1, 0, 0), Color3.new(1, 1, 0))
+    particleEmitter.Size = NumberSequence.new(0.5, 2)
+    particleEmitter.Speed = 5
+    particleEmitter.SpreadAngle = Vector2.new(20, 20)
+    particleEmitter.RotSpeed = {
+        X = NumberRange.new(-180, 180),
+        Y = NumberRange.new(-180, 180),
+        Z = NumberRange.new(-180, 180),
+    }
+    particleEmitter.Lifetime = NumberRange.new(1, 2)
+    particleEmitter.Acceleration = Vector3.new(0, -1, 0)
+    particleEmitter.EmissionDirection = "Top"
+    particleEmitter.ShapeInOut = "Outward"
+    particleEmitter.ShapeStyle = "Volume"
+    particleEmitter.Enabled = true
+
+    return particleEmitter
+end
 -- Spawn Patch and Create Its Zone
 function patchZoneService:spawnPatch(position)
 	local part = Instance.new("Part")
@@ -104,6 +143,7 @@ function patchZoneService:spawnPatch(position)
 		local machine = item.Parent
 		if machine and CollectionService:HasTag(machine, "machine") then
 			print(machine.Name, "entered patch zone:", part.Name)
+			 self:ParticlesManager()
 		end
 	end)
 
@@ -139,6 +179,7 @@ function patchZoneService:spawnPatch(position)
 
 	return part
 end
+
 
 -- KnitStart
 function patchZoneService:KnitStart()

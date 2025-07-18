@@ -82,7 +82,36 @@ local function createCameraFollow(seat, rootPart)
 	return followCamera
 end
 
+local function Forces_()
 
+	rootPart.Touched:Connect(function(hit)
+	if not hasRecentlyTouched and hit:IsA("BasePart") and hit:IsDescendantOf(workspace) then
+		local velocity = rootPart.Velocity
+		local speed = velocity.Magnitude
+		local mass = rootPart.AssemblyMass
+
+		-- Downward impulse to ground vehicle
+		local downImpulse = Vector3.new(0, -1, 0) * speed * mass * 2
+
+		-- Knockback force relative to velocity
+		local knockbackDir = -velocity.Unit
+		local knockbackImpulseDynamic = knockbackDir * speed * mass * 1.5
+
+		-- Fixed knockback force (applied even at low speed)
+		local knockbackImpulseFixed = knockbackDir * mass * 500 -- adjust "500" for base pushback
+
+		-- Combine everything
+		collisionDownForce = downImpulse + knockbackImpulseDynamic + knockbackImpulseFixed
+		hasRecentlyTouched = true
+
+		task.delay(0.3, function()
+			hasRecentlyTouched = false
+		end)
+	end
+end)
+
+	
+end
 
 -- Setup machine physics and movement loop
 local function setupMachine(machine)
@@ -128,8 +157,8 @@ local function setupMachine(machine)
 	angularVelocity.AngularVelocity = Vector3.zero
 	angularVelocity.Parent = rootPart
 
-	local maxSpeed = 60
-	local thrust = 5000
+	local maxSpeed = 90
+	local thrust = 8000
 	local dragFactor = 8
 	local turnSpeed = math.rad(80)
 	local pitchSpeed = math.rad(60)
@@ -153,6 +182,25 @@ local function setupMachine(machine)
 	local boostVelocity = Vector3.zero
 	local boostDecay = 6
 	local isBraking = false
+
+	local collisionDownForce = Vector3.zero
+	local hasRecentlyTouched = false
+
+	-- Touched Event for downward impulse
+	rootPart.Touched:Connect(function(hit)
+		if not hasRecentlyTouched and hit:IsA("BasePart") and hit:IsDescendantOf(workspace) then
+			local velocity = rootPart.Velocity
+			local magnitude = velocity.Magnitude
+			local mass = rootPart.AssemblyMass
+			local downImpulse = Vector3.new(0, -1, 0) * magnitude * mass * 2
+			collisionDownForce = downImpulse
+			hasRecentlyTouched = true
+
+			task.delay(0.3, function()
+				hasRecentlyTouched = false
+			end)
+		end
+	end)
 
 	UserInputService.InputBegan:Connect(function(input, processed)
 		if processed then return end
@@ -205,11 +253,14 @@ local function setupMachine(machine)
 
 		if groundSensor.SensedPart then
 			fallVelocity = 0
-			liftForce.Force = up * gravity * mass
+			liftForce.Force = up * gravity * mass + collisionDownForce
 		else
 			fallVelocity += gravity * dt * 0.4
-			liftForce.Force = Vector3.new(0, -fallVelocity * mass, 0)
+			liftForce.Force = Vector3.new(0, -fallVelocity * mass, 0) + collisionDownForce
 		end
+
+		-- Decay the collision force over time
+		collisionDownForce = collisionDownForce:Lerp(Vector3.zero, dt * 3)
 
 		local isGrounded = groundSensor.SensedPart ~= nil
 		if not isGrounded then
@@ -237,7 +288,13 @@ local function setupMachine(machine)
 		local currentSpeed = velocity:Dot(forward)
 		local thrustVector = Vector3.zero
 		if isBraking then
-			thrustVector = -forward * math.min(math.abs(currentSpeed * dragFactor * 2), thrust)
+			if currentSpeed > 0.1 then
+				thrustVector = -forward * math.min(math.abs(currentSpeed * dragFactor * 20), thrust * 8)
+			else
+				thrustVector = Vector3.zero
+			end
+
+
 		elseif currentSpeed < maxSpeed then
 			thrustVector = forward * (thrust + slopeDragForce)
 		end
@@ -272,6 +329,7 @@ local function setupMachine(machine)
 		end
 	end)
 end
+
 
 function ProtoController:KnitStart()
 	task.wait(5)
