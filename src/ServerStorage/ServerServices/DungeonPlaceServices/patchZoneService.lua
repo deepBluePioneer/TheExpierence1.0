@@ -5,7 +5,6 @@ local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Knit = require(Packages.Knit)
 local CollectionService = game:GetService("CollectionService")
 local PhysicsService = game:GetService("PhysicsService")
-
 local Players = game:GetService("Players")
 
 -- Replica Modules
@@ -23,17 +22,21 @@ local ZoneRoot = CustomPackages:WaitForChild("ZoneRoot")
 local Zone = require(ZoneRoot:WaitForChild("Zone"))
 
 local objectSpawnerZones = "objectSpawnerZone"
+local firstPlayer = nil
 
--- Image IDs
+-- Patch Types and IDs
 local offenseID = 98406035373604
 local speedBoostID = 123435038795023
 local topSpeedID = 124394366919392
 
-local patchImageIDs = {
-	offenseID,
-	speedBoostID,
-	topSpeedID
+local patchTypes = {
+	{ id = offenseID, name = "Offense" },
+	{ id = speedBoostID, name = "SpeedBoost" },
+	{ id = topSpeedID, name = "TopSpeed" },
 }
+
+-- Replica Setup
+local playerReplicas = {}
 
 -- Service
 local patchZoneService = Knit.CreateService {
@@ -41,7 +44,6 @@ local patchZoneService = Knit.CreateService {
 	Client = {},
 }
 
--- Collision Group Setup
 function patchZoneService:SetupCollisionGroups()
 	local function ensureGroup(name)
 		pcall(function()
@@ -51,35 +53,51 @@ function patchZoneService:SetupCollisionGroups()
 
 	ensureGroup("Patch")
 	ensureGroup("Machine")
-	ensureGroup("Player") -- ✅ added
+	ensureGroup("Player")
 
 	PhysicsService:CollisionGroupSetCollidable("Patch", "Machine", false)
-	PhysicsService:CollisionGroupSetCollidable("Patch", "Player", false) -- ✅ added
+	PhysicsService:CollisionGroupSetCollidable("Patch", "Player", false)
 	PhysicsService:CollisionGroupSetCollidable("Patch", "Default", true)
 end
 
--- Auto-assign "Machine" group to RootParts
 function patchZoneService:AssignMachineCollisionGroups()
 	for _, machine in ipairs(CollectionService:GetTagged("machine")) do
 		local root = machine:FindFirstChild("RootPart")
 		if root then
 			root.CollisionGroup = "Machine"
 		end
+
+		if firstPlayer then
+			machine:SetAttribute("OwnerUserId", firstPlayer.UserId)
+		end
 	end
 end
 
--- Assign "Player" collision group to all character parts
-function patchZoneService:HandleCharacterAdded(Player, Character)
-	local humanoid = Character:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		humanoid.WalkSpeed = 45
-	end
+function patchZoneService:InitReplicas(player)
+	local replica = ReplicaService.NewReplica({
+		ClassToken = ReplicaService.NewClassToken("PatchNotifier"),
+		Data = {
+			PatchType = nil,
+		},
+		Replication = player,
+	})
 
+	playerReplicas[player] = replica
+end
+
+function patchZoneService:HandleCharacterAdded(Player, Character)
 	for _, part in ipairs(Character:GetDescendants()) do
 		if part:IsA("BasePart") then
 			part.CollisionGroup = "Player"
 		end
 	end
+
+	if not firstPlayer then
+		firstPlayer = Player
+		warn(firstPlayer.UserId)
+	end
+
+	self:InitReplicas(Player)
 end
 
 function patchZoneService:ParticlesManager()
@@ -92,29 +110,25 @@ function patchZoneService:ParticlesManager()
 	part.Transparency = 0
 	part.Parent = workspace
 
-	local MeshID = "rbxassetid://110892923"
-	local TextureID = "rbxassetid://110892681"
-
-	local particleEmitter = ParticleSystem.new(part, MeshID, TextureID)
-
-	particleEmitter.Rate = 50
-	particleEmitter.Color = ColorSequence.new(Color3.new(1, 0, 0), Color3.new(1, 1, 0))
-	particleEmitter.Size = NumberSequence.new(0.5, 2)
-	particleEmitter.Speed = 5
-	particleEmitter.SpreadAngle = Vector2.new(20, 20)
-	particleEmitter.RotSpeed = {
+	local emitter = ParticleSystem.new(part, "rbxassetid://110892923", "rbxassetid://110892681")
+	emitter.Rate = 50
+	emitter.Color = ColorSequence.new(Color3.new(1, 0, 0), Color3.new(1, 1, 0))
+	emitter.Size = NumberSequence.new(0.5, 2)
+	emitter.Speed = 5
+	emitter.SpreadAngle = Vector2.new(20, 20)
+	emitter.RotSpeed = {
 		X = NumberRange.new(-180, 180),
 		Y = NumberRange.new(-180, 180),
 		Z = NumberRange.new(-180, 180),
 	}
-	particleEmitter.Lifetime = NumberRange.new(1, 2)
-	particleEmitter.Acceleration = Vector3.new(0, -1, 0)
-	particleEmitter.EmissionDirection = "Top"
-	particleEmitter.ShapeInOut = "Outward"
-	particleEmitter.ShapeStyle = "Volume"
-	particleEmitter.Enabled = true
+	emitter.Lifetime = NumberRange.new(1, 2)
+	emitter.Acceleration = Vector3.new(0, -1, 0)
+	emitter.EmissionDirection = "Top"
+	emitter.ShapeInOut = "Outward"
+	emitter.ShapeStyle = "Volume"
+	emitter.Enabled = true
 
-	return particleEmitter
+	return emitter
 end
 
 function patchZoneService:spawnPatch(position)
@@ -133,7 +147,6 @@ function patchZoneService:spawnPatch(position)
 	local billboardGui = Instance.new("BillboardGui")
 	billboardGui.Name = "PatchBillboard"
 	billboardGui.Size = UDim2.new(11, 0, 11, 0)
-	billboardGui.StudsOffset = Vector3.new(0, 0, 0)
 	billboardGui.AlwaysOnTop = false
 	billboardGui.Adornee = part
 	billboardGui.MaxDistance = math.huge
@@ -146,20 +159,21 @@ function patchZoneService:spawnPatch(position)
 	imageLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
 	imageLabel.Size = UDim2.new(1, 0, 1, 0)
 	imageLabel.BackgroundTransparency = 1
-	imageLabel.Image = "rbxassetid://" .. tostring(patchImageIDs[math.random(1, #patchImageIDs)])
+
+	-- Select patch type
+	local selected = patchTypes[math.random(1, #patchTypes)]
+	part:SetAttribute("PatchType", selected.name)
+	imageLabel.Image = "rbxassetid://" .. tostring(selected.id)
 	imageLabel.Parent = billboardGui
 
-	local attachment = Instance.new("Attachment")
-	attachment.Parent = part
+	local attachment = Instance.new("Attachment", part)
 
 	local align = Instance.new("AlignOrientation")
-	align.Name = "PatchLookAlign"
 	align.Attachment0 = attachment
 	align.Mode = Enum.OrientationAlignmentMode.OneAttachment
 	align.AlignType = Enum.AlignType.Parallel
 	align.RigidityEnabled = true
 	align.Responsiveness = 100
-	align.PrimaryAxisOnly = false
 	align.Parent = part
 
 	local gravity = workspace.Gravity
@@ -177,13 +191,23 @@ function patchZoneService:spawnPatch(position)
 
 	part.Touched:Connect(function(hit)
 		local model = hit:FindFirstAncestorOfClass("Model")
+
 		if model and hit.Name == "RootPart" and CollectionService:HasTag(model, "machine") then
 			if not touching[model] then
 				touching[model] = true
-				print(model.Name, "touched patch:", part.Name)
 
-				self:ParticlesManager()
-				part:Destroy()
+				local userId = model:GetAttribute("OwnerUserId")
+				local player = userId and Players:GetPlayerByUserId(userId)
+
+				if player and playerReplicas[player] then
+					local patchType = part:GetAttribute("PatchType") or "Unknown"
+					playerReplicas[player]:SetValue("PatchType", patchType)
+					playerReplicas[player]:SetValue("PatchType", "") --Resest in case we collide with the same type
+					--self:ParticlesManager()
+					part:Destroy()
+				else
+					warn("No player or replica found for machine:", model.Name, "OwnerUserId:", userId)
+				end
 			end
 		end
 	end)
@@ -195,49 +219,49 @@ function patchZoneService:spawnPatch(position)
 		end
 	end)
 
-	return part
+	task.delay(10, function()
+	if part and part.Parent then
+		part:Destroy()
+	end
+end)
+
 end
 
 function patchZoneService:KnitStart()
+	require(PlayerAddedFunctions)(
+		function(_) end,
+		function(_) end,
+		function(player, character)
+			self:HandleCharacterAdded(player, character)
+		end
+	)
+
+	task.wait(4) -- ensure player has spawned
 	self:SetupCollisionGroups()
 	self:AssignMachineCollisionGroups()
 
-	local zoneTagged = CollectionService:GetTagged(objectSpawnerZones)
 	local zoneParts = {}
-
-	for _, container in ipairs(zoneTagged) do
+	for _, container in ipairs(CollectionService:GetTagged(objectSpawnerZones)) do
 		for _, part in ipairs(container:GetDescendants()) do
 			if part:IsA("BasePart") then
 				table.insert(zoneParts, part)
 			end
 		end
 	end
-
 	self.zone = Zone.new(zoneParts)
 
 	task.spawn(function()
 		while true do
-			local spawnCount = 10
-			for i = 1, spawnCount do
+			for i = 1, 10 do
 				local position = self.zone:getRandomPoint()
 				if position then
 					self:spawnPatch(position)
-				else
-					warn("No valid position found for patch spawn")
 				end
 				task.wait(0.5)
 			end
-			task.wait(5)
+		task.wait(5)
 		end
 	end)
-
-	require(PlayerAddedFunctions)(
-		function(player) end,
-		function(player) end,
-		function(player, character)
-			self:HandleCharacterAdded(player, character)
-		end
-	)
 end
 
 function patchZoneService:KnitInit() end
