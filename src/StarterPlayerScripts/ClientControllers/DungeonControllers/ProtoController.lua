@@ -97,29 +97,29 @@ end
 local function Forces_()
 
 	rootPart.Touched:Connect(function(hit)
-	if not hasRecentlyTouched and hit:IsA("BasePart") and hit:IsDescendantOf(workspace) then
-		local velocity = rootPart.Velocity
-		local speed = velocity.Magnitude
-		local mass = rootPart.AssemblyMass
+		if not hasRecentlyTouched and hit:IsA("BasePart") and hit:IsDescendantOf(workspace) then
+			local velocity = rootPart.Velocity
+			local speed = velocity.Magnitude
+			local mass = rootPart.AssemblyMass
 
-		-- Downward impulse to ground vehicle
-		local downImpulse = Vector3.new(0, -1, 0) * speed * mass * 2
+			-- Downward impulse to ground vehicle
+			local downImpulse = Vector3.new(0, -1, 0) * speed * mass * 2
 
-		-- Knockback force relative to velocity
-		local knockbackDir = -velocity.Unit
-		local knockbackImpulseDynamic = knockbackDir * speed * mass * 1.5
+			-- Knockback force relative to velocity
+			local knockbackDir = -velocity.Unit
+			local knockbackImpulseDynamic = knockbackDir * speed * mass * 1.5
 
-		-- Fixed knockback force (applied even at low speed)
-		local knockbackImpulseFixed = knockbackDir * mass * 500 -- adjust "500" for base pushback
+			-- Fixed knockback force (applied even at low speed)
+			local knockbackImpulseFixed = knockbackDir * mass * 500 -- adjust "500" for base pushback
 
-		-- Combine everything
-		collisionDownForce = downImpulse + knockbackImpulseDynamic + knockbackImpulseFixed
-		hasRecentlyTouched = true
+			-- Combine everything
+			collisionDownForce = downImpulse + knockbackImpulseDynamic + knockbackImpulseFixed
+			hasRecentlyTouched = true
 
-		task.delay(0.3, function()
-			hasRecentlyTouched = false
-		end)
-	end
+			task.delay(0.3, function()
+				hasRecentlyTouched = false
+			end)
+		end
 end)
 
 	

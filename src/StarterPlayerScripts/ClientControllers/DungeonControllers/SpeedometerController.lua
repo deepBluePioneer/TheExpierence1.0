@@ -6,13 +6,12 @@ local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
--- Fusion (function-based modules)
+-- Fusion
 local FusionRoot = CustomPackages:WaitForChild("FusionRoot")
 local Fusion = require(FusionRoot:WaitForChild("Fusion"))
 
 local New = Fusion.New
-local OnEvent = Fusion.OnEvent
-local Value = Fusion.Value -- This is how you use Fusion's state management
+local Value = Fusion.Value
 local Computed = Fusion.Computed
 
 local SpeedometerController = Knit.CreateController { Name = "SpeedometerController" }
@@ -26,21 +25,29 @@ local function findMachineModelFromSeat(seat)
 	return nil
 end
 
+local function lerp(a, b, t)
+	return a + (b - a) * t
+end
+
 function SpeedometerController:KnitStart()
 	local player = Players.LocalPlayer
 	local gui = player:WaitForChild("PlayerGui")
 
 	local function createSpeedometer(rootPart)
-		local speedValue = Value(0)
+		local targetSpeed = 0
+		local displayedSpeed = Value(0)
 
-		-- Update MPH based on velocity
-		RunService.RenderStepped:Connect(function()
+		-- Interpolate speed manually
+		RunService.RenderStepped:Connect(function(dt)
 			local velocity = rootPart.Velocity
-			local speedMPH = velocity.Magnitude * 1.40625
-			speedValue:set(math.floor(speedMPH))
+			targetSpeed = velocity.Magnitude * 1.40625
+
+			local current = displayedSpeed:get()
+			local smoothed = lerp(current, targetSpeed, math.clamp(dt * 6, 0, 1))
+			displayedSpeed:set(smoothed)
 		end)
 
-		-- Create GUI
+		-- GUI setup
 		local screenGui = New "ScreenGui" {
 			Name = "Speedometer",
 			ResetOnSpawn = false,
@@ -48,22 +55,35 @@ function SpeedometerController:KnitStart()
 			Parent = gui
 		}
 
-		New "TextLabel" {
-			Name = "SpeedLabel",
-			Parent = screenGui,
-			Size = UDim2.fromOffset(200, 50),
-			Position = UDim2.new(1, -210, 1, -60),
-			AnchorPoint = Vector2.new(1, 1),
-			BackgroundTransparency = 0.3,
-			BackgroundColor3 = Color3.fromRGB(20, 20, 20),
-			TextColor3 = Color3.new(1, 1, 1),
-			TextScaled = true,
-			Font = Enum.Font.GothamBold,
+		local frameSize = UDim2.fromOffset(200, 200)
 
-			Text = Computed(function()
-				return tostring(speedValue:get())
-			end)
+		-- Background Image
+		local image = New "ImageLabel" {
+			Name = "SpeedometerImage",
+			Parent = screenGui,
+			Size = frameSize,
+			Position = UDim2.new(1, -220, 1, -220),
+			AnchorPoint = Vector2.new(0, 0),
+			BackgroundTransparency = 1,
+			Image = "rbxassetid://94399498242995"
 		}
+
+		-- Text on top
+        New "TextLabel" {
+            Name = "SpeedLabel",
+            Parent = image,
+            Size = UDim2.new(1, 0, 1, 0),
+            Position = UDim2.new(0, 0, 0, 0),
+            BackgroundTransparency = 1,
+            TextColor3 = Color3.new(0, 0, 0), -- black text
+            TextScaled = false,
+            TextSize = 24, -- smaller font
+            Font = Enum.Font.GothamBold,
+            Text = Computed(function()
+                return string.format("%.1f", displayedSpeed:get()) -- no "MPH"
+            end)
+        }
+
 	end
 
 	local function onSeated(humanoid, isSeated, seat)

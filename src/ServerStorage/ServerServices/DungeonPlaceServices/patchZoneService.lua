@@ -4,11 +4,21 @@ local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Knit = require(Packages.Knit)
 local CollectionService = game:GetService("CollectionService")
+local PhysicsService = game:GetService("PhysicsService")
+
+local Players = game:GetService("Players")
+
+-- Replica Modules
+local Replica = CustomPackages.Replica
+local ReplicaService = require(Replica.ReplicaService)
+
+local PlayerAddedController = CustomPackages.PlayerAddedController
+local PlayerAddedFunctions = PlayerAddedController.PlayerAddedFunctions
 
 local ParticleRoot = CustomPackages:WaitForChild("Particles")
 local ParticleSystem = require(ParticleRoot:WaitForChild("ParticlePackage"))
 
--- Modules
+-- ZonePlus (for spawn area only)
 local ZoneRoot = CustomPackages:WaitForChild("ZoneRoot")
 local Zone = require(ZoneRoot:WaitForChild("Zone"))
 
@@ -31,11 +41,44 @@ local patchZoneService = Knit.CreateService {
 	Client = {},
 }
 
--- Character Handling
+-- Collision Group Setup
+function patchZoneService:SetupCollisionGroups()
+	local function ensureGroup(name)
+		pcall(function()
+			PhysicsService:RegisterCollisionGroup(name)
+		end)
+	end
+
+	ensureGroup("Patch")
+	ensureGroup("Machine")
+	ensureGroup("Player") -- ✅ added
+
+	PhysicsService:CollisionGroupSetCollidable("Patch", "Machine", false)
+	PhysicsService:CollisionGroupSetCollidable("Patch", "Player", false) -- ✅ added
+	PhysicsService:CollisionGroupSetCollidable("Patch", "Default", true)
+end
+
+-- Auto-assign "Machine" group to RootParts
+function patchZoneService:AssignMachineCollisionGroups()
+	for _, machine in ipairs(CollectionService:GetTagged("machine")) do
+		local root = machine:FindFirstChild("RootPart")
+		if root then
+			root.CollisionGroup = "Machine"
+		end
+	end
+end
+
+-- Assign "Player" collision group to all character parts
 function patchZoneService:HandleCharacterAdded(Player, Character)
 	local humanoid = Character:FindFirstChildOfClass("Humanoid")
 	if humanoid then
 		humanoid.WalkSpeed = 45
+	end
+
+	for _, part in ipairs(Character:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.CollisionGroup = "Player"
+		end
 	end
 end
 
@@ -82,11 +125,11 @@ function patchZoneService:spawnPatch(position)
 	part.Transparency = 1
 	part.Position = position + Vector3.new(0, 10, 0)
 	part.Name = "PatchObject"
+	part.CollisionGroup = "Patch"
 	part.Parent = workspace
 
 	CollectionService:AddTag(part, "powerupPatch")
 
-	-- BillboardGui
 	local billboardGui = Instance.new("BillboardGui")
 	billboardGui.Name = "PatchBillboard"
 	billboardGui.Size = UDim2.new(11, 0, 11, 0)
@@ -103,8 +146,7 @@ function patchZoneService:spawnPatch(position)
 	imageLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
 	imageLabel.Size = UDim2.new(1, 0, 1, 0)
 	imageLabel.BackgroundTransparency = 1
-	local randomImageId = patchImageIDs[math.random(1, #patchImageIDs)]
-	imageLabel.Image = "rbxassetid://" .. tostring(randomImageId)
+	imageLabel.Image = "rbxassetid://" .. tostring(patchImageIDs[math.random(1, #patchImageIDs)])
 	imageLabel.Parent = billboardGui
 
 	local attachment = Instance.new("Attachment")
@@ -131,52 +173,25 @@ function patchZoneService:spawnPatch(position)
 	vectorForce.ApplyAtCenterOfMass = true
 	vectorForce.Parent = part
 
-	self.zone:trackItem(part)
-
-	local patchZone = Zone.new({ part })
-
-	for _, machine in ipairs(CollectionService:GetTagged("machine")) do
-		local root = machine:FindFirstChild("RootPart")
-		if root then
-			patchZone:trackItem(root)
-		end
-	end
-
-	patchZone.itemEntered:Connect(function(item)
-		local machine = item.Parent
-		if machine and CollectionService:HasTag(machine, "machine") then
-			print(machine.Name, "entered patch zone:", part.Name)
-			self:ParticlesManager()
-		end
-	end)
-
-	patchZone.itemExited:Connect(function(item)
-		local machine = item.Parent
-		if machine and CollectionService:HasTag(machine, "machine") then
-			print(machine.Name, "exited patch zone:", part.Name)
-		end
-	end)
-
 	local touching = {}
 
 	part.Touched:Connect(function(hit)
-		local machine = hit.Parent
-		if machine and CollectionService:HasTag(machine, "machine") and hit.Name == "RootPart" then
-			if not touching[machine] then
-				touching[machine] = true
-				print(machine.Name, "collided with patch:", part.Name)
-				part.Parent = nil
+		local model = hit:FindFirstAncestorOfClass("Model")
+		if model and hit.Name == "RootPart" and CollectionService:HasTag(model, "machine") then
+			if not touching[model] then
+				touching[model] = true
+				print(model.Name, "touched patch:", part.Name)
+
+				self:ParticlesManager()
+				part:Destroy()
 			end
 		end
 	end)
 
 	part.TouchEnded:Connect(function(hit)
-		local machine = hit.Parent
-		if machine and CollectionService:HasTag(machine, "machine") and hit.Name == "RootPart" then
-			if touching[machine] then
-				touching[machine] = nil
-				print(machine.Name, "ended collision with patch:", part.Name)
-			end
+		local model = hit:FindFirstAncestorOfClass("Model")
+		if model and touching[model] then
+			touching[model] = nil
 		end
 	end)
 
@@ -184,6 +199,9 @@ function patchZoneService:spawnPatch(position)
 end
 
 function patchZoneService:KnitStart()
+	self:SetupCollisionGroups()
+	self:AssignMachineCollisionGroups()
+
 	local zoneTagged = CollectionService:GetTagged(objectSpawnerZones)
 	local zoneParts = {}
 
@@ -212,6 +230,14 @@ function patchZoneService:KnitStart()
 			task.wait(5)
 		end
 	end)
+
+	require(PlayerAddedFunctions)(
+		function(player) end,
+		function(player) end,
+		function(player, character)
+			self:HandleCharacterAdded(player, character)
+		end
+	)
 end
 
 function patchZoneService:KnitInit() end
