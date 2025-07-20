@@ -18,15 +18,17 @@ local Camera = workspace.CurrentCamera
 local ProtoController = Knit.CreateController { Name = "ProtoController" }
 ProtoController.isCharging = false -- Global flag for camera
 
-local function createCameraFollow(seat, rootPart)
+local function createCameraFollow(seat, targetPart)
 	local smoothedCameraCFrame = nil
 	local lateralOffset = 0
-	local currentFOV = Camera.FieldOfView
+	local currentFOV = workspace.CurrentCamera.FieldOfView
 	local defaultFOV = 70
 	local zoomedFOV = 60
 	local currentTilt = 0
+	local smoothingSpeed = 15 -- tuning value for smoothing
 
-	local function followCamera()
+	local function followCamera(dt)
+		local Camera = workspace.CurrentCamera
 		if not seat.Occupant or seat.Occupant.Parent ~= LocalPlayer.Character then
 			Camera.CameraType = Enum.CameraType.Custom
 			RunService:UnbindFromRenderStep("FollowVehicleCamera")
@@ -35,8 +37,16 @@ local function createCameraFollow(seat, rootPart)
 			return
 		end
 
-		local rootPosition = rootPart.Position
-		local flatLook = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z).Unit
+		local renderCF = targetPart:GetRenderCFrame()
+		local rootPosition = renderCF.Position
+		local lookVector = renderCF.LookVector
+
+		local flatLook = Vector3.new(lookVector.X, 0, lookVector.Z)
+		if flatLook.Magnitude == 0 then
+			flatLook = Vector3.new(0, 0, -1)
+		end
+		flatLook = flatLook.Unit
+
 		local right = flatLook:Cross(Vector3.new(0, 1, 0)).Unit
 		local up = right:Cross(flatLook).Unit
 		local rootCFrame = CFrame.fromMatrix(rootPosition, right, up)
@@ -44,7 +54,6 @@ local function createCameraFollow(seat, rootPart)
 		local cameraHeight = 8
 		local cameraDistance = 15
 
-		-- Lateral offset when charging and steering
 		local targetLateralOffset = 0
 		if ProtoController.isCharging then
 			if UserInputService:IsKeyDown(Enum.KeyCode.A) then
@@ -55,7 +64,6 @@ local function createCameraFollow(seat, rootPart)
 		end
 		lateralOffset += (targetLateralOffset - lateralOffset) * 0.1
 
-		-- Camera position calculation
 		local cameraPos = rootCFrame.Position
 			+ up * cameraHeight
 			- flatLook * cameraDistance
@@ -64,16 +72,18 @@ local function createCameraFollow(seat, rootPart)
 		local lookTarget = cameraPos + flatLook
 		local targetCFrame = CFrame.new(cameraPos, lookTarget)
 
-		-- Smooth tilt based on lateral offset
-		local targetTilt = math.rad(lateralOffset * -2.5) -- Tilt scale
+		local targetTilt = math.rad(lateralOffset * -2.5)
 		currentTilt += (targetTilt - currentTilt) * 0.1
 		local tiltCFrame = CFrame.Angles(0, 0, currentTilt)
 
-		-- Final camera with tilt
-		smoothedCameraCFrame = smoothedCameraCFrame and smoothedCameraCFrame:Lerp(targetCFrame * tiltCFrame, 0.5) or (targetCFrame * tiltCFrame)
+		-- ✅ Frame-rate independent smoothing
+		local alpha = 1 - math.exp(-smoothingSpeed * dt)
+		smoothedCameraCFrame = smoothedCameraCFrame
+			and smoothedCameraCFrame:Lerp(targetCFrame * tiltCFrame, alpha)
+			or (targetCFrame * tiltCFrame)
+
 		Camera.CFrame = smoothedCameraCFrame
 
-		-- FOV smoothing
 		local targetFOV = ProtoController.isCharging and zoomedFOV or defaultFOV
 		currentFOV += (targetFOV - currentFOV) * 0.1
 		Camera.FieldOfView = currentFOV
@@ -81,6 +91,8 @@ local function createCameraFollow(seat, rootPart)
 
 	return followCamera
 end
+
+
 
 local function Forces_()
 
@@ -309,7 +321,7 @@ local function setupMachine(machine)
 
 		local drag = forward * -currentSpeed * dragFactor
 
-		local targetRoll = math.rad(steerInput * -50)
+		local targetRoll = math.rad(steerInput * -20) --Roll input
 		local targetPitch = math.rad(pitchInput * 5)
 		currentRoll += (targetRoll - currentRoll) * 0.15
 		currentPitch += (targetPitch - currentPitch) * 0.15

@@ -6,13 +6,24 @@ local Knit = require(Packages.Knit)
 local CollectionService = game:GetService("CollectionService")
 
 local ParticleRoot = CustomPackages:WaitForChild("Particles")
-local ParticleSystem =require(ParticleRoot:WaitForChild("ParticlePackage"))
+local ParticleSystem = require(ParticleRoot:WaitForChild("ParticlePackage"))
 
 -- Modules
 local ZoneRoot = CustomPackages:WaitForChild("ZoneRoot")
 local Zone = require(ZoneRoot:WaitForChild("Zone"))
 
 local objectSpawnerZones = "objectSpawnerZone"
+
+-- Image IDs
+local offenseID = 98406035373604
+local speedBoostID = 123435038795023
+local topSpeedID = 124394366919392
+
+local patchImageIDs = {
+	offenseID,
+	speedBoostID,
+	topSpeedID
+}
 
 -- Service
 local patchZoneService = Knit.CreateService {
@@ -27,44 +38,42 @@ function patchZoneService:HandleCharacterAdded(Player, Character)
 		humanoid.WalkSpeed = 45
 	end
 end
-function patchZoneService:ParticlesManager() --Spawn at postion
-    -- Create the part to act as the emitter anchor
-    local part = Instance.new("Part")
-    part.Name = "ParticleAnchor"
-    part.Anchored = true
-    part.CanCollide = false
-    part.Size = Vector3.new(.5, .5, .5)
-    part.Position = Vector3.new(0, 5, 0) -- Adjust position as needed
-    part.Transparency = 0
-    part.Parent = workspace
 
-	 local MeshID = "rbxassetid://110892923"
-    local TextureID = "rbxassetid://110892681"
+function patchZoneService:ParticlesManager()
+	local part = Instance.new("Part")
+	part.Name = "ParticleAnchor"
+	part.Anchored = true
+	part.CanCollide = false
+	part.Size = Vector3.new(.5, .5, .5)
+	part.Position = Vector3.new(0, 5, 0)
+	part.Transparency = 0
+	part.Parent = workspace
 
-    local particleEmitter = ParticleSystem.new(part, MeshID, TextureID)
-    -- Create emitter with no mesh or texture
+	local MeshID = "rbxassetid://110892923"
+	local TextureID = "rbxassetid://110892681"
 
-    -- Configure the emitter
-    particleEmitter.Rate = 50
-    particleEmitter.Color = ColorSequence.new(Color3.new(1, 0, 0), Color3.new(1, 1, 0))
-    particleEmitter.Size = NumberSequence.new(0.5, 2)
-    particleEmitter.Speed = 5
-    particleEmitter.SpreadAngle = Vector2.new(20, 20)
-    particleEmitter.RotSpeed = {
-        X = NumberRange.new(-180, 180),
-        Y = NumberRange.new(-180, 180),
-        Z = NumberRange.new(-180, 180),
-    }
-    particleEmitter.Lifetime = NumberRange.new(1, 2)
-    particleEmitter.Acceleration = Vector3.new(0, -1, 0)
-    particleEmitter.EmissionDirection = "Top"
-    particleEmitter.ShapeInOut = "Outward"
-    particleEmitter.ShapeStyle = "Volume"
-    particleEmitter.Enabled = true
+	local particleEmitter = ParticleSystem.new(part, MeshID, TextureID)
 
-    return particleEmitter
+	particleEmitter.Rate = 50
+	particleEmitter.Color = ColorSequence.new(Color3.new(1, 0, 0), Color3.new(1, 1, 0))
+	particleEmitter.Size = NumberSequence.new(0.5, 2)
+	particleEmitter.Speed = 5
+	particleEmitter.SpreadAngle = Vector2.new(20, 20)
+	particleEmitter.RotSpeed = {
+		X = NumberRange.new(-180, 180),
+		Y = NumberRange.new(-180, 180),
+		Z = NumberRange.new(-180, 180),
+	}
+	particleEmitter.Lifetime = NumberRange.new(1, 2)
+	particleEmitter.Acceleration = Vector3.new(0, -1, 0)
+	particleEmitter.EmissionDirection = "Top"
+	particleEmitter.ShapeInOut = "Outward"
+	particleEmitter.ShapeStyle = "Volume"
+	particleEmitter.Enabled = true
+
+	return particleEmitter
 end
--- Spawn Patch and Create Its Zone
+
 function patchZoneService:spawnPatch(position)
 	local part = Instance.new("Part")
 	part.Size = Vector3.new(7, 7, 7)
@@ -77,11 +86,11 @@ function patchZoneService:spawnPatch(position)
 
 	CollectionService:AddTag(part, "powerupPatch")
 
-	-- Add BillboardGui instead of Decals
+	-- BillboardGui
 	local billboardGui = Instance.new("BillboardGui")
 	billboardGui.Name = "PatchBillboard"
-	billboardGui.Size = UDim2.new(11, 0, 11, 0) -- scale-based size (5% of screen height/width)
-	billboardGui.StudsOffset = Vector3.new(0, 0, 0) -- no visual lift
+	billboardGui.Size = UDim2.new(11, 0, 11, 0)
+	billboardGui.StudsOffset = Vector3.new(0, 0, 0)
 	billboardGui.AlwaysOnTop = false
 	billboardGui.Adornee = part
 	billboardGui.MaxDistance = math.huge
@@ -92,13 +101,11 @@ function patchZoneService:spawnPatch(position)
 	imageLabel.Name = "PatchImage"
 	imageLabel.AnchorPoint = Vector2.new(0.5, 0.6)
 	imageLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
-	imageLabel.Size = UDim2.new(1, 0, 1, 0) -- fill full BillboardGui area
+	imageLabel.Size = UDim2.new(1, 0, 1, 0)
 	imageLabel.BackgroundTransparency = 1
-	imageLabel.Image = "rbxassetid://112425153579607"
+	local randomImageId = patchImageIDs[math.random(1, #patchImageIDs)]
+	imageLabel.Image = "rbxassetid://" .. tostring(randomImageId)
 	imageLabel.Parent = billboardGui
-
-
-
 
 	local attachment = Instance.new("Attachment")
 	attachment.Parent = part
@@ -124,13 +131,10 @@ function patchZoneService:spawnPatch(position)
 	vectorForce.ApplyAtCenterOfMass = true
 	vectorForce.Parent = part
 
-	-- Track item in global zone
 	self.zone:trackItem(part)
 
-	-- Create zone for this patch
 	local patchZone = Zone.new({ part })
 
-	-- Track existing machines
 	for _, machine in ipairs(CollectionService:GetTagged("machine")) do
 		local root = machine:FindFirstChild("RootPart")
 		if root then
@@ -138,12 +142,11 @@ function patchZoneService:spawnPatch(position)
 		end
 	end
 
-	-- Detect machine RootParts entering/exiting patch zone
 	patchZone.itemEntered:Connect(function(item)
 		local machine = item.Parent
 		if machine and CollectionService:HasTag(machine, "machine") then
 			print(machine.Name, "entered patch zone:", part.Name)
-			 self:ParticlesManager()
+			self:ParticlesManager()
 		end
 	end)
 
@@ -154,7 +157,6 @@ function patchZoneService:spawnPatch(position)
 		end
 	end)
 
-	-- Detect physical collisions with machine RootParts
 	local touching = {}
 
 	part.Touched:Connect(function(hit)
@@ -163,6 +165,7 @@ function patchZoneService:spawnPatch(position)
 			if not touching[machine] then
 				touching[machine] = true
 				print(machine.Name, "collided with patch:", part.Name)
+				part.Parent = nil
 			end
 		end
 	end)
@@ -180,8 +183,6 @@ function patchZoneService:spawnPatch(position)
 	return part
 end
 
-
--- KnitStart
 function patchZoneService:KnitStart()
 	local zoneTagged = CollectionService:GetTagged(objectSpawnerZones)
 	local zoneParts = {}
@@ -196,15 +197,21 @@ function patchZoneService:KnitStart()
 
 	self.zone = Zone.new(zoneParts)
 
-	task.wait(5)
-
-	local position, _ = self.zone:getRandomPoint()
-	if not position then
-		warn("No valid position found for patch spawn")
-		return
-	end
-
-	self:spawnPatch(position)
+	task.spawn(function()
+		while true do
+			local spawnCount = 10
+			for i = 1, spawnCount do
+				local position = self.zone:getRandomPoint()
+				if position then
+					self:spawnPatch(position)
+				else
+					warn("No valid position found for patch spawn")
+				end
+				task.wait(0.5)
+			end
+			task.wait(5)
+		end
+	end)
 end
 
 function patchZoneService:KnitInit() end

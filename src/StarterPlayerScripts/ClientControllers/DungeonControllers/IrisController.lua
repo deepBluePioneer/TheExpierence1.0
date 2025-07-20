@@ -3,16 +3,19 @@ local CustomPackages = ReplicatedStorage.CustomPackages
 local Packages = ReplicatedStorage.Packages
 local Knit = require(Packages.Knit)
 
-local IntroCinematicController = Knit.CreateController { Name = "IntroCinematicController" }
+-- Load the iris module
+local Packages = ReplicatedStorage.Packages
+local Iris = require(Packages.iris)
 
---Start intro camera cinematic before race and during setup and initialize anything
 
-function IntroCinematicController:KnitStart()
+local IrisController = Knit.CreateController { Name = "IrisController" }
+
+function IrisController:KnitStart()
     -- Add controller startup logic here
 end
 
-function IntroCinematicController:KnitInit()
+function IrisController:KnitInit()
     -- Add controller initialization logic here
 end
 
-return IntroCinematicController
+return IrisController
