@@ -22,8 +22,8 @@ local function createCameraFollow(seat, targetPart)
 	local smoothedCameraCFrame = nil
 	local lateralOffset = 0
 	local currentFOV = workspace.CurrentCamera.FieldOfView
-	local defaultFOV = 40
-	local zoomedFOV = 40
+	local defaultFOV = 35
+	local zoomedFOV = 33
 	local currentTilt = 0
 	local smoothingSpeed = 15 -- tuning value for smoothing
 
