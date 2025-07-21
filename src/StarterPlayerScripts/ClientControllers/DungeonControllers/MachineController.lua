@@ -6,140 +6,47 @@ local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 
 -- Packages
+local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Knit = require(Packages.Knit)
-local gizmo = require(Packages.imgizmo)
+
+-- Controllers
+local CameraController
 
 -- References
 local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
+local MachineController = Knit.CreateController { Name = "MachineController" }
 
--- Controller
-local ProtoController = Knit.CreateController { Name = "ProtoController" }
-ProtoController.isCharging = false -- Global flag for camera
+function MachineController:KnitStart()
+     CameraController = Knit.GetController("CameraController")
 
-local function createCameraFollow(seat, targetPart)
-	local smoothedCameraCFrame = nil
-	local lateralOffset = 0
-	local currentFOV = workspace.CurrentCamera.FieldOfView
-	local defaultFOV = 35
-	local zoomedFOV = 33
-	local currentTilt = 0
-	local smoothingSpeed = 15 -- tuning value for smoothing
+	task.wait(5)
+	local machines = CollectionService:GetTagged("machine")
+	print("Found", #machines, "machines")
 
-	local function followCamera(dt)
-		local Camera = workspace.CurrentCamera
-		if not seat.Occupant or seat.Occupant.Parent ~= LocalPlayer.Character then
-			Camera.CameraType = Enum.CameraType.Custom
-			RunService:UnbindFromRenderStep("FollowVehicleCamera")
-			smoothedCameraCFrame = nil
-			Camera.FieldOfView = defaultFOV
-			return
+	for _, machine in ipairs(machines) do
+		if machine:IsDescendantOf(workspace) then
+			print("Machine:", machine:GetFullName())
+			self:SetupMachine(machine)
 		end
-
-		local renderCF = targetPart:GetRenderCFrame()
-		local rootPosition = renderCF.Position
-		local lookVector = renderCF.LookVector
-
-		local flatLook = Vector3.new(lookVector.X, 0, lookVector.Z)
-		if flatLook.Magnitude == 0 then
-			flatLook = Vector3.new(0, 0, -1)
-		end
-		flatLook = flatLook.Unit
-
-		local right = flatLook:Cross(Vector3.new(0, 1, 0)).Unit
-		local up = right:Cross(flatLook).Unit
-		local rootCFrame = CFrame.fromMatrix(rootPosition, right, up)
-
-		local cameraHeight = 8
-		local cameraDistance = 18
-
-		local targetLateralOffset = 0
-		if ProtoController.isCharging then
-			if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-				targetLateralOffset = -5
-			elseif UserInputService:IsKeyDown(Enum.KeyCode.D) then
-				targetLateralOffset = 5
-			end
-		end
-		lateralOffset += (targetLateralOffset - lateralOffset) * 0.15
-
-		local cameraPos = rootCFrame.Position
-			+ up * cameraHeight
-			- flatLook * cameraDistance
-			+ right * lateralOffset
-
-		local lookTarget = cameraPos + flatLook
-		local targetCFrame = CFrame.new(cameraPos, lookTarget)
-
-		local targetTilt = math.rad(lateralOffset * -2.5) --tilt amount when braked
-		currentTilt += (targetTilt - currentTilt) * 0.50
-		local tiltCFrame = CFrame.Angles(0, 0, currentTilt)
-
-		-- ✅ Frame-rate independent smoothing
-		local alpha = 1 - math.exp(-smoothingSpeed * dt)
-		smoothedCameraCFrame = smoothedCameraCFrame
-			and smoothedCameraCFrame:Lerp(targetCFrame * tiltCFrame, alpha)
-			or (targetCFrame * tiltCFrame)
-
-		Camera.CFrame = smoothedCameraCFrame
-
-		local targetFOV = ProtoController.isCharging and zoomedFOV or defaultFOV
-		currentFOV += (targetFOV - currentFOV) * 0.25 --fov speed
-		Camera.FieldOfView = currentFOV
 	end
-
-	return followCamera
 end
 
-
-
-local function Forces_()
-
-	rootPart.Touched:Connect(function(hit)
-		if not hasRecentlyTouched and hit:IsA("BasePart") and hit:IsDescendantOf(workspace) then
-			local velocity = rootPart.Velocity
-			local speed = velocity.Magnitude
-			local mass = rootPart.AssemblyMass
-
-			-- Downward impulse to ground vehicle
-			local downImpulse = Vector3.new(0, -1, 0) * speed * mass * 2
-
-			-- Knockback force relative to velocity
-			local knockbackDir = -velocity.Unit
-			local knockbackImpulseDynamic = knockbackDir * speed * mass * 1.5
-
-			-- Fixed knockback force (applied even at low speed)
-			local knockbackImpulseFixed = knockbackDir * mass * 500 -- adjust "500" for base pushback
-
-			-- Combine everything
-			collisionDownForce = downImpulse + knockbackImpulseDynamic + knockbackImpulseFixed
-			hasRecentlyTouched = true
-
-			task.delay(0.3, function()
-				hasRecentlyTouched = false
-			end)
-		end
-end)
-
-	
-end
-
--- Setup machine physics and movement loop
-local function setupMachine(machine)
+function MachineController:SetupMachine(machine)
 	local controllerManager = machine:FindFirstChildWhichIsA("ControllerManager", true)
 	local groundController = machine:FindFirstChildWhichIsA("GroundController", true)
 	local groundSensor = machine:FindFirstChildWhichIsA("ControllerPartSensor", true)
 	local rootPart = machine:FindFirstChild("RootPart")
 	local seat = machine:FindFirstChildWhichIsA("Seat", true)
 
-	groundSensor.UpdateType = "OnRead"
 	controllerManager.RootPart = rootPart
 	controllerManager.GroundSensor = groundSensor
 	controllerManager.ActiveController = groundController
 
 	groundController.GroundOffset = 3
 	groundSensor.SearchDistance = 5
+	groundSensor.UpdateType = "OnRead"
+
 	local isSeated = false
 
 	local attachment = Instance.new("Attachment")
@@ -198,7 +105,7 @@ local function setupMachine(machine)
 	local fallGravity = Vector3.zero
 	local hasRecentlyTouched = false
 
-	-- Touched Event for downward impulse
+	-- Touched: Downforce and Knockback
 	rootPart.Touched:Connect(function(hit)
 		if not hasRecentlyTouched and hit:IsA("BasePart") and hit:IsDescendantOf(workspace) then
 			local velocity = rootPart.Velocity
@@ -207,13 +114,11 @@ local function setupMachine(machine)
 			local downImpulse = Vector3.new(0, -1, 0) * magnitude * mass * 2
 			fallGravity = downImpulse
 			hasRecentlyTouched = true
-
-			task.delay(0.3, function()
-				hasRecentlyTouched = false
-			end)
+			task.delay(0.3, function() hasRecentlyTouched = false end)
 		end
 	end)
 
+	-- Input Handling
 	UserInputService.InputBegan:Connect(function(input, processed)
 		if processed then return end
 		if input.KeyCode == Enum.KeyCode.A then steerInput = -1 end
@@ -223,7 +128,7 @@ local function setupMachine(machine)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
 			isCharging = true
 			isBraking = true
-			ProtoController.isCharging = true
+			CameraController.IsCharging = true
 		end
 	end)
 
@@ -238,10 +143,11 @@ local function setupMachine(machine)
 			boostCharge = 0
 			isCharging = false
 			isBraking = false
-			ProtoController.isCharging = false
+			CameraController.IsCharging = false
 		end
 	end)
 
+	-- Movement + Physics
 	local currentUp = Vector3.new(0, 1, 0)
 
 	RunService.RenderStepped:Connect(function(dt)
@@ -257,17 +163,13 @@ local function setupMachine(machine)
 		local gravity = workspace.Gravity
 		local mass = rootPart.AssemblyMass
 
-		-- Smooth alignment to ground normal
 		local targetUp = Vector3.new(0, 1, 0)
 		if groundSensor.SensedPart then
 			targetUp = groundSensor.HitNormal
 		end
 
-		-- Smooth the up vector
 		currentUp = currentUp:Lerp(targetUp, dt * 8)
 		local up = currentUp.Unit
-
-		-- Construct forward/right aligned with smoothed up
 		local forward = (rootPart.CFrame.LookVector - up * rootPart.CFrame.LookVector:Dot(up)).Unit
 		local right = forward:Cross(up).Unit
 
@@ -288,7 +190,6 @@ local function setupMachine(machine)
 				gravityTimer = 0
 				gravityDisabled = true
 			end
-
 			if workspace.Gravity < gravityTarget then
 				gravityTimer += dt
 				local alpha = math.clamp(gravityTimer / gravityLerpTime, 0, 1)
@@ -318,10 +219,9 @@ local function setupMachine(machine)
 
 		local lateralVelocity = velocity:Dot(right)
 		local lateralCorrection = -right * lateralVelocity * mass * 4
-
 		local drag = forward * -currentSpeed * dragFactor
 
-		local targetRoll = math.rad(steerInput * -20) --Roll input
+		local targetRoll = math.rad(steerInput * -20)
 		local targetPitch = math.rad(pitchInput * 5)
 		currentRoll += (targetRoll - currentRoll) * 0.15
 		currentPitch += (targetPitch - currentPitch) * 0.15
@@ -333,33 +233,16 @@ local function setupMachine(machine)
 		angularVelocity.AngularVelocity = Vector3.new(pitchInput * pitchSpeed, -steerInput * turnSpeed, steerInput * rollSpeed)
 	end)
 
-
-	local followCamera = createCameraFollow(seat, rootPart)
+	-- Camera follow integration
 	seat:GetPropertyChangedSignal("Occupant"):Connect(function()
 		isSeated = seat.Occupant and seat.Occupant.Parent == LocalPlayer.Character
 
 		if isSeated then
-			Camera.CameraType = Enum.CameraType.Scriptable
-			RunService:BindToRenderStep("FollowVehicleCamera", Enum.RenderPriority.Camera.Value + 1, followCamera)
+			CameraController:StartFollowing(seat, rootPart)
 		else
-			Camera.CameraType = Enum.CameraType.Custom
-			RunService:UnbindFromRenderStep("FollowVehicleCamera")
+			CameraController:StopFollowing()
 		end
 	end)
 end
 
-
-function ProtoController:KnitStart()
-	task.wait(5)
-	local machines = CollectionService:GetTagged("machine")
-	print("Found", #machines, "machines")
-
-	for _, machine in ipairs(machines) do
-		if machine:IsDescendantOf(workspace) then
-			print("Machine:", machine:GetFullName())
-			setupMachine(machine)
-		end
-	end
-end
-
-return ProtoController
+return MachineController
