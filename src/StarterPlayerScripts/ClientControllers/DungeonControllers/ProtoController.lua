@@ -22,8 +22,8 @@ local function createCameraFollow(seat, targetPart)
 	local smoothedCameraCFrame = nil
 	local lateralOffset = 0
 	local currentFOV = workspace.CurrentCamera.FieldOfView
-	local defaultFOV = 70
-	local zoomedFOV = 60
+	local defaultFOV = 40
+	local zoomedFOV = 40
 	local currentTilt = 0
 	local smoothingSpeed = 15 -- tuning value for smoothing
 
@@ -52,7 +52,7 @@ local function createCameraFollow(seat, targetPart)
 		local rootCFrame = CFrame.fromMatrix(rootPosition, right, up)
 
 		local cameraHeight = 8
-		local cameraDistance = 15
+		local cameraDistance = 18
 
 		local targetLateralOffset = 0
 		if ProtoController.isCharging then
@@ -62,7 +62,7 @@ local function createCameraFollow(seat, targetPart)
 				targetLateralOffset = 5
 			end
 		end
-		lateralOffset += (targetLateralOffset - lateralOffset) * 0.1
+		lateralOffset += (targetLateralOffset - lateralOffset) * 0.15
 
 		local cameraPos = rootCFrame.Position
 			+ up * cameraHeight
@@ -72,8 +72,8 @@ local function createCameraFollow(seat, targetPart)
 		local lookTarget = cameraPos + flatLook
 		local targetCFrame = CFrame.new(cameraPos, lookTarget)
 
-		local targetTilt = math.rad(lateralOffset * -2.5)
-		currentTilt += (targetTilt - currentTilt) * 0.1
+		local targetTilt = math.rad(lateralOffset * -2.5) --tilt amount when braked
+		currentTilt += (targetTilt - currentTilt) * 0.50
 		local tiltCFrame = CFrame.Angles(0, 0, currentTilt)
 
 		-- ✅ Frame-rate independent smoothing
@@ -85,7 +85,7 @@ local function createCameraFollow(seat, targetPart)
 		Camera.CFrame = smoothedCameraCFrame
 
 		local targetFOV = ProtoController.isCharging and zoomedFOV or defaultFOV
-		currentFOV += (targetFOV - currentFOV) * 0.1
+		currentFOV += (targetFOV - currentFOV) * 0.25 --fov speed
 		Camera.FieldOfView = currentFOV
 	end
 
@@ -169,7 +169,7 @@ local function setupMachine(machine)
 	angularVelocity.AngularVelocity = Vector3.zero
 	angularVelocity.Parent = rootPart
 
-	local maxSpeed = 90
+	local maxSpeed = 200
 	local thrust = 8000
 	local dragFactor = 8
 	local turnSpeed = math.rad(80)

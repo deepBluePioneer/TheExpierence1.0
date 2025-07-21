@@ -123,10 +123,10 @@ end
 
 function patchZoneService:spawnPatch(position)
 	local part = Instance.new("Part")
-	part.Size = Vector3.new(7, 7, 7)
+	part.Size = Vector3.new(9, 9, 9)
 	part.Anchored = false
 	part.CanCollide = true
-	part.Transparency = 1
+	part.Transparency = .5
 	part.Position = position + Vector3.new(0, 10, 0)
 	part.Name = "PatchObject"
 	part.CollisionGroup = "Patch"
