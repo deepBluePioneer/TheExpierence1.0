@@ -10,6 +10,7 @@ local Players = game:GetService("Players")
 -- Replica Modules
 local Replica = CustomPackages.Replica
 local ReplicaService = require(Replica.ReplicaService)
+local PatchNotifierToken = ReplicaService.NewClassToken("PatchNotifier") -- ✅ Define once
 
 local PlayerAddedController = CustomPackages.PlayerAddedController
 local PlayerAddedFunctions = PlayerAddedController.PlayerAddedFunctions
@@ -22,7 +23,6 @@ local ZoneRoot = CustomPackages:WaitForChild("ZoneRoot")
 local Zone = require(ZoneRoot:WaitForChild("Zone"))
 
 local objectSpawnerZones = "objectSpawnerZone"
-local firstPlayer = nil
 
 -- Patch Types and IDs
 local offenseID = 98406035373604
@@ -66,22 +66,17 @@ function patchZoneService:AssignMachineCollisionGroups()
 		if root then
 			root.CollisionGroup = "Machine"
 		end
-
-		if firstPlayer then
-			machine:SetAttribute("OwnerUserId", firstPlayer.UserId)
-		end
 	end
 end
 
 function patchZoneService:InitReplicas(player)
 	local replica = ReplicaService.NewReplica({
-		ClassToken = ReplicaService.NewClassToken("PatchNotifier"),
+		ClassToken = PatchNotifierToken, -- ✅ Reuse token
 		Data = {
 			PatchType = nil,
 		},
 		Replication = player,
 	})
-
 	playerReplicas[player] = replica
 end
 
@@ -90,11 +85,6 @@ function patchZoneService:HandleCharacterAdded(Player, Character)
 		if part:IsA("BasePart") then
 			part.CollisionGroup = "Player"
 		end
-	end
-
-	if not firstPlayer then
-		firstPlayer = Player
-		warn(firstPlayer.UserId)
 	end
 
 	self:InitReplicas(Player)
@@ -160,7 +150,6 @@ function patchZoneService:spawnPatch(position)
 	imageLabel.Size = UDim2.new(1, 0, 1, 0)
 	imageLabel.BackgroundTransparency = 1
 
-	-- Select patch type
 	local selected = patchTypes[math.random(1, #patchTypes)]
 	part:SetAttribute("PatchType", selected.name)
 	imageLabel.Image = "rbxassetid://" .. tostring(selected.id)
@@ -202,8 +191,7 @@ function patchZoneService:spawnPatch(position)
 				if player and playerReplicas[player] then
 					local patchType = part:GetAttribute("PatchType") or "Unknown"
 					playerReplicas[player]:SetValue("PatchType", patchType)
-					playerReplicas[player]:SetValue("PatchType", "") --Resest in case we collide with the same type
-					--self:ParticlesManager()
+					playerReplicas[player]:SetValue("PatchType", "") -- Reset
 					part:Destroy()
 				else
 					warn("No player or replica found for machine:", model.Name, "OwnerUserId:", userId)
@@ -220,11 +208,10 @@ function patchZoneService:spawnPatch(position)
 	end)
 
 	task.delay(10, function()
-	if part and part.Parent then
-		part:Destroy()
-	end
-end)
-
+		if part and part.Parent then
+			part:Destroy()
+		end
+	end)
 end
 
 function patchZoneService:KnitStart()
@@ -236,7 +223,6 @@ function patchZoneService:KnitStart()
 		end
 	)
 
-	task.wait(4) -- ensure player has spawned
 	self:SetupCollisionGroups()
 	self:AssignMachineCollisionGroups()
 
@@ -259,7 +245,7 @@ function patchZoneService:KnitStart()
 				end
 				task.wait(0.5)
 			end
-		task.wait(5)
+			task.wait(5)
 		end
 	end)
 end

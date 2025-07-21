@@ -195,7 +195,7 @@ local function setupMachine(machine)
 	local boostDecay = 6
 	local isBraking = false
 
-	local collisionDownForce = Vector3.zero
+	local fallGravity = Vector3.zero
 	local hasRecentlyTouched = false
 
 	-- Touched Event for downward impulse
@@ -205,7 +205,7 @@ local function setupMachine(machine)
 			local magnitude = velocity.Magnitude
 			local mass = rootPart.AssemblyMass
 			local downImpulse = Vector3.new(0, -1, 0) * magnitude * mass * 2
-			collisionDownForce = downImpulse
+			fallGravity = downImpulse
 			hasRecentlyTouched = true
 
 			task.delay(0.3, function()
@@ -273,13 +273,13 @@ local function setupMachine(machine)
 
 		if groundSensor.SensedPart then
 			fallVelocity = 0
-			liftForce.Force = up * gravity * mass + collisionDownForce
+			liftForce.Force = up * gravity * mass + fallGravity
 		else
 			fallVelocity += gravity * dt * 0.4
-			liftForce.Force = Vector3.new(0, -fallVelocity * mass, 0) + collisionDownForce
+			liftForce.Force = Vector3.new(0, -fallVelocity * mass, 0) + fallGravity
 		end
 
-		collisionDownForce = collisionDownForce:Lerp(Vector3.zero, dt * 3)
+		fallGravity = fallGravity:Lerp(Vector3.zero, dt * 3)
 
 		local isGrounded = groundSensor.SensedPart ~= nil
 		if not isGrounded then
