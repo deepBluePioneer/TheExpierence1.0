@@ -18,11 +18,26 @@ local offenseID = 98406035373604
 local speedBoostID = 123435038795023
 local topSpeedID = 124394366919392
 
+-- Patch Types and IDs
+local offenseID  
+local speedBoostID 
+local topSpeedID = 87211015153131
+local heart = 85451719529790
+local defense
+local turn = 81367206996074
+local glide = 81918293405350
+local weight =81367206996074
+local charge =82561374353755
+
 local patchIcons = {
-	Offense = "rbxassetid://" .. offenseID,
-	SpeedBoost = "rbxassetid://" .. speedBoostID,
 	TopSpeed = "rbxassetid://" .. topSpeedID,
+	Heart = "rbxassetid://" .. heart,
+	Turn = "rbxassetid://" .. turn,
+	Glide = "rbxassetid://" .. glide,
+	Weight = "rbxassetid://" .. weight,
+	Charge = "rbxassetid://" .. charge,
 }
+
 
 -- Replica
 local Replica = CustomPackages:WaitForChild("Replica")

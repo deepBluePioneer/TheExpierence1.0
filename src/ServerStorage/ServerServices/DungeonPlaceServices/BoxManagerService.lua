@@ -4,6 +4,7 @@ local CollectionService = game:GetService("CollectionService")
 local CustomPackages = ReplicatedStorage.CustomPackages
 local Packages = ReplicatedStorage.Packages
 local Knit = require(Packages.Knit)
+local CollectionService = game:GetService("CollectionService")
 
 local BoxManagerService = Knit.CreateService {
     Name = "BoxManagerService",

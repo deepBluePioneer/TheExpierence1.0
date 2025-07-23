@@ -25,15 +25,28 @@ local Zone = require(ZoneRoot:WaitForChild("Zone"))
 local objectSpawnerZones = "objectSpawnerZone"
 
 -- Patch Types and IDs
-local offenseID = 98406035373604
-local speedBoostID = 123435038795023
-local topSpeedID = 124394366919392
+local offenseID  
+local speedBoostID 
+local topSpeedID = 87211015153131
+local heart = 85451719529790
+local defense
+local turn = 81367206996074
+local glide = 81918293405350
+local weight =81367206996074
+local charge =82561374353755
+
+
 
 local patchTypes = {
-	{ id = offenseID, name = "Offense" },
-	{ id = speedBoostID, name = "SpeedBoost" },
+
 	{ id = topSpeedID, name = "TopSpeed" },
+	{ id = heart, name = "Heart" },
+	{ id = turn, name = "Turn" },
+	{ id = glide, name = "Glide" },
+	{ id = weight, name = "Weight" },
+	{ id = charge, name = "Charge" },
 }
+
 
 -- Replica Setup
 local playerReplicas = {}
@@ -123,10 +136,10 @@ end
 
 function patchZoneService:spawnPatch(position)
 	local part = Instance.new("Part")
-	part.Size = Vector3.new(9, 9, 9)
+	part.Size = Vector3.new(5, 5, 5)
 	part.Anchored = false
 	part.CanCollide = true
-	part.Transparency = .5
+	part.Transparency = 1
 	part.Position = position + Vector3.new(0, 10, 0)
 	part.Name = "PatchObject"
 	part.CollisionGroup = "Patch"
@@ -207,7 +220,7 @@ function patchZoneService:spawnPatch(position)
 		end
 	end)
 
-	task.delay(10, function()
+	task.delay(45, function()
 		if part and part.Parent then
 			part:Destroy()
 		end
