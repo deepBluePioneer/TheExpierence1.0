@@ -102,11 +102,12 @@ function CameraController:UpdateFixed(rootPart)
 	local Camera = workspace.CurrentCamera
 	if Camera.CameraType ~= Enum.CameraType.Scriptable then return end
 
-	local offset = Vector3.new(0, 8, -20) -- Match the offset used in StartFixed
+	local offset = Vector3.new(0, 8, -20) -- Camera sits behind and above the root
 	local cameraPos = rootPart.Position + rootPart.CFrame:VectorToWorldSpace(offset)
-	local lookAt = rootPart.Position + rootPart.CFrame.LookVector * 5
+	local lookAt = rootPart.Position - rootPart.CFrame.LookVector * 5 -- Look toward the rear
 	Camera.CFrame = CFrame.new(cameraPos, lookAt)
 end
+
 
 function CameraController:StartFixed(seat, rootPart)
 	local Camera = workspace.CurrentCamera

@@ -77,7 +77,7 @@ function SplineTestsController:CreateSplineParts(newSpline)
 		local TargetPart = Instance.new("Part", PointsFolder)
 		TargetPart.Size = Vector3.new(0.85, 0.85, 0.85)
 		TargetPart.Color = Color3.fromRGB(255, 15, 159)
-		TargetPart.Transparency = .5
+		TargetPart.Transparency = 0
 		TargetPart.CanCollide = false
 		TargetPart.Anchored = true
 		TargetPart.Locked = true
@@ -95,7 +95,7 @@ function SplineTestsController:CreateSplineParts(newSpline)
 		local TargetPart = Instance.new("Part", PointsFolder)
 		TargetPart.Size = Vector3.new(0.85, 0.85, 0.85)
 		TargetPart.Color = Color3.fromRGB(255, 15, 159)
-		TargetPart.Transparency = .5
+		TargetPart.Transparency = 0
 		TargetPart.CanCollide = false
 		TargetPart.Anchored = true
 		TargetPart.Locked = true
@@ -114,7 +114,7 @@ function SplineTestsController:CreateSplineParts(newSpline)
 		local TargetPart = Instance.new("Part", TangentsFolder)
 		TargetPart.Size = Vector3.new(0.25, 0.25, 0.25)
 		TargetPart.Color = Color3.fromRGB(200, 144, 255)
-		TargetPart.Transparency = .5
+		TargetPart.Transparency = 1
 		TargetPart.CanCollide = false
 		TargetPart.Anchored = true
 		TargetPart.Locked = true
@@ -128,7 +128,7 @@ function SplineTestsController:CreateSplineParts(newSpline)
 		TargetPart.Size = Vector3.new(0.55, 0.55, 1)
 		TargetPart.Color = Color3.fromRGB(33, 33, 40)
 		TargetPart.CanCollide = false
-		TargetPart.Transparency = .5
+		TargetPart.Transparency = .0
 		TargetPart.Anchored = true
 		TargetPart.Locked = true
 		TargetPart.Name = tostring(i)
@@ -204,7 +204,7 @@ function SplineTestsController:AttachToSpline(machine, rootPart, seat)
 	if not activeSpline then return end
 
 	local t = 0
-	local speed = 0.5
+	local speed = 0.25
 	local conn
 
 	conn = RunService.RenderStepped:Connect(function(dt)
