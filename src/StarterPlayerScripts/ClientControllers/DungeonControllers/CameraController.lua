@@ -98,6 +98,35 @@ function CameraController:StopFollowing()
 	RunService:UnbindFromRenderStep("FollowVehicleCamera")
 	Camera.CameraType = Enum.CameraType.Custom
 end
+function CameraController:UpdateFixed(rootPart)
+	local Camera = workspace.CurrentCamera
+	if Camera.CameraType ~= Enum.CameraType.Scriptable then return end
+
+	local offset = Vector3.new(0, 8, -20) -- Match the offset used in StartFixed
+	local cameraPos = rootPart.Position + rootPart.CFrame:VectorToWorldSpace(offset)
+	local lookAt = rootPart.Position + rootPart.CFrame.LookVector * 5
+	Camera.CFrame = CFrame.new(cameraPos, lookAt)
+end
+
+function CameraController:StartFixed(seat, rootPart)
+	local Camera = workspace.CurrentCamera
+	Camera.CameraType = Enum.CameraType.Scriptable
+
+	local offset = Vector3.new(0, 8, -20) -- Adjust as needed
+	RunService:BindToRenderStep("FixedSplineCamera", Enum.RenderPriority.Camera.Value + 1, function()
+		if not seat.Occupant or seat.Occupant.Parent ~= Players.LocalPlayer.Character then
+			Camera.CameraType = Enum.CameraType.Custom
+			RunService:UnbindFromRenderStep("FixedSplineCamera")
+			return
+		end
+
+		local rootCF = rootPart.CFrame
+		local cameraPos = rootCF.Position + rootCF:VectorToWorldSpace(offset)
+		local lookAt = rootCF.Position + rootCF.LookVector * 5
+		Camera.CFrame = CFrame.new(cameraPos, lookAt)
+	end)
+end
+
 
 function CameraController:KnitStart()
 	-- Add controller startup logic here if needed
