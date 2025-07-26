@@ -12,7 +12,6 @@ local MachineVisualController = Knit.CreateController { Name = "MachineVisualCon
 local machines = {}
 
 function MachineVisualController:SetupMachine(machine)
-	if not machine:IsA("Model") then return end
 
 	local root = machine:FindFirstChild("RootPart")
 	if not root or not root:IsA("BasePart") then return end

@@ -9,226 +9,199 @@ local SplineTestsController = Knit.CreateController { Name = "SplineTestsControl
 
 local Splines = CustomPackages.Splines
 local CatmullRomSpline = require(Splines.CatmullRomSpline)
-
+local MachineController
 local points
 local activeSpline
 local CameraController
 
-function SplineTestsController:SetupMachine(machine)
-	local controllerManager = machine:FindFirstChildWhichIsA("ControllerManager", true)
-	local groundController = machine:FindFirstChildWhichIsA("GroundController", true)
-	local groundSensor = machine:FindFirstChildWhichIsA("ControllerPartSensor", true)
-	local rootPart = machine:FindFirstChild("RootPart")
-	local seat = machine:FindFirstChildWhichIsA("Seat", true)
 
-	if not rootPart or not seat then return end
-
-	if controllerManager then
-		controllerManager.ActiveController = nil
-	end
-	if groundController then
-		groundController.Enabled = false
-	end
-	if groundSensor then
-		groundSensor.Enabled = false
-	end
-
-    CameraController:StopFollowing()
-	CameraController:StartFixed(seat, rootPart)
-
-	self:AttachToSpline(machine, rootPart, seat)
-end
-
-function SplineTestsController:GetMachines()
-	task.wait(5)
-	local machines = CollectionService:GetTagged("machine")
-	for _, machine in ipairs(machines) do
-		if machine:IsDescendantOf(workspace) then
-			self:SetupMachine(machine)
-		end
-	end
-end
 
 function SplineTestsController:CreateSplineParts(newSpline)
-	activeSpline = newSpline -- store globally so we can reuse it in other functions
+	activeSpline = newSpline
 
-	local PointBillboard = Instance.new("BillboardGui")
-	PointBillboard.Size = UDim2.new(1, 0, 1, 0)
-	local frame = Instance.new("Frame", PointBillboard)
-	frame.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
-	frame.Size = UDim2.new(1, 0, 1, 0)
+	local BezierFolder = workspace:FindFirstChild("Bezier")
+	if BezierFolder then
+		BezierFolder:Destroy()
+	end
 
-	local BezierFolder = Instance.new("Folder", workspace)
+	BezierFolder = Instance.new("Folder")
 	BezierFolder.Name = "Bezier"
+	BezierFolder.Parent = workspace
 
-	local PointsFolder = Instance.new("Folder", BezierFolder)
-	PointsFolder.Name = "Points"
-
-	local TangentsFolder = Instance.new("Folder", BezierFolder)
-	TangentsFolder.Name = "Tangents"
-
-	local LinesFolder = Instance.new("Folder", BezierFolder)
+	local LinesFolder = Instance.new("Folder")
 	LinesFolder.Name = "Lines"
+	LinesFolder.Parent = BezierFolder
 
-	local NumPoints = 10
-	local DefaultPoints, EquidistantPoints = {}, {}
-
+	local NumPoints = 50
+	local SplinePositions = {}
 	for i = 1, NumPoints do
-		local TargetPart = Instance.new("Part", PointsFolder)
-		TargetPart.Size = Vector3.new(0.85, 0.85, 0.85)
-		TargetPart.Color = Color3.fromRGB(255, 15, 159)
-		TargetPart.Transparency = 0
-		TargetPart.CanCollide = false
-		TargetPart.Anchored = true
-		TargetPart.Locked = true
-		TargetPart.Name = "Default" .. tostring(i)
-
-		local point = PointBillboard:Clone()
-		point.Parent = TargetPart
-		point.Frame.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
-		point.Enabled = false
-
-		table.insert(DefaultPoints, TargetPart)
+		local t = (i - 1) / (NumPoints - 1)
+		local pos = newSpline:CalculatePositionAt(t)
+		table.insert(SplinePositions, pos)
 	end
 
-	for i = 1, NumPoints do
-		local TargetPart = Instance.new("Part", PointsFolder)
-		TargetPart.Size = Vector3.new(0.85, 0.85, 0.85)
-		TargetPart.Color = Color3.fromRGB(255, 15, 159)
-		TargetPart.Transparency = 0
-		TargetPart.CanCollide = false
-		TargetPart.Anchored = true
-		TargetPart.Locked = true
-		TargetPart.Name = "Equidistant" .. tostring(i)
+	-- Store line parts so we can animate them each frame
+	local AnimatedLines = {}
 
-		local point = PointBillboard:Clone()
-		point.Parent = TargetPart
-		point.Frame.BackgroundColor3 = Color3.fromRGB(33, 255, 114)
-		point.Enabled = false
-
-		table.insert(EquidistantPoints, TargetPart)
-	end
-
-	local Tangents = {}
-	for i = 1, NumPoints do
-		local TargetPart = Instance.new("Part", TangentsFolder)
-		TargetPart.Size = Vector3.new(0.25, 0.25, 0.25)
-		TargetPart.Color = Color3.fromRGB(200, 144, 255)
-		TargetPart.Transparency = 1
-		TargetPart.CanCollide = false
-		TargetPart.Anchored = true
-		TargetPart.Locked = true
-		TargetPart.Name = tostring(i)
-		table.insert(Tangents, TargetPart)
-	end
-
-	local Lines, ControlLines = {}, {}
 	for i = 1, NumPoints - 1 do
-		local TargetPart = Instance.new("Part", LinesFolder)
-		TargetPart.Size = Vector3.new(0.55, 0.55, 1)
-		TargetPart.Color = Color3.fromRGB(33, 33, 40)
-		TargetPart.CanCollide = false
-		TargetPart.Transparency = .0
-		TargetPart.Anchored = true
-		TargetPart.Locked = true
-		TargetPart.Name = tostring(i)
-		table.insert(Lines, TargetPart)
+		local p1 = SplinePositions[i]
+		local p2 = SplinePositions[i + 1]
+		local dir = p2 - p1
+
+		local line = Instance.new("Part")
+		line.Name = "Line_" .. i
+		line.Size = Vector3.new(0.25, 0.25, dir.Magnitude)
+		line.CFrame = CFrame.new(p1 + dir * 0.5, p2)
+		line.Anchored = true
+		line.CanCollide = false
+		line.Locked = true
+		line.Material = Enum.Material.Neon
+		line.Transparency = 0
+		line.Parent = LinesFolder
+		table.insert(AnimatedLines, {Part = line, T = (i - 1) / (NumPoints - 1)})
 	end
 
-	for i = 1, #points - 1 do
-		local TargetPart = Instance.new("Part", LinesFolder)
-		TargetPart.Size = Vector3.new(0.55, 0.55, 1)
-		TargetPart.Color = Color3.fromRGB(194, 194, 234)
-		TargetPart.Transparency = 0.95
-		TargetPart.CanCollide = false
-		TargetPart.Anchored = true
-		TargetPart.Locked = true
-		TargetPart.Name = tostring(i)
-		table.insert(ControlLines, TargetPart)
+	-- Animate colors every frame
+	local RunService = game:GetService("RunService")
+	if self._gradientConnection then
+		self._gradientConnection:Disconnect()
 	end
-
-	local function UpdateBezier()
-		for i = 1, NumPoints do
-			local t = (i - 1) / (#DefaultPoints - 1)
-			local p1 = newSpline:CalculatePositionAt(t)
-			local d1 = newSpline:CalculateDerivativeAt(t)
-			local p2 = newSpline:CalculatePositionRelativeToLength(t)
-			local d2 = newSpline:CalculateDerivativeRelativeToLength(t)
-			Tangents[i].Size = Vector3.new(Tangents[i].Size.X, Tangents[i].Size.Y, 0.5 * d2.Magnitude)
-			Tangents[i].CFrame = CFrame.new(p1, p1 + d2)
-			DefaultPoints[i].CFrame = CFrame.new(p1, p1 + d1)
-			EquidistantPoints[i].CFrame = CFrame.new(p2, p2 + d2)
+	self._gradientConnection = RunService.RenderStepped:Connect(function()
+		local timeOffset = (tick() * 0.25) % 1
+		local startColor = Color3.fromRGB(255, 0, 0)
+		local endColor = Color3.fromRGB(0, 255, 255)
+		for _, data in ipairs(AnimatedLines) do
+			local shiftedT = (data.T + timeOffset) % 1
+			local color = startColor:Lerp(endColor, shiftedT)
+			data.Part.Color = color
 		end
+	end)
 
-		for i = 1, #Lines do
-			local line = Lines[i]
-			local p1, p2 = DefaultPoints[i].Position, DefaultPoints[i + 1].Position
-			line.Size = Vector3.new(line.Size.X, line.Size.Y, (p2 - p1).Magnitude)
-			line.CFrame = CFrame.new(0.5 * (p1 + p2), p2)
-		end
-
-		for i = 1, #ControlLines do
-			local line = ControlLines[i]
-			local p1, p2 = points[i].Position, points[i + 1].Position
-			line.Size = Vector3.new(line.Size.X, line.Size.Y, (p2 - p1).Magnitude)
-			line.CFrame = CFrame.new(0.5 * (p1 + p2), p2)
-		end
-	end
-
-	UpdateBezier()
-
+	-- Live update on control part move
 	local LastChangeTick = tick()
-	for _, controlPart in pairs(points) do
+	for _, controlPart in pairs(points or {}) do
 		controlPart.Changed:Connect(function()
 			if tick() - LastChangeTick > 0 then
 				LastChangeTick = tick()
-				UpdateBezier()
+				self:CreateSplineParts(newSpline)
 			end
 		end)
 	end
 
-	-- Add Touch Detection on First Point
-	local firstPoint = points[1]
-	firstPoint.Touched:Connect(function(hit)
-		local machine = hit:FindFirstAncestorOfClass("Model")
-		if machine and CollectionService:HasTag(machine, "machine") then
-			local rootPart = machine:FindFirstChild("RootPart")
-			if rootPart and hit == rootPart then
-				self:AttachToSpline(machine, rootPart)
+	-- Touch start
+	local firstPoint = points and points[1]
+	if firstPoint then
+		firstPoint.Touched:Connect(function(hit)
+			local machine = hit:FindFirstAncestorOfClass("Model")
+			if machine and CollectionService:HasTag(machine, "machine") then
+				local rootPart = machine:FindFirstChild("RootPart")
+				if rootPart and hit == rootPart then
+					self:AttachToSpline(machine, rootPart)
+				end
 			end
-		end
-	end)
+		end)
+	end
 end
+
+
+
 
 function SplineTestsController:AttachToSpline(machine, rootPart, seat)
-	if not activeSpline then return end
-
 	local t = 0
-	local speed = 0.25
+	local baseSpeed = 0.25
 	local conn
 
+	workspace.Gravity = 0
+	MachineController:PauseMovement()
+
+	-- Create ghost part to follow the spline
+	local ghostPart = Instance.new("Part")
+	ghostPart.Size = Vector3.new(1, 1, 1)
+	ghostPart.Anchored = true
+	ghostPart.CanCollide = false
+	ghostPart.Transparency = 0.5
+	ghostPart.Color = Color3.fromRGB(255, 255, 255)
+	ghostPart.Material = Enum.Material.Neon
+	ghostPart.Name = "SplineGhost"
+	ghostPart.Parent = workspace
+
+	-- Position it at the start of the spline
+	local startPos = activeSpline:CalculatePositionAt(t)
+	local startDir = activeSpline:CalculateDerivativeAt(t).Unit
+	ghostPart.CFrame = CFrame.new(startPos, startPos + startDir)
+
+	-- Setup attachments
+	local rootAttachment = Instance.new("Attachment")
+	rootAttachment.Name = "RootAttachment"
+	rootAttachment.Position = Vector3.zero
+	rootAttachment.Parent = rootPart
+
+	local ghostAttachment = Instance.new("Attachment")
+	ghostAttachment.Name = "GhostAttachment"
+	ghostAttachment.Position = Vector3.zero
+	ghostAttachment.Parent = ghostPart
+
+	-- AlignPosition for following
+	local alignPos = Instance.new("AlignPosition")
+	alignPos.Name = "SplineAlignPosition"
+	alignPos.Attachment0 = rootAttachment
+	alignPos.Attachment1 = ghostAttachment
+	alignPos.MaxForce = 1e9
+	alignPos.Responsiveness = 1000
+	alignPos.RigidityEnabled = true
+	alignPos.ApplyAtCenterOfMass = true
+	alignPos.Parent = rootPart
+
+	-- AlignOrientation for rotation
+	local alignOrientation = Instance.new("AlignOrientation")
+	alignOrientation.Name = "SplineAlignOrientation"
+	alignOrientation.Attachment0 = rootAttachment
+	alignOrientation.Attachment1 = ghostAttachment
+	alignOrientation.MaxTorque = 1e9
+	alignOrientation.Responsiveness = 1000
+	alignOrientation.RigidityEnabled = true
+	alignOrientation.Parent = rootPart
+
+	-- Optional immediate snap at start
+	rootPart.CFrame = ghostPart.CFrame
+
 	conn = RunService.RenderStepped:Connect(function(dt)
-		t += dt * speed
-		if t >= 1 then
-			local pos = activeSpline:CalculatePositionAt(1)
-			local dir = activeSpline:CalculateDerivativeAt(1)
-			rootPart.CFrame = CFrame.new(pos, pos + dir)
-			conn:Disconnect()
-            task.delay(0.2, function()
-                    CameraController:StopFollowing()
-                end)
-		
-			return
+		t += dt * baseSpeed
+
+		local pos = activeSpline:CalculatePositionAt(math.min(t, 1))
+		local dir = activeSpline:CalculateDerivativeAt(math.min(t, 1)).Unit
+
+		-- Flatten direction for level orientation
+		local flatDir = Vector3.new(dir.X, 0, dir.Z)
+		if flatDir.Magnitude < 0.01 then
+			flatDir = Vector3.new(0, 0, -1)
+		end
+		flatDir = flatDir.Unit
+
+		ghostPart.CFrame = CFrame.lookAt(pos, pos + flatDir, Vector3.yAxis)
+
+		-- If too far behind, snap rootPart to ghostPart
+		if (rootPart.Position - ghostPart.Position).Magnitude > 10 then
+			rootPart.CFrame = ghostPart.CFrame
 		end
 
-		local pos = activeSpline:CalculatePositionAt(t)
-		local dir = activeSpline:CalculateDerivativeAt(t)
-		rootPart.CFrame = CFrame.new(pos, pos + dir)
+		CameraController:UpdateFixed(rootPart)
 
-        CameraController:UpdateFixed(rootPart)
+		if t >= 1 then
+			conn:Disconnect()
+			MachineController:ResumeMovement()
 
+			ghostPart:Destroy()
+			alignPos:Destroy()
+			alignOrientation:Destroy()
+			rootAttachment:Destroy()
+			ghostAttachment:Destroy()
+			return
+		end
 	end)
 end
+
+
 
 function SplineTestsController:init()
 	local SplinePoints = workspace:WaitForChild("SplinePoints")
@@ -246,9 +219,8 @@ function SplineTestsController:init()
 end
 
 function SplineTestsController:KnitStart()
-     CameraController = Knit.GetController("CameraController")
-
-
+	MachineController = Knit.GetController("MachineController")
+	CameraController = Knit.GetController("CameraController")
 	self:init()
 end
 

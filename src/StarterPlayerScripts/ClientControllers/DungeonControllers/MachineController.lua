@@ -16,7 +16,8 @@ local CameraController
 -- References
 local LocalPlayer = Players.LocalPlayer
 local MachineController = Knit.CreateController { Name = "MachineController" }
-
+local movementConnection -- for controlling the RenderStepped connection
+local movementPaused 
 function MachineController:KnitStart()
      CameraController = Knit.GetController("CameraController")
 
@@ -76,7 +77,7 @@ function MachineController:SetupMachine(machine)
 	angularVelocity.AngularVelocity = Vector3.zero
 	angularVelocity.Parent = rootPart
 
-	local maxSpeed = 200
+	local maxSpeed = 150
 	local thrust = 8000
 	local dragFactor = 8
 	local turnSpeed = math.rad(80)
@@ -150,9 +151,10 @@ function MachineController:SetupMachine(machine)
 	-- Movement + Physics
 	local currentUp = Vector3.new(0, 1, 0)
 
-	RunService.RenderStepped:Connect(function(dt)
+	movementConnection = RunService.RenderStepped:Connect(function(dt)
 		if not isSeated then return end
-
+		if movementPaused then return end
+		
 		if isCharging then
 			boostCharge = math.min(boostCharge + dt, maxBoostCharge)
 		end
@@ -243,6 +245,17 @@ function MachineController:SetupMachine(machine)
 			CameraController:StopFollowing()
 		end
 	end)
+end
+function MachineController:PauseMovement()
+	if movementConnection then
+		movementPaused = true
+	end
+end
+
+function MachineController:ResumeMovement()
+	if movementConnection then
+		movementPaused = false
+	end
 end
 
 return MachineController
