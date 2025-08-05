@@ -27,13 +27,16 @@ CameraController.IsCharging = false
 
 function CameraController:StartFollowing(seat, rootPart)
 	if followConnection then
-		RunService:UnbindFromRenderStep("FollowVehicleCamera")
+		followConnection:Disconnect()
 	end
 
-	local function followCamera(dt)
+	followConnection = RunService.Stepped:Connect(function(_, dt)
 		if not seat.Occupant or seat.Occupant.Parent ~= LocalPlayer.Character then
 			Camera.CameraType = Enum.CameraType.Custom
-			RunService:UnbindFromRenderStep("FollowVehicleCamera")
+			if followConnection then
+				followConnection:Disconnect()
+				followConnection = nil
+			end
 			smoothedCameraCFrame = nil
 			Camera.FieldOfView = defaultFOV
 			return
@@ -88,16 +91,20 @@ function CameraController:StartFollowing(seat, rootPart)
 		local targetFOV = CameraController.IsCharging and zoomedFOV or defaultFOV
 		currentFOV += (targetFOV - currentFOV) * 0.25
 		Camera.FieldOfView = currentFOV
-	end
+	end)
 
 	Camera.CameraType = Enum.CameraType.Scriptable
-	RunService:BindToRenderStep("FollowVehicleCamera", Enum.RenderPriority.Camera.Value + 1, followCamera)
 end
 
+
 function CameraController:StopFollowing()
-	RunService:UnbindFromRenderStep("FollowVehicleCamera")
+	if followConnection then
+		followConnection:Disconnect()
+		followConnection = nil
+	end
 	Camera.CameraType = Enum.CameraType.Custom
 end
+
 function CameraController:UpdateFixed(rootPart)
 	local Camera = workspace.CurrentCamera
 	if Camera.CameraType ~= Enum.CameraType.Scriptable then return end
