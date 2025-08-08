@@ -187,11 +187,7 @@ end
 
 -- Start event after delay
 function DisasterEventService:KnitStart()
-	task.delay(2, function()
-	--	self:TriggerAtmosphereFog(10)
-	--	self:VerticalBouncyPatches()       -- Up-only bouncing
-		--self:DirectionalBouncyPatches()    -- Lateral impulse bouncing
-	end)
+	
 end
 
 

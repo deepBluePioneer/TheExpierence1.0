@@ -89,8 +89,8 @@ function GameManagerService:StopAllTimers()
 end
 
 function GameManagerService:KnitStart()
-    self:InitReplicas()
-    self:StartPreGameTimer()
+  --  self:InitReplicas()
+   -- self:StartPreGameTimer()
 end
 
 function GameManagerService:KnitInit()

@@ -39,7 +39,7 @@ function DestructionService:GetMachineRootParts()
 	return machineParts
 end
 
-function DestructionService:KnitStart()
+function init()
 	local destructables = self:GetDestructableRootParts()
 	local machines = self:GetMachineRootParts()
 
@@ -91,6 +91,10 @@ function DestructionService:KnitStart()
 			end
 		end)
 	end
+end
+
+function DestructionService:KnitStart()
+	
 end
 
 

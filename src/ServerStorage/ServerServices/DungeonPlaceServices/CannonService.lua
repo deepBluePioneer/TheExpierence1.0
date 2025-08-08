@@ -180,7 +180,7 @@ function CannonService:StartLookLoop()
 end
 
 function CannonService:KnitStart()
-	self:StartLookLoop()
+	--self:StartLookLoop()
 end
 
 function CannonService:KnitInit() end

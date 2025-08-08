@@ -20,7 +20,7 @@ function PlayerConfigService:KnitStart()
             --self:PlayerLeft(LeavingPlayer)
         end,
         function(Player, Character)
-            self:HandleCharacterAdded(Player, Character)
+           -- self:HandleCharacterAdded(Player, Character)
         end
     )
 

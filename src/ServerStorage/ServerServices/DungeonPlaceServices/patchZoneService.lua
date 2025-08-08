@@ -227,8 +227,8 @@ function patchZoneService:spawnPatch(position)
 	end)
 end
 
-function patchZoneService:KnitStart()
-	require(PlayerAddedFunctions)(
+function init()
+		require(PlayerAddedFunctions)(
 		function(_) end,
 		function(_) end,
 		function(player, character)
@@ -261,6 +261,10 @@ function patchZoneService:KnitStart()
 			task.wait(5)
 		end
 	end)
+end
+
+function patchZoneService:KnitStart()
+
 end
 
 function patchZoneService:KnitInit() end

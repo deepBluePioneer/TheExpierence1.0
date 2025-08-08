@@ -48,8 +48,8 @@ function TeleporterService:InitReplicas()
     })
 end
 
-function TeleporterService:KnitInit()
-    self:InitReplicas()
+function init()
+     self:InitReplicas()
 
     local teleporterObjects = CollectionService:GetTagged("teleporter")
 
@@ -90,6 +90,10 @@ function TeleporterService:KnitInit()
             print(teleporter.Name .. " does not have a TeleportZone")
         end
     end
+end
+
+function TeleporterService:KnitInit()
+   
 end
 
 function TeleporterService:HandlePlayerEntered(teleporter, player)
