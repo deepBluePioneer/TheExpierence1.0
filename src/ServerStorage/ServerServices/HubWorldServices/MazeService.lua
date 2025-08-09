@@ -5,20 +5,22 @@ local Knit = require(Packages.Knit)
 
 local source = CustomPackages.Maze.source
 local _MazeService = require(source.maze.maze)
-local init = require(source.maze.initMaze) -- attaches .generators onto the class
+local init = require(source.maze.initMaze)
 
 local MazeService = Knit.CreateService {
     Name = "MazeService",
     Client = {},
 }
 
--- voxel render settings
+-- ===== Settings =====
 local CELL_SIZE = 10
+local LUCK_MIN, LUCK_MAX = 3, 7
 
--- luck block settings
-local LUCK_MIN = 3
-local LUCK_MAX = 7
+local RED    = Color3.fromRGB(255, 60, 60)
+local WHITE  = Color3.fromRGB(255, 255, 255)
+local BLUE   = Color3.fromRGB(60, 120, 255)
 
+-- ===== Helpers =====
 local function splitLines(str)
     local t = {}
     for line in string.gmatch(str, "([^\n\r]*)\r?\n?") do
@@ -29,31 +31,48 @@ local function splitLines(str)
     return t
 end
 
-function MazeService:KnitStart()
-    math.randomseed(os.time())
-
-    -- 1) Build the maze and run a generator
-    local maze = _MazeService:new(5, 5, true)
-    _MazeService.generators.sidewinder(maze)
-    print(maze)
-
-    -- 2) Convert ASCII -> rows
-    local ascii = tostring(maze)
-    local rows = splitLines(ascii)
-
-    -- 3) Compute maze footprint in studs
-    local maxCols = 0
-    for _, line in ipairs(rows) do
-        if #line > maxCols then
-            maxCols = #line
+local function applyColorToWallCube(model: Model, color: Color3)
+    for _, desc in ipairs(model:GetDescendants()) do
+        if desc.Name == "color" and (desc:IsA("Folder") or desc:IsA("Model")) then
+            for _, child in ipairs(desc:GetChildren()) do
+                if child:IsA("Highlight") then
+                    child.FillColor = color
+                    child.OutlineColor = color
+                    if not child.Adornee then
+                        child.Adornee = model.PrimaryPart or model
+                    end
+                elseif child:IsA("BasePart") then
+                    child.Color = color
+                end
+            end
         end
     end
+end
+
+function MazeService:KnitStart()
+
+    task.wait(3)
+    math.randomseed(os.time())
+
+    -- 1) Build a maze
+    local maze = _MazeService:new(15, 15, true)
+     _MazeService.generators.prim(maze)
+
+  --  _MazeService.generators.sidewinder(maze)
+
+    -- 2) ASCII -> rows
+    local rows = splitLines(tostring(maze))
+
+    -- 3) Dimensions + origin
+    local maxCols = 0
+    for _, line in ipairs(rows) do
+        if #line > maxCols then maxCols = #line end
+    end
     local mazeWidth  = maxCols * CELL_SIZE
-    local mazeDepth  = #rows   * CELL_SIZE
+    local mazeDepth  = #rows * CELL_SIZE
     local halfWidth  = mazeWidth / 2
     local halfDepth  = mazeDepth / 2
 
-    -- 4) Find Baseplate center/top; default to (0,0,0) if not found
     local baseplate = workspace:FindFirstChild("Baseplate")
     local baseCenter = Vector3.new(0, 0, 0)
     local baseTopY = 0
@@ -62,14 +81,13 @@ function MazeService:KnitStart()
         baseTopY = baseplate.Position.Y + baseplate.Size.Y / 2
     end
 
-    -- 5) ORIGIN = center of the bottom layer voxel at (row=1, col=1)
     local ORIGIN = Vector3.new(
         baseCenter.X - halfWidth + CELL_SIZE / 2,
         baseTopY + CELL_SIZE / 2,
         baseCenter.Z - halfDepth + CELL_SIZE / 2
     )
 
-    -- 6) (Re)create a container
+    -- 4) Reset container
     if workspace:FindFirstChild("MazeModel") then
         workspace.MazeModel:Destroy()
     end
@@ -77,57 +95,61 @@ function MazeService:KnitStart()
     container.Name = "MazeModel"
     container.Parent = workspace
 
-    -- 7) Get templates from ReplicatedStorage
+    -- 5) Templates
     local wallCubeTemplate = ReplicatedStorage:WaitForChild("wallCube")
-    assert(wallCubeTemplate:IsA("Model"), "wallCube must be a Model")
-    assert(wallCubeTemplate.PrimaryPart, "wallCube must have a PrimaryPart set")
-
+    assert(wallCubeTemplate:IsA("Model") and wallCubeTemplate.PrimaryPart, "wallCube must be a Model with PrimaryPart")
     local luckTemplate = ReplicatedStorage:WaitForChild("LuckBlock")
-    assert(luckTemplate:IsA("Model"), "LuckBlock must be a Model")
-    assert(luckTemplate.PrimaryPart, "LuckBlock must have a PrimaryPart set")
+    assert(luckTemplate:IsA("Model") and luckTemplate.PrimaryPart, "LuckBlock must be a Model with PrimaryPart")
 
-    -- 8) Build walls/ceilings and collect empty-cell positions for luck blocks
-    local openCells = {} -- store Vector3 positions (bottom layer centers)
+    -- 6) Define split zones
+    local leftEndCol  = math.floor(maxCols / 3)          -- last col of red zone
+    local middleEndCol = math.floor(maxCols * 2 / 3)     -- last col of white zone
+
+    local openCells = {}
+
+    -- 7) Build maze geometry
     for z = 1, #rows do
         local row = rows[z]
         for x = 1, #row do
             local ch = row:sub(x, x)
             local posBase = ORIGIN + Vector3.new((x - 1) * CELL_SIZE, 0, (z - 1) * CELL_SIZE)
 
+            -- Choose color based on which zone the column is in
+            local tint
+            if x <= leftEndCol then
+                tint = RED
+            elseif x <= middleEndCol then
+                tint = WHITE
+            else
+                tint = BLUE
+            end
+
             if ch == "#" then
-                -- wall cube (bottom layer)
                 local wall = wallCubeTemplate:Clone()
                 wall:SetPrimaryPartCFrame(CFrame.new(posBase))
                 wall.Parent = container
+                applyColorToWallCube(wall, tint)
             else
-                -- ceiling cube (one block above)
                 local ceil = wallCubeTemplate:Clone()
                 ceil:SetPrimaryPartCFrame(CFrame.new(posBase + Vector3.new(0, CELL_SIZE, 0)))
                 ceil.Parent = container
+                applyColorToWallCube(ceil, tint)
 
-                -- remember this open cell for potential luck block placement
                 table.insert(openCells, posBase)
             end
         end
     end
 
-    -- 9) Randomly drop LuckBlocks in some open cells
+    -- 8) Spawn luck blocks
     if #openCells > 0 then
-        -- decide how many to drop
-        local want = math.random(LUCK_MIN, LUCK_MAX)
-        local count = math.clamp(want, 1, #openCells)
-
-        -- simple Fisher-Yates shuffle then take first N
+        local count = math.clamp(math.random(LUCK_MIN, LUCK_MAX), 1, #openCells)
         for i = #openCells, 2, -1 do
             local j = math.random(1, i)
             openCells[i], openCells[j] = openCells[j], openCells[i]
         end
-
         for i = 1, count do
-            local pos = openCells[i]
             local lb = luckTemplate:Clone()
-            -- Place at floor level (center of open cell). Adjust Y if your model needs it.
-            lb:SetPrimaryPartCFrame(CFrame.new(pos))
+            lb:SetPrimaryPartCFrame(CFrame.new(openCells[i]))
             lb.Parent = container
         end
     end
@@ -135,8 +157,6 @@ function MazeService:KnitStart()
     self.Maze = maze
 end
 
-function MazeService:KnitInit()
-    -- Add service initialization logic here
-end
+function MazeService:KnitInit() end
 
 return MazeService

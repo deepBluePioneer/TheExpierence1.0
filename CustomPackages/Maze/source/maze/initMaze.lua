@@ -6,7 +6,11 @@ local Maze = require(script.Parent.maze)
 -- Attach generator functions as a table (like the CLI init did)
 Maze.generators = {
    
-    sidewinder           = require(script.Parent.generators.sidewinder)}
+    sidewinder = require(script.Parent.generators.sidewinder),
+
+    prim = require(script.Parent.generators.prim)
+
+}
 
 -- If you actually use the Love helpers, you can still expose them.
 
