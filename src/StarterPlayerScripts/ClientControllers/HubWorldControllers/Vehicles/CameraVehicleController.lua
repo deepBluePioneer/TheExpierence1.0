@@ -89,7 +89,7 @@ function CameraVehicleController:ResetCameraOffset()
 end
 
 function CameraVehicleController:KnitStart()
- self:init()
+ --self:init()
 end
 
 function CameraVehicleController:KnitInit()

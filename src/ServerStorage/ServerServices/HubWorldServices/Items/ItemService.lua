@@ -21,8 +21,9 @@ local ItemService = Knit.CreateService {
     },
 }
 
-function ItemService:KnitStart()
-    
+
+function init()
+       
     -- Get zone parts from CollectionService using the tag zoneName
     local zoneParts = CollectionService:GetTagged(zoneName)
     if #zoneParts == 0 then
@@ -34,7 +35,11 @@ function ItemService:KnitStart()
     self.zone = Zone.new(zoneParts)
 
     -- Create a random amount of parts in the zone
-    self:CreateRandomPatchesInZone()
+    --self:CreateRandomPatchesInZone()
+end
+
+function ItemService:KnitStart()
+ 
 end
 
 function ItemService:KnitInit()
