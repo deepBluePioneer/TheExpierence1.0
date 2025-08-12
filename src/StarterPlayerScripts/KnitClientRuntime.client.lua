@@ -3,9 +3,11 @@ local StarterPlayer = game:GetService("StarterPlayer")
 local StarterPlayerScripts = StarterPlayer.StarterPlayerScripts
 local Knit = require(ReplicatedStorage.Packages.Knit)
 
+
 -- Define the Place IDs for different game environments
-local MainGamePlaceID = 0
-local HubWorldServiceID = 130949996263537
+local MainGamePlaceID = 77109030109494
+local HubWorldServiceID = 84010186741596
+
 -- References to controller directories
 local ClientControllers = StarterPlayerScripts.Source.ClientControllers
 local HubWorldControllers = ClientControllers.HubWorldControllers

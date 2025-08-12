@@ -7,8 +7,8 @@ local Knit = require(ReplicatedStorage.Packages.Knit)
 local ServerServices = ServerStorage.Source.ServerServices
 
 -- Define the Place IDs for different game environments
-local MainGamePlaceID = 0
-local HubWorldServiceID = 130949996263537
+local MainGamePlaceID = 77109030109494
+local HubWorldServiceID = 84010186741596
 
 -- Define service directories based on game type
 local HubWorldServices = ServerServices.HubWorldServices
