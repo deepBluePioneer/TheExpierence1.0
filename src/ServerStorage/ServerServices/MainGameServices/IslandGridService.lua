@@ -2,8 +2,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Knit = require(Packages.Knit)
+local CollectionService = game:GetService("CollectionService")
+
+-- ZonePlus
+local ZoneRoot = CustomPackages:WaitForChild("ZoneRoot")
+local Zone = require(ZoneRoot:WaitForChild("Zone"))
 
 local Prefabs = ReplicatedStorage:WaitForChild("Prefabs")
+local waypointTag = "waypointZone"
 
 local IslandGridService = Knit.CreateService {
     Name = "IslandGridService",
@@ -11,12 +17,29 @@ local IslandGridService = Knit.CreateService {
 }
 
 -- ====== CONFIG ======
-local GRID_ROWS = 5
-local GRID_COLS = 5
+local GRID_ROWS = 1
+local GRID_COLS = 1
 local GRID_SPACING = Vector3.new(150, 0, 150)
 local START_CFRAME = CFrame.new(0, 0, 0)
 
-local BRIDGE_THICKNESS = Vector3.new(10, 5, 10) -- default thickness of bridge parts
+local BRIDGE_THICKNESS = Vector3.new(10, 5, 10) -- bridge Y = 5
+local BRIDGE_LENGTH = 53.487
+local BRIDGE_Y = 61.342
+
+-- Grid visual settings
+local GRID_PART_SIZE = Vector3.new(1, 1, 1)  -- size of each voxel
+local GRID_GAP = 1                            -- space between voxels
+local GRID_COLOR = Color3.fromRGB(255, 170, 0)
+local GRID_MATERIAL = Enum.Material.Plastic
+local GRID_CAN_COLLIDE = false
+
+-- Waypoint zone plate that sits ON TOP of each bridge
+local WAYPOINT_PLATE_THICKNESS = 1            -- make sure >= GRID_PART_SIZE.Y for simple math
+local WAYPOINT_PLATE_TRANSPARENCY = 0.6
+local WAYPOINT_PLATE_COLOR = Color3.fromRGB(0, 170, 255)
+local WAYPOINT_PLATE_MATERIAL = Enum.Material.SmoothPlastic
+
+IslandGridService._waypointZones = {}
 
 -- ====== HELPERS ======
 local function getIslandPrefab()
@@ -48,21 +71,86 @@ local function placeModelAt(model: Model, cf: CFrame)
     model:PivotTo(cf)
 end
 
-local function createBridgeBetween(partA: BasePart, partB: BasePart, parent: Instance)
+-- Create the main bridge between two parts and also a thin "waypoint zone" plate on top, tagged.
+local function createBridgeAndWaypointZoneBetween(partA: BasePart, partB: BasePart, parent: Instance)
+    -- Compute bridge placement/orientation
     local midpoint = (partA.Position + partB.Position) / 2
-    midpoint = Vector3.new(midpoint.X, 61.342, midpoint.Z) -- fixed height
+    midpoint = Vector3.new(midpoint.X, BRIDGE_Y, midpoint.Z)
+    local lookAt = CFrame.lookAt(midpoint, Vector3.new(partB.Position.X, BRIDGE_Y, partB.Position.Z))
+    local yawAligned = lookAt * CFrame.Angles(0, math.pi/2, 0) -- keep prior 90° rotation
 
+    -- Main bridge
     local bridge = Instance.new("Part")
     bridge.Anchored = true
-    bridge.Size = Vector3.new(53.487, BRIDGE_THICKNESS.Y, BRIDGE_THICKNESS.Z) -- fixed length
-    bridge.CFrame = CFrame.lookAt(midpoint, Vector3.new(partB.Position.X, 61.342, partB.Position.Z))
-                      * CFrame.Angles(0, math.pi/2, 0)
+    bridge.Size = Vector3.new(BRIDGE_LENGTH, BRIDGE_THICKNESS.Y, BRIDGE_THICKNESS.Z)
+    bridge.CFrame = yawAligned
     bridge.Color = Color3.fromRGB(125, 125, 125)
     bridge.Material = Enum.Material.WoodPlanks
     bridge.Name = "Bridge"
     bridge.Parent = parent
+
+    -- Waypoint zone plate sitting ON TOP of the bridge
+    local plate = Instance.new("Part")
+    plate.Anchored = true
+    plate.Name = "BridgeWaypointZone"
+    plate.Material = WAYPOINT_PLATE_MATERIAL
+    plate.Color = WAYPOINT_PLATE_COLOR
+    plate.Transparency = WAYPOINT_PLATE_TRANSPARENCY
+    plate.CanCollide = false
+    -- same X/Z footprint as bridge; thin Y for zone
+    plate.Size = Vector3.new(bridge.Size.X, WAYPOINT_PLATE_THICKNESS, bridge.Size.Z)
+    -- place at local +Y offset: (bridge.Y/2 + plate.Y/2)
+    local yOffset = (bridge.Size.Y * 0.5) + (plate.Size.Y * 0.5)
+    plate.CFrame = bridge.CFrame * CFrame.new(0, yOffset, 0)
+    plate.Parent = parent
+
+    -- Tag the top plate so your grid builder will generate the voxel layer on it
+    CollectionService:AddTag(plate, waypointTag)
+
+    return bridge, plate
 end
 
+-- Create Zone + top-layer 2D grid with gaps
+-- Create Zone + top-layer 2D grid with gaps
+local function createZoneAndGridFromPart(zonePart: BasePart, gridsFolder: Folder, zonesFolder: Folder)
+    -- 1) Zone creation (stored for future hooks if needed)
+    local zone = Zone.new(zonePart)
+    zone.name = zonePart.Name .. "_Zone"
+    IslandGridService._waypointZones[zonePart] = zone
+
+    -- 2) Top interior layer with gaps
+    local cf = zonePart.CFrame
+    local size = zonePart.Size
+    local half = size * 0.5
+    local yLocal = half.Y - (GRID_PART_SIZE.Y * 0.5)
+
+    local padX = GRID_PART_SIZE.X * 0.5
+    local padZ = GRID_PART_SIZE.Z * 0.5
+    local minX, maxX = -half.X + padX, half.X - padX
+    local minZ, maxZ = -half.Z + padZ, half.Z - padZ
+
+    local STEP_X = GRID_PART_SIZE.X + GRID_GAP
+    local STEP_Z = GRID_PART_SIZE.Z + GRID_GAP
+
+    for lx = minX, maxX, STEP_X do
+        for lz = minZ, maxZ, STEP_Z do
+            local worldCFrame = cf * CFrame.new(lx, yLocal, lz)
+            local p = Instance.new("Part")
+            p.Size = GRID_PART_SIZE
+            p.Anchored = true
+            p.CanCollide = GRID_CAN_COLLIDE
+            p.Color = GRID_COLOR
+            p.Transparency = 0.5
+            p.Material = GRID_MATERIAL
+            p.CFrame = worldCFrame
+            p.Name = "WaypointVoxel2D"
+            p.Parent = gridsFolder
+
+            -- Tag each voxel part as waypointPart
+            CollectionService:AddTag(p, "waypointPart")
+        end
+    end
+end
 
 
 -- ====== API ======
@@ -79,6 +167,17 @@ function IslandGridService:SpawnIslandGrid(rows: number, cols: number, spacing: 
     container.Parent = parent
 
     local islands = {}
+    local bridgesFolder = Instance.new("Folder")
+    bridgesFolder.Name = "Bridges"
+    bridgesFolder.Parent = container
+
+    local zonesFolder = Instance.new("Folder")
+    zonesFolder.Name = "WaypointZones"
+    zonesFolder.Parent = container
+
+    local gridsFolder = Instance.new("Folder")
+    gridsFolder.Name = "WaypointGrids"
+    gridsFolder.Parent = container
 
     -- Spawn islands
     for r = 0, rows - 1 do
@@ -96,25 +195,30 @@ function IslandGridService:SpawnIslandGrid(rows: number, cols: number, spacing: 
         end
     end
 
-    -- Create bridges
+    -- Create bridges + top waypoint zone plates
     for r = 0, rows - 1 do
         for c = 0, cols - 1 do
             local currentIsland = islands[r][c]
             local currentPrimary = ensurePrimaryPart(currentIsland)
 
-            -- Bridge to the right neighbor
             if c < cols - 1 then
                 local rightIsland = islands[r][c + 1]
                 local rightPrimary = ensurePrimaryPart(rightIsland)
-                createBridgeBetween(currentPrimary, rightPrimary, container)
+                createBridgeAndWaypointZoneBetween(currentPrimary, rightPrimary, bridgesFolder)
             end
 
-            -- Bridge to the bottom neighbor
             if r < rows - 1 then
                 local bottomIsland = islands[r + 1][c]
                 local bottomPrimary = ensurePrimaryPart(bottomIsland)
-                createBridgeBetween(currentPrimary, bottomPrimary, container)
+                createBridgeAndWaypointZoneBetween(currentPrimary, bottomPrimary, bridgesFolder)
             end
+        end
+    end
+
+    -- Build grids only for tagged parts inside this container (includes the bridge plates)
+    for _, inst in ipairs(container:GetDescendants()) do
+        if inst:IsA("BasePart") and CollectionService:HasTag(inst, waypointTag) then
+            createZoneAndGridFromPart(inst, gridsFolder, zonesFolder)
         end
     end
 
