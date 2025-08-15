@@ -19,7 +19,7 @@ local WalkService = Knit.CreateService {
 
 -- ====== Config ======
 local MODEL_NAME = "mayor_walking_1"
-local NUM_SPAWNS = 100
+local NUM_SPAWNS = 10
 
 -- Batch to reduce frame hitch
 local BATCH_SIZE = 5
