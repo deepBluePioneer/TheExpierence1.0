@@ -8,8 +8,8 @@ local Knit = require(Packages.Knit)
 
 local WALKER_TAG = "islanderWalker"
 
-local BodyPartExpanderService = Knit.CreateService {
-    Name = "BodyPartExpanderService",
+local BodyConfigService = Knit.CreateService {
+    Name = "BodyConfigService",
     Client = {},
 }
 
@@ -23,7 +23,7 @@ local function removeNameDisplay(npcModel: Model)
     end
 end
 
-function BodyPartExpanderService:KnitStart()
+function BodyConfigService:KnitStart()
     -- Handle NPCs that already exist
     for _, npc in ipairs(CollectionService:GetTagged(WALKER_TAG)) do
         if npc:IsA("Model") then
@@ -39,8 +39,8 @@ function BodyPartExpanderService:KnitStart()
     end)
 end
 
-function BodyPartExpanderService:KnitInit()
+function BodyConfigService:KnitInit()
     -- Nothing special here yet
 end
 
-return BodyPartExpanderService
+return BodyConfigService

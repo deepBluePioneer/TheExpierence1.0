@@ -317,9 +317,8 @@ local function removeWaypointPart(inst: Instance)
     end
 end
 
--- ===== KNIT =====
-function IslandWalkerService:KnitStart()
-    math.randomseed(os.time())
+function IslandWalkerService:MoveToWayPoint()
+     math.randomseed(os.time())
 
     -- Seed waypoint list
     for _, inst in ipairs(CollectionService:GetTagged(WAYPOINT_PART_TAG)) do
@@ -348,6 +347,11 @@ function IslandWalkerService:KnitStart()
         local model = inst:IsA("Model") and inst or inst:FindFirstAncestorOfClass("Model")
         if model then stopWalker(model) end
     end)
+end
+-- ===== KNIT =====
+function IslandWalkerService:KnitStart()
+ 
+
 end
 
 function IslandWalkerService:KnitInit() end
