@@ -1,6 +1,7 @@
 -- Services/NpcLifespanService.lua
 -- Countdown + accelerating white-flash warning -> RAGDOLL (no destroy).
 -- Integrated with Knit NpcRagdollService.
+-- NOW: applies an optional impulse immediately after ragdoll.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService        = game:GetService("RunService")
@@ -19,6 +20,12 @@ export type Options = {
     max: number?,
     destroyOnDeath: boolean?,
     onDestroy: ((Model, string) -> ())?, -- "ragdoll_timeout" | "ragdoll_death" | "removed" | "manual"
+
+    -- NEW: Ragdoll impulse configuration (all optional)
+    impulse: Vector3?,        -- direct world-space impulse (N*s)
+    impulseSpeed: number?,    -- desired forward speed (studs/s) converted to impulse via mass
+    impulseDir: Vector3?,     -- world direction for impulseSpeed (default: HRP.LookVector)
+    impulseUp: number?,       -- extra upward speed (studs/s) added to the above
 }
 
 type PartSnapshot = { part: BasePart, color: Color3 }
@@ -36,13 +43,19 @@ type TaskEntry = {
     parts: { PartSnapshot }?,
     flashOn: boolean?,
     nextFlashAt: number?,
+
+    -- NEW: cached impulse config
+    impulse: Vector3?,
+    impulseSpeed: number?,
+    impulseDir: Vector3?,
+    impulseUp: number?,
 }
 
 -- ========= Defaults / State =========
 local DEFAULTS = {
     min = 20,
     max = 60,
-    destroyOnDeath = true, -- if humanoid Died fires, ragdoll immediately
+    destroyOnDeath = true,
 }
 
 -- Flashing config
@@ -51,11 +64,11 @@ local FLASH_INTERVAL_START   = 0.6
 local FLASH_INTERVAL_END     = 0.08
 local FLASH_COLOR            = Color3.new(1, 1, 1)
 
--- Options passed to NpcRagdollService:Register(model, opts)
+-- Options for NpcRagdollService:Register(...)
 local RAGDOLL_OPTIONS = {
-    makeMasslessWhileCarried = false, -- keep mass (pure flop)
-    giveNetworkOwnership     = false, -- don't force owner
-    alignResponsiveness      = 160,   -- irrelevant unless attaching later
+    makeMasslessWhileCarried = false,
+    giveNetworkOwnership     = false,
+    alignResponsiveness      = 160,
 }
 
 local Active: { [Model]: TaskEntry } = {}
@@ -128,7 +141,6 @@ local function currentFlashInterval(remaining: number): number
 end
 
 local function ensureNpcRegistered(model: Model)
-    -- Safe to call repeatedly; our NpcRagdollService:Register is idempotent.
     if RagdollSvc then
         local ok = pcall(function()
             RagdollSvc:Register(model, RAGDOLL_OPTIONS)
@@ -136,6 +148,34 @@ local function ensureNpcRegistered(model: Model)
         if not ok then
             warn("[NpcLifespanService] Failed to register NPC with NpcRagdollService")
         end
+    end
+end
+
+-- NEW: compute and apply the impulse after ragdoll
+local function applyRagdollImpulse(entry: TaskEntry)
+    local model = entry.model
+    if not (model and model.Parent) then return end
+    local hrp = model:FindFirstChild("HumanoidRootPart")
+    if not (hrp and hrp:IsA("BasePart")) then return end
+    if hrp.Anchored then return end
+
+    local impulseVec = entry.impulse
+
+    if not impulseVec and entry.impulseSpeed and entry.impulseSpeed > 0 then
+        local dir = entry.impulseDir
+        if not (dir and dir.Magnitude > 0) then
+            dir = hrp.CFrame.LookVector
+        end
+        dir = dir.Unit
+        local up = entry.impulseUp or 0
+        local velocity = (dir * entry.impulseSpeed) + Vector3.new(0, up, 0)
+        impulseVec = velocity * hrp.AssemblyMass
+    end
+
+    if impulseVec and impulseVec.Magnitude > 0 then
+        pcall(function()
+            hrp:ApplyImpulse(impulseVec)
+        end)
     end
 end
 
@@ -150,7 +190,10 @@ local function ragdollAndCleanup(model: Model, reason: string)
 
     if model and model.Parent and RagdollSvc then
         ensureNpcRegistered(model)
-        pcall(function() RagdollSvc:Ragdoll(model, nil) end) -- no owner; just flop
+        pcall(function() RagdollSvc:Ragdoll(model, nil) end) -- switch to physics
+        if entry then
+            applyRagdollImpulse(entry) -- kick right after ragdoll
+        end
     end
 
     if entry and entry.onDestroy then
@@ -195,7 +238,6 @@ local function ensureHeartbeat()
                 end
 
                 if entry.remaining <= 0 then
-                    -- Time's up -> ragdoll (do NOT destroy)
                     ragdollAndCleanup(model, "ragdoll_timeout")
                 end
             end
@@ -233,7 +275,6 @@ function NpcLifespanService:Add(model: Model, opts: Options?)
         self:Remove(model)
     end
 
-    -- Ensure the NPC is known to the ragdoll service up-front
     ensureNpcRegistered(model)
 
     local life = randRange(minLife, maxLife)
@@ -249,16 +290,20 @@ function NpcLifespanService:Add(model: Model, opts: Options?)
         parts = nil,
         flashOn = false,
         nextFlashAt = nil,
+
+        -- cache impulse config
+        impulse     = opts.impulse,
+        impulseSpeed= opts.impulseSpeed,
+        impulseDir  = opts.impulseDir,
+        impulseUp   = opts.impulseUp,
     }
 
-    -- External removal
     table.insert(entry.conns, model.AncestryChanged:Connect(function(_, parent)
         if parent == nil then
             cleanupEntry(model, "removed")
         end
     end))
 
-    -- Humanoid death -> ragdoll (if enabled)
     if destroyOnDeath then
         local hum = model:FindFirstChildWhichIsA("Humanoid")
         if hum then
@@ -287,7 +332,6 @@ function NpcLifespanService:Resume(model: Model)
     if entry then entry.paused = false end
 end
 
--- Force ragdoll now and stop tracking.
 function NpcLifespanService:RagdollNow(model: Model, reason: string?)
     if not model then return end
     ragdollAndCleanup(model, reason or "manual")
@@ -297,7 +341,6 @@ function NpcLifespanService:KnitInit() end
 
 function NpcLifespanService:KnitStart()
     math.randomseed(os.time())
-    -- Acquire the ragdoll service
     RagdollSvc = Knit.GetService("NpcRagdollService")
 end
 
