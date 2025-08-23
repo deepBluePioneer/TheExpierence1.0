@@ -96,11 +96,15 @@ function FireService:SpreadFireInZone(zone)
     end)
 end
 
-function FireService:KnitStart()
+function init()
     for _, zonePart in ipairs(CollectionService:GetTagged("fireZone")) do
         local zone = Zone.new(zonePart)
         self:SpreadFireInZone(zone)
     end
+end
+
+function FireService:KnitStart()
+    
 end
 
 function FireService:KnitInit() end

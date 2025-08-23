@@ -86,7 +86,7 @@ function BoxManagerService:CreateBox(position)
 end
 
 function BoxManagerService:KnitStart()
-	self:CreateBox(Vector3.new(0, 10, 0))
+	--self:CreateBox(Vector3.new(0, 10, 0))
 end
 
 function BoxManagerService:KnitInit()

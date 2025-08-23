@@ -89,7 +89,7 @@ local function setupMachine(machine: Model)
 	end)
 end
 
-function IKController:KnitStart()
+function IKController:initIk()
 	task.wait(5)
 	local machines = CollectionService:GetTagged("machine")
 	for _, machine in ipairs(machines) do
@@ -97,6 +97,10 @@ function IKController:KnitStart()
 			setupMachine(machine)
 		end
 	end
+end
+
+function IKController:KnitStart()
+	
 end
 
 function IKController:KnitInit()

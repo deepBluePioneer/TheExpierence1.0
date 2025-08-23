@@ -16,7 +16,7 @@ local Camera = workspace.CurrentCamera
 local smoothedCameraCFrame = nil
 local lateralOffset = 0
 local currentFOV = Camera.FieldOfView
-local defaultFOV = 45
+local defaultFOV = 60
 local zoomedFOV = 42
 local currentTilt = 0
 local smoothingSpeed = 15
@@ -139,10 +139,6 @@ function CameraController:UpdateFixed(rootPart)
 	local pitchAngle = math.rad(-10) -- Negative = tilt down
 	Camera.CFrame = targetCFrame * CFrame.Angles(pitchAngle, 0, 0)
 end
-
-
-
-
 
 
 
