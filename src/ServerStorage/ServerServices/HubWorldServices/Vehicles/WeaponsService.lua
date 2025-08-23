@@ -106,7 +106,7 @@ function WeaponsService:KnitStart()
  
 end
 
---[[
+
 
 function WeaponsService.Client:SendRay(player, rayData, vehiclePrimaryPart)
     local origin = rayData.origin
@@ -129,7 +129,7 @@ function WeaponsService.Client:SendRay(player, rayData, vehiclePrimaryPart)
     }
 end
 
-]]
+
 
 
 function WeaponsService:AdvanceCast(rayData, cast, timeElapsed)

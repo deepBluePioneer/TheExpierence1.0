@@ -152,46 +152,15 @@ function WeaponController:FireRay()
         caster:Fire(firingPointPosition, direction, 500, castBehavior)  -- Adjust the velocity as needed
     end
 end
-function WeaponController:Cleanup()
-    if self.fireConnection then
-        self.fireConnection:Disconnect()
-        self.fireConnection = nil
-    end
-    if self.mouseLeftDownConnection then
-        self.mouseLeftDownConnection:Disconnect()
-        self.mouseLeftDownConnection = nil
-    end
-    if self.mouseLeftUpConnection then
-        self.mouseLeftUpConnection:Disconnect()
-        self.mouseLeftUpConnection = nil
-    end
 
-    if self.mouse then
-        self.mouse:Destroy()
-        self.mouse = nil
-    end
-    self.VehicleModel = nil
-    self.PrimaryPart = nil
-end
 
 function WeaponController:KnitInit()
  
 end
 
 function WeaponController:init()
-    local VehicleService = Knit.GetService("VehicleService")
 
-    VehicleService.SeatOccupied:Connect(function(vehicleModel)
-        WeaponController:initWeapon(vehicleModel)
-    end)
-
-    local VehicleService = Knit.GetService("VehicleService")
-
-    VehicleService.SeatEjected:Connect(function()
-
-        self:Cleanup()
-
-    end)
+    WeaponController:initWeapon(Character)
 end
 
 function WeaponController:KnitStart()

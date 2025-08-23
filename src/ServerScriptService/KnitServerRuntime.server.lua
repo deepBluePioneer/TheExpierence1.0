@@ -8,7 +8,7 @@ local ServerServices = ServerStorage.Source.ServerServices
 
 -- Define the Place IDs for different game environments
 local DungeonPlaceID = 102436797186064
-local HubWorldServiceID = 128423752054643
+local HubWorldServiceID = 72869968383509
 
 -- Define service directories based on game type
 local HubWorldServices = ServerServices.HubWorldServices
