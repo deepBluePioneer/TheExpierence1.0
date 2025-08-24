@@ -12,7 +12,7 @@ local Timer = require(Packages.timer)
 
 local initLobbyTime = 10
 local initGameCountdownTime = 5 -- short pre-game countdown
-local initMainGameTime = 5 * 60 -- 5 minutes in seconds
+local initMainGameTime = 1 * 60 -- 5 minutes in seconds
 local initReturnTime = 60
 
 local GameManagerService = Knit.CreateService {

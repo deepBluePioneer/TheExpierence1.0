@@ -111,7 +111,7 @@ function PatchUIController:CreateIconAboveHead(character, imageId)
 	end)
 end
 
-function PatchUIController:KnitStart()
+function init()
 	ReplicaController.ReplicaOfClassCreated("PatchNotifier", function(replica)
 		replica:ListenToChange("PatchType", function(newType)
 			if newType and patchIcons[newType] then
@@ -124,8 +124,12 @@ function PatchUIController:KnitStart()
 	end)
 end
 
+function PatchUIController:KnitStart()
+	
+end
+
 function PatchUIController:KnitInit()
-	ReplicaController.RequestData()
+	--ReplicaController.RequestData()
 end
 
 return PatchUIController

@@ -39,7 +39,7 @@ function MachineService:HandleSeat(seat, machine)
 	end)
 end
 
-function MachineService:KnitStart()
+function init()
 	local machines = CollectionService:GetTagged("machine")
 
 	for _, machine in ipairs(machines) do
@@ -50,6 +50,10 @@ function MachineService:KnitStart()
 			end
 		end
 	end
+end
+
+function MachineService:KnitStart()
+	
 end
 
 return MachineService

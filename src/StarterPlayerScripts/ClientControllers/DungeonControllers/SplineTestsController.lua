@@ -219,9 +219,9 @@ function SplineTestsController:init()
 end
 
 function SplineTestsController:KnitStart()
-	MachineController = Knit.GetController("MachineController")
-	CameraController = Knit.GetController("CameraController")
-	self:init()
+	--MachineController = Knit.GetController("MachineController")
+	--CameraController = Knit.GetController("CameraController")
+	--self:init()
 end
 
 function SplineTestsController:KnitInit() end

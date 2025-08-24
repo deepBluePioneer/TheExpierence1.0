@@ -16,7 +16,7 @@ local orbitHeight = 2.5
 local orbitSpeed = 2
 local angle = 0
 
-function AIPlayerSupportController:KnitStart()
+function init()
 	warn("AIPlayerSupportController Started")
 
 	local character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
@@ -56,6 +56,10 @@ function AIPlayerSupportController:KnitStart()
 
 		weld.C0 = offset
 	end)
+end
+
+function AIPlayerSupportController:KnitStart()
+	
 end
 
 function AIPlayerSupportController:KnitInit()

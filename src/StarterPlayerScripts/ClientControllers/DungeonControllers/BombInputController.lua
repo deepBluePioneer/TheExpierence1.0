@@ -6,8 +6,8 @@ local Knit = require(Packages.Knit)
 
 local BombInputController = Knit.CreateController { Name = "BombInputController" }
 
-function BombInputController:KnitStart()
-    local BombService = Knit.GetService("BombService")
+function init()
+     local BombService = Knit.GetService("BombService")
 
     ContextActionService:BindAction(
         "Bomb_Space",
@@ -21,6 +21,10 @@ function BombInputController:KnitStart()
         false,
         Enum.KeyCode.Space
     )
+end
+
+function BombInputController:KnitStart()
+   
 end
 
 return BombInputController

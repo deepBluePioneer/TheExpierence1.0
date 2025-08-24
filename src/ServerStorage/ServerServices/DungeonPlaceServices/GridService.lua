@@ -61,8 +61,8 @@ end
 -- ====== LIFECYCLE ======
 function GridService:KnitInit() end
 
-function GridService:KnitStart()
-    local baseplate = Workspace:FindFirstChild("Baseplate")
+function init()
+     local baseplate = Workspace:FindFirstChild("Baseplate")
     if not baseplate then
         warn("Baseplate not found!")
         return
@@ -84,6 +84,10 @@ function GridService:KnitStart()
 
     -- If you prefer spawning a NEW cube instead of reusing:
     -- LaserService:LaunchRandomLaser(3.0, false)
+end
+
+function GridService:KnitStart()
+   
 end
 
 

@@ -43,8 +43,8 @@ TargetController._maxReticlePx  = 160
 TargetController._baseReticlePx = 110
 TargetController._reticleEdge   = 0.28
 
-function TargetController:KnitStart()
-    local TargetService = Knit.GetService("TargetService")
+function init()
+     local TargetService = Knit.GetService("TargetService")
 
     if TargetService.Threshold then
         TargetService.Threshold:Observe(function(v) self._threshold = tonumber(v) or self._threshold end)
@@ -87,6 +87,10 @@ function TargetController:KnitStart()
         self:_updateTargetFromCamera()
         self:_tickReticleSize()
     end)
+end
+
+function TargetController:KnitStart()
+   
 end
 
 -- Hook live add/remove for a given tag

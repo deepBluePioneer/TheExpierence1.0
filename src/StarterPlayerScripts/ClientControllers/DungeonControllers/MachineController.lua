@@ -18,8 +18,9 @@ local LocalPlayer = Players.LocalPlayer
 local MachineController = Knit.CreateController { Name = "MachineController" }
 local movementConnection -- for controlling the RenderStepped connection
 local movementPaused 
-function MachineController:KnitStart()
-     CameraController = Knit.GetController("CameraController")
+
+function init()
+	   CameraController = Knit.GetController("CameraController")
 
 	task.wait(5)
 	local machines = CollectionService:GetTagged("machine")
@@ -31,6 +32,10 @@ function MachineController:KnitStart()
 			self:SetupMachine(machine)
 		end
 	end
+end
+
+function MachineController:KnitStart()
+  
 end
 
 function MachineController:SetupMachine(machine)

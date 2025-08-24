@@ -29,8 +29,8 @@ local function lerp(a, b, t)
 	return a + (b - a) * t
 end
 
-function SpeedometerController:KnitStart()
-	local player = Players.LocalPlayer
+local function init()
+		local player = Players.LocalPlayer
 	local gui = player:WaitForChild("PlayerGui")
 
 	local function createSpeedometer(rootPart)
@@ -110,6 +110,10 @@ function SpeedometerController:KnitStart()
 		connectSeated()
 	end
 	player.CharacterAdded:Connect(connectSeated)
+end
+
+function SpeedometerController:KnitStart()
+
 end
 
 function SpeedometerController:KnitInit() end

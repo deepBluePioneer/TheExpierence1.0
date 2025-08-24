@@ -76,8 +76,8 @@ function GameManagerController:createScreenGUI()
 end
 
 function GameManagerController:KnitInit()
-	--ReplicaController.RequestData()
-	--self:createScreenGUI()
+	ReplicaController.RequestData()
+	self:createScreenGUI()
 end
 
 function GameManagerController:KnitStart()
