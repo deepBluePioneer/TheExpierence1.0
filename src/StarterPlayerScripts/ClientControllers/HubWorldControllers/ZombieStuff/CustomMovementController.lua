@@ -76,9 +76,8 @@ local function onCharacterAdded(character)
 	end
 end
 
--- Knit lifecycle
-function CustomMovementController:KnitStart()
-	if LocalPlayer.Character then
+function init()
+		if LocalPlayer.Character then
 		onCharacterAdded(LocalPlayer.Character)
 	end
 
@@ -87,6 +86,11 @@ function CustomMovementController:KnitStart()
 	bindMovementControls()
 
 	RunService.RenderStepped:Connect(updateMovement)
+end
+
+-- Knit lifecycle
+function CustomMovementController:KnitStart()
+
 end
 
 return CustomMovementController

@@ -63,8 +63,7 @@ local function onCharacterAdded(character)
 	end
 end
 
--- Knit lifecycle
-function MouseFacingController:KnitStart()
+function init()
 	facingService = Knit.GetService("FacingService")
 
 	-- Setup for existing character
@@ -92,6 +91,10 @@ function MouseFacingController:KnitStart()
 			end
 		end
 	end)
+end
+-- Knit lifecycle
+function MouseFacingController:KnitStart()
+	
 end
 
 return MouseFacingController

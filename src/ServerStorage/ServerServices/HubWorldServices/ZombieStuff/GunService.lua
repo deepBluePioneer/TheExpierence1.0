@@ -22,7 +22,7 @@ local GunService = Knit.CreateService({
 
 -- ======= CONFIG =======
 local BULLET_SPEED                = 320          -- studs/sec
-local BULLET_GRAVITY              = Vector3.new(0, -workspace.Gravity, 0)
+local BULLET_GRAVITY              = Vector3.new(0, 0, 0)
 local MAX_DISTANCE                = 1500
 local HIGH_FIDELITY_SEGMENT_SIZE  = 0.5
 local DAMAGE_PER_HIT              = 15
@@ -121,6 +121,7 @@ Caster.CastTerminating:Connect(function(cast)
 end)
 
 function GunService:KnitStart()
+
 	self.Client.FireGunSignal:Connect(function(player: Player, origin: Vector3, direction: Vector3)
 		if typeof(origin) ~= "Vector3" or typeof(direction) ~= "Vector3" then return end
 		if direction.Magnitude < 0.001 then return end

@@ -3,17 +3,17 @@ local CustomPackages = ReplicatedStorage.CustomPackages
 local Packages = ReplicatedStorage.Packages
 local Knit = require(Packages.Knit)
 
-local MapZoneSerivce = Knit.CreateService {
-    Name = "MapZoneSerivce",
+local EnemySoundsService = Knit.CreateService {
+    Name = "EnemySoundsService",
     Client = {},
 }
 
-function MapZoneSerivce:KnitStart()
+function EnemySoundsService:KnitStart()
     -- Add service startup logic here
 end
 
-function MapZoneSerivce:KnitInit()
+function EnemySoundsService:KnitInit()
     -- Add service initialization logic here
 end
 
-return MapZoneSerivce
+return EnemySoundsService

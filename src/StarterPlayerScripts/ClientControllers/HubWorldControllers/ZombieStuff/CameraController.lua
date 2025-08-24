@@ -110,8 +110,8 @@ end
 function CameraController:KnitInit() end
 
 function CameraController:KnitStart()
-    self:SetEnabled(true)
-    self._scrollConn = self:_bindHeightScroll()
+   -- self:SetEnabled(true)
+   -- self._scrollConn = self:_bindHeightScroll()
 end
 
 return CameraController
