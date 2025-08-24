@@ -26,20 +26,14 @@ local ReplicaController = require(Replica:WaitForChild("ReplicaController"))
 
 
 function TeleporterGUIController:KnitInit()
-    Teleporters = CollectionService:GetTagged("teleporter")
- 
-    
-    ReplicaController.RequestData() --Should only be called once according to thte documentation
+     
+    --ReplicaController.RequestData() --Should only be called once according to thte documentation
 
-    --self:createScreenGUI(Teleporters)
+    --self:createScreenGUI()
 end
 
-function TeleporterGUIController:createScreenGUI(Teleporters)
-    for _, teleporter in ipairs(Teleporters) do
-        local teleportZone = teleporter:FindFirstChild("TeleportZone")
-        
-        if teleportZone then
-            local timeRemaining = Value("00:00.000")  -- Initialize with a default formatted time string
+function TeleporterGUIController:createScreenGUI()
+        local timeRemaining = Value("00:00.000")  -- Initialize with a default formatted time string
             local timerType = Value("Lobby")
 
             local textValue = Computed(function()
@@ -85,8 +79,6 @@ function TeleporterGUIController:createScreenGUI(Teleporters)
                     timeRemaining:set(new_value)
                 end)
             end)
-        end
-    end
 end
 
 

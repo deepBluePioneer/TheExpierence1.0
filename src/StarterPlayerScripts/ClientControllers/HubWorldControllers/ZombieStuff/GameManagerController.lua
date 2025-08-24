@@ -26,7 +26,7 @@ local function formatTime(seconds)
 	return string.format("%02d:%02d.%03d", minutes, sec, milliseconds)
 end
 
-function GameManagerController:createScreenGUI()
+function GameManagerController:createTimerScreenGUI()
 	local timeRemaining = Value("0")
 	local timerType = Value("Lobby")
 
@@ -45,9 +45,9 @@ function GameManagerController:createScreenGUI()
 		Position = UDim2.new(0.25, 0, 0, 0),
 		BackgroundTransparency = 1,
 		Text = textValue,
-		TextColor3 = Color3.fromRGB(248, 246, 128),
+		TextColor3 = Color3.fromRGB(255, 255, 255),
 		TextScaled = true,
-		Font = Enum.Font.DenkOne
+		Font = Enum.Font.SpecialElite
 	}
 
 	ReplicaController.ReplicaOfClassCreated("TimerReplica", function(timer_replica)
@@ -76,8 +76,8 @@ function GameManagerController:createScreenGUI()
 end
 
 function GameManagerController:KnitInit()
-	--ReplicaController.RequestData()
-	--self:createScreenGUI()
+	ReplicaController.RequestData()
+	self:createTimerScreenGUI()
 end
 
 function GameManagerController:KnitStart()

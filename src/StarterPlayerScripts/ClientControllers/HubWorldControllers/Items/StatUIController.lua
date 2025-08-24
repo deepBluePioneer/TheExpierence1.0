@@ -78,7 +78,7 @@ function StatUIController:KnitStart()
    
 end
 
-function init()
+function StatUIController:init()
 
     local screenGui = New "ScreenGui" {
         Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui"),
@@ -122,7 +122,7 @@ function init()
 end
 
 function StatUIController:KnitInit()
-   
+   --self:init()
 end
 
 return StatUIController
