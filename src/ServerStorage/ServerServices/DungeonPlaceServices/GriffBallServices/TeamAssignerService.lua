@@ -134,6 +134,10 @@ local function placeCharacterAtSpawn(character: Model, spawn: SpawnLocation)
 	character:PivotTo(CFrame.new(cf.Position + offset))
 end
 
+
+
+
+
 -- === TEAM COLOR APPEARANCE ===
 
 local function applyTeamColorToCharacter(character: Model, color: BrickColor)
@@ -162,6 +166,18 @@ local function applyTeamColorToCharacter(character: Model, color: BrickColor)
 end
 
 -- === CHARACTER HOOK ===
+function TeamAssignerService:TeleportTeamToSpawn(teamColor: BrickColor)
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player.TeamColor == teamColor and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+			local spawn = ReservedByPlayer[player] or pickRandom(getAvailableSpawns(teamColor))
+			if spawn then
+				reserveSpawn(player, spawn)
+				placeCharacterAtSpawn(player.Character, spawn)
+			end
+		end
+	end
+end
+
 
 function TeamAssignerService:HandleCharacterAdded(player: Player, character: Model)
 	releaseReservation(player)

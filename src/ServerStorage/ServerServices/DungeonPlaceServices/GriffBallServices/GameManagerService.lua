@@ -10,9 +10,10 @@ local ReplicaService = require(Replica.ReplicaService)
 local Signal = require(Packages.Signal)
 local Timer = require(Packages.timer)
 
+-- Configurable durations
 local initLobbyTime = 10
 local initGameCountdownTime = 5 -- short pre-game countdown
-local initMainGameTime = 1 * 60 -- 5 minutes in seconds
+local initMainGameTime = 1 * 60 -- 1 minute
 local initReturnTime = 60
 
 local GameManagerService = Knit.CreateService {
@@ -22,6 +23,7 @@ local GameManagerService = Knit.CreateService {
     OnPreGameTimerEnd = Signal.new()
 }
 
+-- === Initialize Replica ===
 function GameManagerService:InitReplicas()
     self.TimerReplica = ReplicaService.NewReplica({
         ClassToken = ReplicaService.NewClassToken("TimerReplica"),
@@ -34,14 +36,22 @@ function GameManagerService:InitReplicas()
     })
 end
 
+-- === Pregame Setup ===
 function GameManagerService:SetupPreGameCountdown()
     self.gameTime = initGameCountdownTime
+
+    -- Destroy old timer if it exists
+    if self.gameTimer then
+        self.gameTimer:Stop()
+        self.gameTimer = nil
+    end
+
     self.gameTimer = Timer.new(1)
 
     self.gameTimer.Tick:Connect(function()
         self.gameTime -= 1
         self.TimerReplica:SetValue({ "GameTimeRemaining" }, self.gameTime)
-        print(self.gameTime)
+        print("[Pregame Tick]", self.gameTime)
 
         if self.gameTime <= 0 then
             self.gameTimer:Stop()
@@ -52,48 +62,67 @@ function GameManagerService:SetupPreGameCountdown()
 end
 
 function GameManagerService:StartPreGameTimer()
-    if not self.gameTimer then
-        self:SetupPreGameCountdown()
-    end
-    if not self.gameTimer:IsRunning() then
-        self.gameTimer:Start()
-    end
+    self:SetupPreGameCountdown()
+    self.gameTimer:Start()
 end
 
+-- === Main Game Timer ===
 function GameManagerService:StartMainGameTimer()
-	self.mainGameTime = initMainGameTime
-	self.mainGameTimer = Timer.new(0.01) -- tick every 10ms
+    self.mainGameTime = initMainGameTime
 
-	self.mainGameTimer.Tick:Connect(function()
-		self.mainGameTime -= 0.01
-		self.TimerReplica:SetValue({ "GameTimeRemaining" }, self.mainGameTime)
+    if self.mainGameTimer then
+        self.mainGameTimer:Stop()
+        self.mainGameTimer = nil
+    end
 
-		if self.mainGameTime <= 0 then
-			self.mainGameTimer:Stop()
-			self.OnGameTimerEnd:Fire()
-		end
-	end)
+    self.mainGameTimer = Timer.new(0.01) -- tick every 10ms
 
-	self.mainGameTimer:Start()
+    self.mainGameTimer.Tick:Connect(function()
+        self.mainGameTime -= 0.01
+        self.TimerReplica:SetValue({ "GameTimeRemaining" }, self.mainGameTime)
+
+        if self.mainGameTime <= 0 then
+            self.mainGameTimer:Stop()
+            self.OnGameTimerEnd:Fire()
+        end
+    end)
+
+    self.mainGameTimer:Start()
 end
 
+-- === Phase Restart ===
+function GameManagerService:RestartPreGamePhase()
+    self:StopAllTimers()
 
+    -- Reset replica values
+    self.TimerReplica:SetValue({ "GameTimeRemaining" }, initGameCountdownTime)
+    self.TimerReplica:SetValue({ "TimeRemaining" }, initLobbyTime)
+    self.TimerReplica:SetValue({ "ReturnTimeRemaining" }, initReturnTime)
 
+    self:StartPreGameTimer()
+end
+
+-- === Stop All Timers ===
 function GameManagerService:StopAllTimers()
-    if self.gameTimer and self.gameTimer:IsRunning() then
+    if self.gameTimer then
         self.gameTimer:Stop()
+        self.gameTimer = nil
     end
-    if self.mainGameTimer and self.mainGameTimer:IsRunning() then
+
+    if self.mainGameTimer then
         self.mainGameTimer:Stop()
+        self.mainGameTimer = nil
     end
+end
+
+-- === Knit Lifecycle ===
+function GameManagerService:KnitInit()
+    -- No-op for now
 end
 
 function GameManagerService:KnitStart()
     self:InitReplicas()
     self:StartPreGameTimer()
-end
-
-function GameManagerService:KnitInit()
 end
 
 return GameManagerService
