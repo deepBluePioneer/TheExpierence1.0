@@ -12,8 +12,9 @@ local Prefabs = ReplicatedStorage:WaitForChild("Prefabs")
 local BombSpawnService = Knit.CreateService {
 	Name = "BombSpawnService",
 	Client = {},
-	BombSpawned = Signal.new(),   -- Fires when the bomb spawns
-	BombPickedUp = Signal.new(),  -- Fires when a player picks it up
+	BombSpawned = Signal.new(),     -- Fires when the bomb spawns
+	BombPickedUp = Signal.new(),    -- Fires when a player picks it up
+	BombDestroyed = Signal.new(),   -- 🆕 Fires when the bomb is destroyed
 }
 
 -- Internal state
@@ -64,44 +65,36 @@ function BombSpawnService:SpawnBomb()
 	prompt.Parent = bombClone.PrimaryPart
 
 	prompt.Triggered:Connect(function(player)
-	print(player.Name .. " picked up the bomb.")
+		print(player.Name .. " picked up the bomb.")
 
-	-- Disable prompt
-	prompt.Enabled = false
+		prompt.Enabled = false
 
-	-- Attach to hand
-	local char = player.Character
-	if not char then return end
+		local char = player.Character
+		if not char then return end
 
-	local hand = char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm")
-	if not hand then
-		warn("No hand found on character to attach bomb.")
-		return
-	end
+		local hand = char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm")
+		if not hand then
+			warn("No hand found on character to attach bomb.")
+			return
+		end
 
-	-- Position bomb before welding
-	local offset = CFrame.new(0, -1, 0) -- Adjust as needed
-	bombClone:SetPrimaryPartCFrame(hand.CFrame * offset)
+		local offset = CFrame.new(0, -1, 0)
+		bombClone:SetPrimaryPartCFrame(hand.CFrame * offset)
 
-	-- Weld after positioning
-	local weld = Instance.new("WeldConstraint")
-	weld.Name = "BombWeld"
-	weld.Part0 = hand
-	weld.Part1 = bombClone.PrimaryPart
-	weld.Parent = bombClone.PrimaryPart
+		local weld = Instance.new("WeldConstraint")
+		weld.Name = "BombWeld"
+		weld.Part0 = hand
+		weld.Part1 = bombClone.PrimaryPart
+		weld.Parent = bombClone.PrimaryPart
 
-	-- 🟦 Assign team color attribute to the bomb
-	local teamColor = player.TeamColor and player.TeamColor.Name or "Neutral"
-	bombClone:SetAttribute("TeamColorName", teamColor)
-	print("[BombSpawnService] Bomb assigned to team:", teamColor)
+		local teamColor = player.TeamColor and player.TeamColor.Name or "Neutral"
+		bombClone:SetAttribute("TeamColorName", teamColor)
+		print("[BombSpawnService] Bomb assigned to team:", teamColor)
 
-	-- Store carrier reference
-	self._bombCarrier = player
+		self._bombCarrier = player
 
-	-- Fire signal
-	self.BombPickedUp:Fire(player, bombClone)
-end)
-
+		self.BombPickedUp:Fire(player, bombClone)
+	end)
 
 	print("[BombSpawnService] Bomb spawned at", spawnModel.PrimaryPart.Position)
 	self.BombSpawned:Fire(bombClone)
@@ -114,20 +107,20 @@ function BombSpawnService:DestroyBomb()
 		self._currentBomb = nil
 		self._bombCarrier = nil
 		print("[BombSpawnService] Bomb destroyed")
+		self.BombDestroyed:Fire()
 	end
-
-  
 end
 
 function BombSpawnService:KnitStart()
-	
+	-- Optional
 end
 
 function BombSpawnService:KnitInit()
-    local GameManagerService = Knit.GetService("GameManagerService")
+	local GameManagerService = Knit.GetService("GameManagerService")
 
-    GameManagerService.OnPreGameTimerEnd:Connect(function()
-       self:SpawnBomb()
-    end)end
+	GameManagerService.OnPreGameTimerEnd:Connect(function()
+		self:SpawnBomb()
+	end)
+end
 
 return BombSpawnService

@@ -32,11 +32,18 @@ function PlayerConfigService:KnitInit()
 end
 
 function PlayerConfigService:HandleCharacterAdded(Player, Character)
-    -- Set the player's walk speed to a faster value
     local humanoid = Character:FindFirstChildOfClass("Humanoid")
     if humanoid then
         humanoid.WalkSpeed = 45 -- Default is 16, change to desired speed
+
+        -- Increase jump height/power
+        if humanoid.UseJumpPower then
+            humanoid.JumpPower = 100 -- Default is 50
+        else
+            humanoid.JumpHeight = 15 -- Default ~7.2
+        end
     end
 end
+
 
 return PlayerConfigService
