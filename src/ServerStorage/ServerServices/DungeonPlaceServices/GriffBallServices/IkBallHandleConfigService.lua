@@ -109,7 +109,7 @@ function IkConfigService:KnitInit()
         print("[IkConfigService] Bomb picked up by", player.Name)
         local char = player.Character
         if char then
-            moveHandInFront(char, "Right")
+           -- moveHandInFront(char, "Right")
         end
     end)
 
@@ -118,7 +118,7 @@ function IkConfigService:KnitInit()
             print("[IkConfigService] Bomb dropped by", player.Name)
             local char = player.Character
             if char then
-                cleanupHandIK(char, "Right")
+               -- cleanupHandIK(char, "Right")
             end
         end)
     end

@@ -141,29 +141,24 @@ end
 -- === TEAM COLOR APPEARANCE ===
 
 local function applyTeamColorToCharacter(character: Model, color: BrickColor)
-	for _, part in ipairs(character:GetDescendants()) do
-		-- Color visible body parts or accessories
-		if part:IsA("BasePart") then
-			part.BrickColor = color
-		end
-
-		-- Optional: remove clothes so body color is visible
-		if part:IsA("Shirt") or part:IsA("Pants") then
-			part:Destroy()
-		end
-
-		-- If rig has BodyColors (R6)
-		if part:IsA("BodyColors") then
-			local rgb = color.Color
-			part.HeadColor3 = rgb
-			part.LeftArmColor3 = rgb
-			part.RightArmColor3 = rgb
-			part.LeftLegColor3 = rgb
-			part.RightLegColor3 = rgb
-			part.TorsoColor3 = rgb
-		end
+	-- Remove existing highlight if any
+	local existingHighlight = character:FindFirstChildWhichIsA("Highlight")
+	if existingHighlight then
+		existingHighlight:Destroy()
 	end
+
+	-- Create and apply new highlight
+	local highlight = Instance.new("Highlight")
+	highlight.Name = "TeamHighlight"
+	highlight.Adornee = character
+	highlight.FillColor = color.Color
+	highlight.FillTransparency = 1
+	highlight.OutlineColor = color.Color
+	highlight.OutlineTransparency = 0
+	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	highlight.Parent = character
 end
+
 
 -- === CHARACTER HOOK ===
 function TeamAssignerService:TeleportTeamToSpawn(teamColor: BrickColor)
