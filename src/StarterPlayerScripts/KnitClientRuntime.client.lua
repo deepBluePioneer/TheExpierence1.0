@@ -5,7 +5,7 @@ local Knit = require(ReplicatedStorage.Packages.Knit)
 
 -- Define the Place IDs for different game environments
 local DungeonPlaceID = 88820178641889
-local HubWorldServiceID = 93899643943864
+local HubWorldServiceID = 134876060341556
 -- References to controller directories
 local ClientControllers = StarterPlayerScripts.Source.ClientControllers
 local HubWorldControllers = ClientControllers.HubWorldControllers
