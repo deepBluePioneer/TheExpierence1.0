@@ -7,12 +7,12 @@ local Knit = require(ReplicatedStorage.Packages.Knit)
 local ServerServices = ServerStorage.Source.ServerServices
 
 -- Define the Place IDs for different game environments
-local DungeonPlaceID = 88820178641889
+local TheContractPlaceID = 88820178641889
 local HubWorldServiceID = 134876060341556
 
 -- Define service directories based on game type
 local HubWorldServices = ServerServices.HubWorldServices
-local DungeonPlaceServices = ServerServices.DungeonPlaceServices
+local TheContractServices = ServerServices.TheContractServices
 
 -- Function to require services recursively
 local function requireServices(directory)
@@ -30,8 +30,8 @@ local function loadServicesForPlace(placeId)
     local serviceDirectory
     if placeId == HubWorldServiceID then
         serviceDirectory = HubWorldServices
-    elseif placeId == DungeonPlaceID then
-        serviceDirectory = DungeonPlaceServices
+    elseif placeId == TheContractPlaceID then
+        serviceDirectory = TheContractServices
     else
         warn("Unrecognized Place ID, no services loaded")
         return
