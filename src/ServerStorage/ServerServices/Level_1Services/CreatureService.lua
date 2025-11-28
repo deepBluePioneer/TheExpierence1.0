@@ -118,42 +118,6 @@ local CREATURE_CONFIG = {
 	StepCooldown = 0.3,
 }
 
--- Generate randomized stats for a single creature
-local function generateCreatureStats()
-	local config = CREATURE_CONFIG
-	
-	return {
-		BodyHeight = randomRange(config.BodyHeightMin, config.BodyHeightMax),
-		BodyWidth = randomRange(config.BodyWidthMin, config.BodyWidthMax),
-		BodyLength = randomRange(config.BodyLengthMin, config.BodyLengthMax),
-		BodyDepth = randomRange(config.BodyDepthMin, config.BodyDepthMax),
-		BodyColor = config.BodyColors[math.random(1, #config.BodyColors)],
-		BodyMassCount = math.random(config.BodyMassCountMin, config.BodyMassCountMax),
-		BodyMassSize = randomRange(config.BodyMassSizeMin, config.BodyMassSizeMax),
-		
-		LegCount = math.random(config.LegCountMin / 2, config.LegCountMax / 2) * 2,  -- Ensure even
-		LegSegments = math.random(config.LegSegmentsMin, config.LegSegmentsMax),
-		LegWidth = randomRange(config.LegWidthMin, config.LegWidthMax),
-		LegColor = nil,  -- Will be derived from body color
-		
-		HeadSize = randomRange(config.HeadSizeMin, config.HeadSizeMax),
-		HeadLength = randomRange(config.HeadLengthMin, config.HeadLengthMax),
-		EyeCount = math.random(config.EyeCountMin, config.EyeCountMax),
-		EyeSize = randomRange(config.EyeSizeMin, config.EyeSizeMax),
-		EyeColor = config.EyeColors[math.random(1, #config.EyeColors)],
-		
-		AppendageCount = math.random(config.AppendageCountMin, config.AppendageCountMax),
-		AppendageLength = randomRange(config.AppendageLengthMin, config.AppendageLengthMax),
-		AppendageSegments = math.random(config.AppendageSegmentsMin, config.AppendageSegmentsMax),
-		AppendageWidth = randomRange(config.AppendageWidthMin, config.AppendageWidthMax),
-		
-		WalkSpeed = randomRange(config.WalkSpeedMin, config.WalkSpeedMax),
-		StepDistance = randomRange(config.StepDistanceMin, config.StepDistanceMax),
-		StepHeight = randomRange(config.StepHeightMin, config.StepHeightMax),
-		StepDuration = randomRange(config.StepDurationMin, config.StepDurationMax),
-	}
-end
-
 local FOLDER_NAME = "Creatures"
 
 -- === HELPERS ===
@@ -189,6 +153,42 @@ local function getBaseplateInfo()
 		}
 	end
 	return nil
+end
+
+-- Generate randomized stats for a single creature
+local function generateCreatureStats()
+	local config = CREATURE_CONFIG
+	
+	return {
+		BodyHeight = randomRange(config.BodyHeightMin, config.BodyHeightMax),
+		BodyWidth = randomRange(config.BodyWidthMin, config.BodyWidthMax),
+		BodyLength = randomRange(config.BodyLengthMin, config.BodyLengthMax),
+		BodyDepth = randomRange(config.BodyDepthMin, config.BodyDepthMax),
+		BodyColor = config.BodyColors[math.random(1, #config.BodyColors)],
+		BodyMassCount = math.random(config.BodyMassCountMin, config.BodyMassCountMax),
+		BodyMassSize = randomRange(config.BodyMassSizeMin, config.BodyMassSizeMax),
+		
+		LegCount = math.random(config.LegCountMin / 2, config.LegCountMax / 2) * 2,  -- Ensure even
+		LegSegments = math.random(config.LegSegmentsMin, config.LegSegmentsMax),
+		LegWidth = randomRange(config.LegWidthMin, config.LegWidthMax),
+		LegColor = nil,  -- Will be derived from body color
+		
+		HeadSize = randomRange(config.HeadSizeMin, config.HeadSizeMax),
+		HeadLength = randomRange(config.HeadLengthMin, config.HeadLengthMax),
+		EyeCount = math.random(config.EyeCountMin, config.EyeCountMax),
+		EyeSize = randomRange(config.EyeSizeMin, config.EyeSizeMax),
+		EyeColor = config.EyeColors[math.random(1, #config.EyeColors)],
+		
+		AppendageCount = math.random(config.AppendageCountMin, config.AppendageCountMax),
+		AppendageLength = randomRange(config.AppendageLengthMin, config.AppendageLengthMax),
+		AppendageSegments = math.random(config.AppendageSegmentsMin, config.AppendageSegmentsMax),
+		AppendageWidth = randomRange(config.AppendageWidthMin, config.AppendageWidthMax),
+		
+		WalkSpeed = randomRange(config.WalkSpeedMin, config.WalkSpeedMax),
+		StepDistance = randomRange(config.StepDistanceMin, config.StepDistanceMax),
+		StepHeight = randomRange(config.StepHeightMin, config.StepHeightMax),
+		StepDuration = randomRange(config.StepDurationMin, config.StepDurationMax),
+	}
 end
 
 -- === PART CREATION ===

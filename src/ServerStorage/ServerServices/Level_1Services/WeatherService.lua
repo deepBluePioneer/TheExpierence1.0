@@ -65,7 +65,7 @@ local WEATHER_PRESETS = {
 	},
 	
 	StormyNight = {
-		Brightness = 1,
+		Brightness = 10,
 		Ambient = Color3.fromRGB(25, 30, 45),
 		OutdoorAmbient = Color3.fromRGB(35, 40, 55),
 		FogStart = 30,
