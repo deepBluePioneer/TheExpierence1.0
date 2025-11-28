@@ -101,12 +101,11 @@ local function applyWeatherSettings(self, settings, transitionTime)
 		Intensity = bloomIntensity,
 	})
 	
-	-- Adjust color correction for mood
-	local saturation = settings.Brightness < 0.3 and -0.2 or 0
-	local contrast = settings.Brightness < 0.3 and 0.1 or 0
+	-- Black and white mode with slight contrast boost
 	local ccTween = TweenService:Create(colorCorrection, tweenInfo, {
-		Saturation = saturation,
-		Contrast = contrast,
+		Saturation = -1,  -- Full desaturation = black and white
+		Contrast = 0.15,  -- Slight contrast boost for better B&W look
+		Brightness = 0.05, -- Tiny brightness bump
 	})
 	
 	-- Store and play tweens

@@ -18,24 +18,31 @@ local TimerController = Knit.CreateController {
 
 -- === GUI CREATION ===
 
+-- Position timer above the map (map is 220x240 at bottom-left with 20px padding)
+local MAP_SIZE = 200
+local MAP_PADDING = 20
+local TIMER_WIDTH = 140
+local TIMER_HEIGHT = 50
+
 local function createTimerGui()
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "TimerGui"
 	screenGui.ResetOnSpawn = false
 	screenGui.Parent = PlayerGui
 	
-	-- Main frame
+	-- Main frame (positioned above the map in bottom-left)
 	local frame = Instance.new("Frame")
 	frame.Name = "TimerFrame"
-	frame.Size = UDim2.new(0, 200, 0, 80)
-	frame.Position = UDim2.new(0.5, -100, 0, 20)
+	frame.Size = UDim2.new(0, TIMER_WIDTH, 0, TIMER_HEIGHT)
+	-- Position: align with map's left edge, above the map container
+	frame.Position = UDim2.new(0, MAP_PADDING, 1, -MAP_SIZE - 60 - TIMER_HEIGHT - 10)
 	frame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 	frame.BorderSizePixel = 0
 	frame.Parent = screenGui
 	
 	-- Corner rounding
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 12)
+	corner.CornerRadius = UDim.new(0, 10)
 	corner.Parent = frame
 	
 	-- Stroke
@@ -47,24 +54,24 @@ local function createTimerGui()
 	-- Title label
 	local titleLabel = Instance.new("TextLabel")
 	titleLabel.Name = "TitleLabel"
-	titleLabel.Size = UDim2.new(1, 0, 0, 25)
-	titleLabel.Position = UDim2.new(0, 0, 0, 5)
+	titleLabel.Size = UDim2.new(1, 0, 0, 16)
+	titleLabel.Position = UDim2.new(0, 0, 0, 4)
 	titleLabel.BackgroundTransparency = 1
-	titleLabel.Text = "TIME REMAINING"
+	titleLabel.Text = "TIME"
 	titleLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
-	titleLabel.TextSize = 14
+	titleLabel.TextSize = 10
 	titleLabel.Font = Enum.Font.GothamBold
 	titleLabel.Parent = frame
 	
 	-- Timer label
 	local timerLabel = Instance.new("TextLabel")
 	timerLabel.Name = "TimerLabel"
-	timerLabel.Size = UDim2.new(1, 0, 0, 45)
-	timerLabel.Position = UDim2.new(0, 0, 0, 30)
+	timerLabel.Size = UDim2.new(1, 0, 0, 28)
+	timerLabel.Position = UDim2.new(0, 0, 0, 18)
 	timerLabel.BackgroundTransparency = 1
 	timerLabel.Text = "0:00"
 	timerLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-	timerLabel.TextSize = 36
+	timerLabel.TextSize = 22
 	timerLabel.Font = Enum.Font.GothamBold
 	timerLabel.Parent = frame
 	
