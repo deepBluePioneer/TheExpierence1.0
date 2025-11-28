@@ -24,8 +24,8 @@ local RANDOM_FILL = 0.45
 local SMOOTH_STEPS = 5
 local BIRTH_LIMIT = 4
 local DEATH_LIMIT = 3
-local CLEANUP_FOLDER_NAME = "Dungeon"
-local FLOOR_FOLDER_NAME = "DungeonFloor"
+local CLEANUP_FOLDER_NAME = "Level_1"
+local FLOOR_FOLDER_NAME = "Level_1Floor"
 local MAX_PARTS_PER_STEP = 500
 local FIXED_SEED = nil
 
@@ -50,7 +50,7 @@ end
 local function clearDungeon()
     getFolder(CLEANUP_FOLDER_NAME):ClearAllChildren()
     getFolder(FLOOR_FOLDER_NAME):ClearAllChildren()
-    getFolder("DungeonZones"):ClearAllChildren()
+    getFolder("Level_1Zones"):ClearAllChildren()
 end
 
 local function makeRng()
@@ -117,7 +117,7 @@ local function buildDungeon(grid, width, height)
 
     local wallsFolder = getFolder(CLEANUP_FOLDER_NAME)
     local floorFolder = getFolder(FLOOR_FOLDER_NAME)
-    local zoneFolder = getFolder("DungeonZones")
+    local zoneFolder = getFolder("Level_1Zones")
     local baseplate = getBaseplate()
 
     local basePos = baseplate and baseplate.Position or Vector3.new(0, 0, 0)
@@ -215,7 +215,7 @@ local function generateDungeon()
         task.wait()
     end
     local walls, floors = buildDungeon(grid, GRID_WIDTH, GRID_HEIGHT)
-    warn(("[MapZoneService] Dungeon built with %d wall cubes and %d floor cubes."):format(walls, floors))
+    warn(("[MapZoneService] Level built with %d wall cubes and %d floor cubes."):format(walls, floors))
 end
 
 -- =========================

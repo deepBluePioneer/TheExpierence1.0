@@ -2,14 +2,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 local StarterPlayerScripts = StarterPlayer.StarterPlayerScripts
 local Knit = require(ReplicatedStorage.Packages.Knit)
-
--- Define the Place IDs for different game environments
-local DungeonPlaceID = 102436797186064
-local HubWorldServiceID = 72869968383509
+local Level_1PlaceID = 93295390305658
+local LobbyPlaceID = 116406282300852
 -- References to controller directories
 local ClientControllers = StarterPlayerScripts.Source.ClientControllers
-local HubWorldControllers = ClientControllers.HubWorldControllers
-local DungeonControllers = ClientControllers.DungeonControllers
+local LobbyControllers = ClientControllers.LobbyControllers
+local Level_1Controllers = ClientControllers.Level_1Controllers
 
 -- Function to require controllers recursively
 local function requireControllers(directory)
@@ -25,11 +23,11 @@ end
 -- Function to require controllers based on the place id
 local function loadControllersForPlace(placeId)
     local controllerDirectory
-    if placeId == HubWorldServiceID then
-        controllerDirectory = HubWorldControllers
+    if placeId == LobbyPlaceID then
+        controllerDirectory = LobbyControllers
         print(controllerDirectory)
-    elseif placeId == DungeonPlaceID then
-        controllerDirectory = DungeonControllers
+    elseif placeId == Level_1PlaceID then
+        controllerDirectory = Level_1Controllers
         print(controllerDirectory)
     else
         warn("Unrecognized Place ID, no controllers loaded")
