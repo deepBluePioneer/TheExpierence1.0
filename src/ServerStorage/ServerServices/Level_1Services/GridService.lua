@@ -22,6 +22,18 @@ local GridService = Knit.CreateService {
 	timerReplica = nil,
 	mapReplica = nil,  -- For player positions on map
 	timer = nil,
+	
+	-- Grid data structure
+	_gridData = {
+		width = 20,
+		depth = 20,
+		cellSize = 8,
+		centerX = 0,
+		centerZ = 0,
+		topY = 0,
+		cells = {},        -- { ["x_z"] = { cube = Part, occupied = false, owner = nil } }
+		occupiedCells = {}, -- { ["x_z"] = ownerId }
+	},
 }
 
 -- === CONFIG ===
@@ -40,7 +52,7 @@ local CUBE_SIZE = 8        -- Will be recalculated to fit baseplate exactly
 local BASEPLATE_CENTER = Vector3.zero
 local BASEPLATE_TOP_Y = 0
 
-local function calculateGridFromBaseplate()
+local function calculateGridFromBaseplate(gridData)
 	local baseplate = Workspace:FindFirstChild("Baseplate")
 	if baseplate and baseplate:IsA("BasePart") then
 		local baseplateSize = baseplate.Size
@@ -60,6 +72,16 @@ local function calculateGridFromBaseplate()
 		local cellSizeX = baseplateSize.X / GRID_WIDTH
 		local cellSizeZ = baseplateSize.Z / GRID_DEPTH
 		CUBE_SIZE = math.min(cellSizeX, cellSizeZ)  -- Use uniform size
+		
+		-- Update gridData structure
+		if gridData then
+			gridData.width = GRID_WIDTH
+			gridData.depth = GRID_DEPTH
+			gridData.cellSize = CUBE_SIZE
+			gridData.centerX = BASEPLATE_CENTER.X
+			gridData.centerZ = BASEPLATE_CENTER.Z
+			gridData.topY = BASEPLATE_TOP_Y
+		end
 		
 		print(string.format("[GridService] Baseplate: %.0fx%.0f | Grid: %dx%d | Cell size: %.1f", 
 			baseplateSize.X, baseplateSize.Z, GRID_WIDTH, GRID_DEPTH, CUBE_SIZE))
@@ -97,7 +119,11 @@ cubeTemplate.CanCollide = false
 cubeTemplate.Transparency = 1  -- Fully transparent
 cubeTemplate.Material = Enum.Material.SmoothPlastic
 
-local function createCubeFast(x, z, folder)
+local function getCellKey(x, z)
+	return string.format("%d_%d", x, z)
+end
+
+local function createCubeFast(x, z, folder, gridData)
 	local cube = cubeTemplate:Clone()
 	cube.Name = string.format("Cube_%d_%d", x, z)
 	cube.Size = Vector3.new(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE)
@@ -124,6 +150,19 @@ local function createCubeFast(x, z, folder)
 	CollectionService:AddTag(cube, GRID_CUBE_TAG)
 	
 	cube.Parent = folder
+	
+	-- Store cell data in grid structure
+	if gridData then
+		local key = getCellKey(x, z)
+		gridData.cells[key] = {
+			cube = cube,
+			x = x,
+			z = z,
+			occupied = false,
+			owner = nil,
+		}
+	end
+	
 	return cube
 end
 
@@ -176,8 +215,12 @@ end
 local function generateGrid(self)
 	local startTime = tick()
 	
-	-- Calculate grid size from baseplate
-	calculateGridFromBaseplate()
+	-- Calculate grid size from baseplate and update gridData
+	calculateGridFromBaseplate(self._gridData)
+	
+	-- Clear cell tracking
+	self._gridData.cells = {}
+	self._gridData.occupiedCells = {}
 	
 	-- Update map replica with new grid dimensions
 	if self.mapReplica then
@@ -200,7 +243,7 @@ local function generateGrid(self)
 	
 	for x = 1, GRID_WIDTH do
 		for z = 1, GRID_DEPTH do
-			local cube = createCubeFast(x, z, folder)
+			local cube = createCubeFast(x, z, folder, self._gridData)
 			table.insert(allCubes, {cube = cube, x = x, z = z})
 			
 			batchCount += 1
@@ -239,7 +282,7 @@ end
 
 local function initReplica(self)
 	-- Calculate grid size first so replica has correct values
-	calculateGridFromBaseplate()
+	calculateGridFromBaseplate(self._gridData)
 	
 	self.timerReplica = ReplicaService.NewReplica({
 		ClassToken = ReplicaService.NewClassToken("GridTimerReplica"),
@@ -333,6 +376,119 @@ end
 function GridService:ResetTimer()
 	stopTimer(self)
 	self.timerReplica:SetValue({"TimeRemaining"}, TIMER_DURATION)
+end
+
+-- === GRID DATA ACCESS ===
+
+function GridService:GetGridData()
+	return self._gridData
+end
+
+function GridService:GetGridDimensions()
+	return self._gridData.width, self._gridData.depth
+end
+
+function GridService:GetCellSize()
+	return self._gridData.cellSize
+end
+
+function GridService:GetGridCenter()
+	return Vector3.new(self._gridData.centerX, self._gridData.topY, self._gridData.centerZ)
+end
+
+function GridService:GetTopY()
+	return self._gridData.topY
+end
+
+function GridService:GetCell(x, z)
+	local key = getCellKey(x, z)
+	return self._gridData.cells[key]
+end
+
+function GridService:GetCellByKey(key)
+	return self._gridData.cells[key]
+end
+
+function GridService:IsValidCell(x, z)
+	return x >= 1 and x <= self._gridData.width and z >= 1 and z <= self._gridData.depth
+end
+
+-- === CELL OCCUPANCY ===
+
+function GridService:IsCellOccupied(x, z)
+	local key = getCellKey(x, z)
+	return self._gridData.occupiedCells[key] ~= nil
+end
+
+function GridService:GetCellOwner(x, z)
+	local key = getCellKey(x, z)
+	return self._gridData.occupiedCells[key]
+end
+
+function GridService:SetCellOccupied(x, z, ownerId)
+	local key = getCellKey(x, z)
+	if not self:IsValidCell(x, z) then
+		warn(string.format("[GridService] Invalid cell position: %d, %d", x, z))
+		return false
+	end
+	
+	self._gridData.occupiedCells[key] = ownerId
+	
+	-- Also update cell data if it exists
+	if self._gridData.cells[key] then
+		self._gridData.cells[key].occupied = true
+		self._gridData.cells[key].owner = ownerId
+	end
+	
+	return true
+end
+
+function GridService:ClearCellOccupancy(x, z)
+	local key = getCellKey(x, z)
+	self._gridData.occupiedCells[key] = nil
+	
+	-- Also update cell data if it exists
+	if self._gridData.cells[key] then
+		self._gridData.cells[key].occupied = false
+		self._gridData.cells[key].owner = nil
+	end
+end
+
+function GridService:GetOccupiedCells()
+	return self._gridData.occupiedCells
+end
+
+function GridService:ClearAllOccupancy()
+	self._gridData.occupiedCells = {}
+	for _, cellData in pairs(self._gridData.cells) do
+		cellData.occupied = false
+		cellData.owner = nil
+	end
+end
+
+-- Convert grid position to world position
+function GridService:GridToWorld(gridX, gridZ, heightLevel)
+	heightLevel = heightLevel or 0
+	local offsetX = (gridX - (self._gridData.width + 1) / 2) * self._gridData.cellSize
+	local offsetZ = (gridZ - (self._gridData.depth + 1) / 2) * self._gridData.cellSize
+	local worldY = self._gridData.topY + (heightLevel * self._gridData.cellSize)
+	
+	return Vector3.new(
+		self._gridData.centerX + offsetX,
+		worldY,
+		self._gridData.centerZ + offsetZ
+	)
+end
+
+-- Convert world position to grid position
+function GridService:WorldToGrid(worldPos)
+	local offsetX = worldPos.X - self._gridData.centerX
+	local offsetZ = worldPos.Z - self._gridData.centerZ
+	
+	local gridX = math.floor(offsetX / self._gridData.cellSize + (self._gridData.width + 1) / 2 + 0.5)
+	local gridZ = math.floor(offsetZ / self._gridData.cellSize + (self._gridData.depth + 1) / 2 + 0.5)
+	
+	return gridX, gridZ
 end
 
 return GridService

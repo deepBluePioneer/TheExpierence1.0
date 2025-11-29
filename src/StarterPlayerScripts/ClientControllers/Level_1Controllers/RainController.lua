@@ -17,8 +17,9 @@ local RainController = Knit.CreateController {
 	rainCache = nil,
 	splashCache = nil,
 	activeDrops = {},
-	isRaining = true,
-	lightningEnabled = true,
+	isRaining = false,        -- Start with no rain (will enable at night)
+	lightningEnabled = false, -- Start with no lightning (will enable at night)
+	_weatherService = nil,    -- Reference to WeatherService
 }
 
 -- === CONFIG ===
@@ -506,6 +507,7 @@ local function initLightning(self)
 end
 
 local function startLightningLoop(self)
+	print("[RainController] Lightning loop STARTED")
 	task.spawn(function()
 		while true do
 			-- Random interval between lightning strikes
@@ -517,7 +519,14 @@ local function startLightningLoop(self)
 			task.wait(interval)
 			
 			if self.isRaining and self.lightningEnabled then
+				print("[RainController] LIGHTNING STRIKE!")
 				spawnLightningBolt(self)
+			else
+				-- Log every 10 seconds why lightning isn't firing
+				if math.random() < 0.1 then
+					print(string.format("[RainController] Lightning check - isRaining: %s, lightningEnabled: %s", 
+						tostring(self.isRaining), tostring(self.lightningEnabled)))
+				end
 			end
 		end
 	end)
@@ -559,14 +568,29 @@ end
 local function startSpawnLoop(self)
 	local spawnInterval = 1 / RAIN_CONFIG.SpawnRate
 	local accumulator = 0
+	local logTimer = 0
+	local dropsSpawned = 0
+	
+	print("[RainController] Rain spawn loop STARTED")
 	
 	RunService.RenderStepped:Connect(function(deltaTime)
+		logTimer = logTimer + deltaTime
+		
+		-- Log status every 5 seconds
+		if logTimer >= 5 then
+			print(string.format("[RainController] Rain status - isRaining: %s, drops spawned: %d", 
+				tostring(self.isRaining), dropsSpawned))
+			logTimer = 0
+			dropsSpawned = 0
+		end
+		
 		if not self.isRaining then return end
 		
 		-- Spawn new drops
 		accumulator = accumulator + deltaTime
 		while accumulator >= spawnInterval do
 			spawnRaindrop(self)
+			dropsSpawned = dropsSpawned + 1
 			accumulator = accumulator - spawnInterval
 		end
 		
@@ -628,20 +652,69 @@ function RainController:KnitInit()
 	print("[RainController] PartCache initialized with", RAIN_CONFIG.MaxDrops, "drops")
 end
 
+function RainController:SetRainEnabled(enabled)
+	local wasRaining = self.isRaining
+	self.isRaining = enabled
+	print(string.format("[RainController] *** RAIN %s *** (was: %s, now: %s)", 
+		enabled and "ENABLED" or "DISABLED",
+		tostring(wasRaining),
+		tostring(enabled)))
+	
+	-- Clean up rain drops when rain stops
+	if not enabled and wasRaining then
+		print("[RainController] Cleaning up rain drops...")
+		for _, dropData in ipairs(self.activeDrops) do
+			if self.rainCache then
+				self.rainCache:ReturnPart(dropData.part)
+			end
+		end
+		self.activeDrops = {}
+		print(string.format("[RainController] Cleaned up all rain drops"))
+	end
+end
+
+function RainController:SetLightningEnabled(enabled)
+	local wasEnabled = self.lightningEnabled
+	self.lightningEnabled = enabled
+	print(string.format("[RainController] *** LIGHTNING %s *** (was: %s, now: %s)", 
+		enabled and "ENABLED" or "DISABLED",
+		tostring(wasEnabled),
+		tostring(enabled)))
+end
+
 function RainController:KnitStart()
 	-- Wait for character
 	if not Player.Character then
 		Player.CharacterAdded:Wait()
 	end
 	
-	-- Start rain
+	-- Initialize systems (but don't enable yet)
 	startSpawnLoop(self)
-	
-	-- Start lightning (uses sky/lighting, no GUI)
 	initLightning(self)
 	startLightningLoop(self)
 	
-	print("[RainController] Rain and lightning system started")
+	-- Get WeatherService
+	print("[RainController] Getting WeatherService...")
+	self._weatherService = Knit.GetService("WeatherService")
+	print("[RainController] WeatherService obtained!")
+	
+	-- Get initial IsNight state from server
+	print("[RainController] Requesting initial IsNight state...")
+	local isNight = self._weatherService:GetIsNight()
+	print(string.format("[RainController] Initial IsNight from server: %s", tostring(isNight)))
+	
+	self:SetRainEnabled(isNight)
+	self:SetLightningEnabled(isNight)
+	
+	-- Listen for IsNight changes via signal
+	print("[RainController] Connecting to IsNightChanged signal...")
+	self._weatherService.IsNightChanged:Connect(function(newIsNight)
+		print(string.format("[RainController] *** IsNightChanged SIGNAL RECEIVED: %s ***", tostring(newIsNight)))
+		self:SetRainEnabled(newIsNight)
+		self:SetLightningEnabled(newIsNight)
+	end)
+	
+	print("[RainController] Rain and lightning system initialized")
 end
 
 return RainController

@@ -14,9 +14,10 @@ local Mouse = Input.Mouse
 local Keyboard = Input.Keyboard
 local Gizmo = require(Packages.imgizmo)
 
--- Entity tag for focus detection
+-- Tags for detection
 local ENTITY_TAG = "entity"
 local GRID_CUBE_TAG = "gridCube"
+local PHOTO_TARGET_TAG = "PhotoTarget"
 
 -- Fusion imports
 local New = Fusion.New
@@ -92,7 +93,6 @@ local CAMERA_CONFIG = {
 	FocalLength = "24mm",
 	
 	-- Focus distance
-	FocusDistanceEnabled = true,
 	
 	-- Crosshair style
 	CrosshairEnabled = true,
@@ -118,14 +118,8 @@ local CAMERA_CONFIG = {
 	-- Night Vision Toggle Key
 	NightVisionKey = Enum.KeyCode.N,
 	
-	-- Depth of Field
-	DepthOfFieldEnabled = true,
-	DOFInFocusRadius = 0,        -- How much area is in focus (studs) - 0 = very tight focus, more blur
-	DOFNearIntensity = 0.5,      -- Blur intensity for near objects (0-1)
-	DOFFarIntensity = 1,         -- Blur intensity for far objects (0-1) - MAX for entity blur
-	DOFSmoothingSpeed = 12,      -- How fast focus adjusts
-	DOFMaxDistance = 2000,       -- Max raycast distance
-	DOFDefaultDistance = 100,    -- Default focus distance if nothing hit
+	-- Raycast settings
+	RaycastMaxDistance = 2000,   -- Max raycast distance for entity detection
 	
 	-- Debug Gizmos
 	DebugGizmosEnabled = true,
@@ -143,7 +137,6 @@ local recBlinkState = Value(true)
 local batteryLevel = Value(CAMERA_CONFIG.BatteryLevel)
 local audioLevelL = Value(0.6)
 local audioLevelR = Value(0.5)
-local focusDistance = Value(2.5)
 local zoomLevel = Value(CAMERA_CONFIG.ZoomLevel)
 local memoryUsed = Value(CAMERA_CONFIG.MemoryUsed)
 local isNightVisionEnabled = Value(false)
@@ -152,7 +145,20 @@ local isNightVisionEnabled = Value(false)
 local targetObjectName = Value("---")
 local targetObjectClass = Value("---")
 local targetObjectDistance = Value(0)
-local isFocusLocked = Value(false)
+
+-- Photo target detection state
+local isLookingAtPhotoTarget = Value(false)
+local currentTargetInstance = nil  -- Track which specific target we're looking at
+
+-- Gaze progress (0 to 1, fills up while looking at target)
+local gazeProgress = Value(0)
+local GAZE_FILL_TIME = 2.0  -- Seconds to fill the bar completely
+
+-- Crosshair animation values (for smooth transitions)
+local crosshairScale = Value(1)
+
+-- Spring-animated scale
+local crosshairScaleSpring = Spring(crosshairScale, 25, 0.8)
 
 -- === INPUT INSTANCES ===
 local mouse = Mouse.new()
@@ -214,9 +220,14 @@ local function createNightVisionOverlay(parent)
 end
 
 local function createFilmBorder(parent, animatedTransparency)
-	local borderThickness = 90
-	local cornerSize = 40
-	local margin = 350
+	-- Using scale values (based on 1920x1080 reference)
+	local borderThicknessScale = 0.083  -- 90/1080
+	local cornerSizeX = 0.021           -- 40/1920
+	local cornerSizeY = 0.037           -- 40/1080
+	local marginX = 0.182               -- 350/1920
+	local lineThicknessX = 0.0016       -- 3/1920
+	local lineThicknessY = 0.003        -- 3/1080
+	local cornerOffsetY = 0.028         -- 30/1080
 	
 	return New "Frame" {
 		Name = "FilmBorder",
@@ -227,7 +238,7 @@ local function createFilmBorder(parent, animatedTransparency)
 		[Children] = {
 			-- Top border
 			New "Frame" {
-				Size = UDim2.new(1, 0, 0, borderThickness),
+				Size = UDim2.new(1, 0, borderThicknessScale, 0),
 				Position = UDim2.new(0, 0, 0, 0),
 				BackgroundColor3 = Color3.fromRGB(0, 0, 0),
 				BackgroundTransparency = 0.3,
@@ -235,68 +246,68 @@ local function createFilmBorder(parent, animatedTransparency)
 			},
 			-- Bottom border
 			New "Frame" {
-				Size = UDim2.new(1, 0, 0, borderThickness),
-				Position = UDim2.new(0, 0, 1, -borderThickness),
+				Size = UDim2.new(1, 0, borderThicknessScale, 0),
+				Position = UDim2.new(0, 0, 1 - borderThicknessScale, 0),
 				BackgroundColor3 = Color3.fromRGB(0, 0, 0),
 				BackgroundTransparency = 0.3,
 				BorderSizePixel = 0,
 			},
 			-- Corner brackets (top-left)
 			New "Frame" {
-				Size = UDim2.new(0, cornerSize, 0, 3),
-				Position = UDim2.new(0, margin, 0, borderThickness + 30),
+				Size = UDim2.new(cornerSizeX, 0, lineThicknessY, 0),
+				Position = UDim2.new(marginX, 0, borderThicknessScale + cornerOffsetY, 0),
 				BackgroundColor3 = CAMERA_CONFIG.OverlayColor,
 				BackgroundTransparency = animatedTransparency,
 				BorderSizePixel = 0,
 			},
 			New "Frame" {
-				Size = UDim2.new(0, 3, 0, cornerSize),
-				Position = UDim2.new(0, margin, 0, borderThickness + 30),
+				Size = UDim2.new(lineThicknessX, 0, cornerSizeY, 0),
+				Position = UDim2.new(marginX, 0, borderThicknessScale + cornerOffsetY, 0),
 				BackgroundColor3 = CAMERA_CONFIG.OverlayColor,
 				BackgroundTransparency = animatedTransparency,
 				BorderSizePixel = 0,
 			},
 			-- Corner brackets (top-right)
 			New "Frame" {
-				Size = UDim2.new(0, cornerSize, 0, 3),
-				Position = UDim2.new(1, -margin - cornerSize, 0, borderThickness + 30),
+				Size = UDim2.new(cornerSizeX, 0, lineThicknessY, 0),
+				Position = UDim2.new(1 - marginX - cornerSizeX, 0, borderThicknessScale + cornerOffsetY, 0),
 				BackgroundColor3 = CAMERA_CONFIG.OverlayColor,
 				BackgroundTransparency = animatedTransparency,
 				BorderSizePixel = 0,
 			},
 			New "Frame" {
-				Size = UDim2.new(0, 3, 0, cornerSize),
-				Position = UDim2.new(1, -margin - 3, 0, borderThickness + 30),
+				Size = UDim2.new(lineThicknessX, 0, cornerSizeY, 0),
+				Position = UDim2.new(1 - marginX - lineThicknessX, 0, borderThicknessScale + cornerOffsetY, 0),
 				BackgroundColor3 = CAMERA_CONFIG.OverlayColor,
 				BackgroundTransparency = animatedTransparency,
 				BorderSizePixel = 0,
 			},
 			-- Corner brackets (bottom-left)
 			New "Frame" {
-				Size = UDim2.new(0, cornerSize, 0, 3),
-				Position = UDim2.new(0, margin, 1, -borderThickness - 33),
+				Size = UDim2.new(cornerSizeX, 0, lineThicknessY, 0),
+				Position = UDim2.new(marginX, 0, 1 - borderThicknessScale - cornerOffsetY - lineThicknessY, 0),
 				BackgroundColor3 = CAMERA_CONFIG.OverlayColor,
 				BackgroundTransparency = animatedTransparency,
 				BorderSizePixel = 0,
 			},
 			New "Frame" {
-				Size = UDim2.new(0, 3, 0, cornerSize),
-				Position = UDim2.new(0, margin, 1, -borderThickness - 30 - cornerSize),
+				Size = UDim2.new(lineThicknessX, 0, cornerSizeY, 0),
+				Position = UDim2.new(marginX, 0, 1 - borderThicknessScale - cornerOffsetY - cornerSizeY, 0),
 				BackgroundColor3 = CAMERA_CONFIG.OverlayColor,
 				BackgroundTransparency = animatedTransparency,
 				BorderSizePixel = 0,
 			},
 			-- Corner brackets (bottom-right)
 			New "Frame" {
-				Size = UDim2.new(0, cornerSize, 0, 3),
-				Position = UDim2.new(1, -margin - cornerSize, 1, -borderThickness - 33),
+				Size = UDim2.new(cornerSizeX, 0, lineThicknessY, 0),
+				Position = UDim2.new(1 - marginX - cornerSizeX, 0, 1 - borderThicknessScale - cornerOffsetY - lineThicknessY, 0),
 				BackgroundColor3 = CAMERA_CONFIG.OverlayColor,
 				BackgroundTransparency = animatedTransparency,
 				BorderSizePixel = 0,
 			},
 			New "Frame" {
-				Size = UDim2.new(0, 3, 0, cornerSize),
-				Position = UDim2.new(1, -margin - 3, 1, -borderThickness - 30 - cornerSize),
+				Size = UDim2.new(lineThicknessX, 0, cornerSizeY, 0),
+				Position = UDim2.new(1 - marginX - lineThicknessX, 0, 1 - borderThicknessScale - cornerOffsetY - cornerSizeY, 0),
 				BackgroundColor3 = CAMERA_CONFIG.OverlayColor,
 				BackgroundTransparency = animatedTransparency,
 				BorderSizePixel = 0,
@@ -306,114 +317,312 @@ local function createFilmBorder(parent, animatedTransparency)
 end
 
 local function createCrosshair(parent, animatedTransparency)
-	local crossSize = 32
-	local gapSize = 12
-	local thickness = 3
+	-- Scale values (based on 1920x1080 reference)
+	local crossSizeX = 0.017    -- 32/1920
+	local crossSizeY = 0.03     -- 32/1080
+	local gapSizeX = 0.006      -- 12/1920
+	local gapSizeY = 0.011      -- 12/1080
+	local thicknessX = 0.0016   -- 3/1920
+	local thicknessY = 0.003    -- 3/1080
+	
+	-- Crosshair color (changes based on target state)
+	local crosshairColor = Computed(function()
+		if isLookingAtPhotoTarget:get() then
+			return Color3.fromRGB(0, 255, 0)  -- Green when targeting
+		else
+			return Color3.fromRGB(255, 255, 255)  -- White normally
+		end
+	end)
+	
+	-- Animated crosshair size multiplier
+	local sizeMultiplier = Computed(function()
+		return crosshairScaleSpring:get()
+	end)
 	
 	return New "Frame" {
 		Name = "Crosshair",
-		Size = UDim2.new(0, 100, 0, 100),
+		Size = Computed(function()
+			local scale = sizeMultiplier:get()
+			return UDim2.new(0.052 * scale, 0, 0.093 * scale, 0)
+		end),
 		Position = UDim2.new(0.5, 0, 0.5, 0),
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		BackgroundTransparency = 1,
 		Parent = parent,
 		
 		[Children] = {
-			-- Center dot
+			-- Center dot (circle, grows when targeting)
 			New "Frame" {
-				Size = UDim2.new(0, 6, 0, 6),
+				Size = Computed(function()
+					local scale = sizeMultiplier:get()
+					local baseSize = isLookingAtPhotoTarget:get() and 0.1 or 0.06
+					return UDim2.new(baseSize * scale, 0, baseSize * scale, 0)
+				end),
 				Position = UDim2.new(0.5, 0, 0.5, 0),
 				AnchorPoint = Vector2.new(0.5, 0.5),
-				BackgroundColor3 = CAMERA_CONFIG.AccentColor,
+				BackgroundColor3 = crosshairColor,
 				BackgroundTransparency = animatedTransparency,
 				BorderSizePixel = 0,
 				[Children] = {
-					New "UICorner" { CornerRadius = UDim.new(1, 0) },
+					New "UICorner" { 
+						CornerRadius = UDim.new(1, 0),  -- Always circle
+					},
 				},
 			},
 			-- Top line
 			New "Frame" {
-				Size = UDim2.new(0, thickness, 0, crossSize),
-				Position = UDim2.new(0.5, 0, 0.5, -gapSize - crossSize),
+				Size = Computed(function()
+					local scale = sizeMultiplier:get()
+					return UDim2.new(thicknessX * scale, 0, crossSizeY * scale, 0)
+				end),
+				Position = Computed(function()
+					local scale = sizeMultiplier:get()
+					return UDim2.new(0.5, 0, 0.5 - (gapSizeY + crossSizeY) * scale, 0)
+				end),
 				AnchorPoint = Vector2.new(0.5, 0),
-				BackgroundColor3 = CAMERA_CONFIG.OverlayColor,
+				BackgroundColor3 = crosshairColor,
 				BackgroundTransparency = animatedTransparency,
 				BorderSizePixel = 0,
 			},
 			-- Bottom line
 			New "Frame" {
-				Size = UDim2.new(0, thickness, 0, crossSize),
-				Position = UDim2.new(0.5, 0, 0.5, gapSize),
+				Size = Computed(function()
+					local scale = sizeMultiplier:get()
+					return UDim2.new(thicknessX * scale, 0, crossSizeY * scale, 0)
+				end),
+				Position = Computed(function()
+					local scale = sizeMultiplier:get()
+					return UDim2.new(0.5, 0, 0.5 + gapSizeY * scale, 0)
+				end),
 				AnchorPoint = Vector2.new(0.5, 0),
-				BackgroundColor3 = CAMERA_CONFIG.OverlayColor,
+				BackgroundColor3 = crosshairColor,
 				BackgroundTransparency = animatedTransparency,
 				BorderSizePixel = 0,
 			},
 			-- Left line
 			New "Frame" {
-				Size = UDim2.new(0, crossSize, 0, thickness),
-				Position = UDim2.new(0.5, -gapSize - crossSize, 0.5, 0),
+				Size = Computed(function()
+					local scale = sizeMultiplier:get()
+					return UDim2.new(crossSizeX * scale, 0, thicknessY * scale, 0)
+				end),
+				Position = Computed(function()
+					local scale = sizeMultiplier:get()
+					return UDim2.new(0.5 - (gapSizeX + crossSizeX) * scale, 0, 0.5, 0)
+				end),
 				AnchorPoint = Vector2.new(0, 0.5),
-				BackgroundColor3 = CAMERA_CONFIG.OverlayColor,
+				BackgroundColor3 = crosshairColor,
 				BackgroundTransparency = animatedTransparency,
 				BorderSizePixel = 0,
 			},
 			-- Right line
 			New "Frame" {
-				Size = UDim2.new(0, crossSize, 0, thickness),
-				Position = UDim2.new(0.5, gapSize, 0.5, 0),
+				Size = Computed(function()
+					local scale = sizeMultiplier:get()
+					return UDim2.new(crossSizeX * scale, 0, thicknessY * scale, 0)
+				end),
+				Position = Computed(function()
+					local scale = sizeMultiplier:get()
+					return UDim2.new(0.5 + gapSizeX * scale, 0, 0.5, 0)
+				end),
 				AnchorPoint = Vector2.new(0, 0.5),
-				BackgroundColor3 = CAMERA_CONFIG.OverlayColor,
+				BackgroundColor3 = crosshairColor,
 				BackgroundTransparency = animatedTransparency,
 				BorderSizePixel = 0,
 			},
-			-- Corner ticks (subtle)
+			-- Corner brackets (more prominent when targeting)
 			New "Frame" {
-				Size = UDim2.new(0, 8, 0, 1),
-				Position = UDim2.new(0.5, -35, 0.5, -35),
+				Size = Computed(function()
+					local scale = sizeMultiplier:get()
+					local width = isLookingAtPhotoTarget:get() and 0.15 or 0.08
+					return UDim2.new(width * scale, 0, 0.01 * scale, 0)
+				end),
+				Position = UDim2.new(0.5 - 0.35, 0, 0.5 - 0.35, 0),
 				AnchorPoint = Vector2.new(0.5, 0.5),
 				Rotation = 45,
-				BackgroundColor3 = CAMERA_CONFIG.OverlayColor,
-				BackgroundTransparency = Computed(function() return 0.5 + animatedTransparency:get() * 0.5 end),
+				BackgroundColor3 = crosshairColor,
+				BackgroundTransparency = Computed(function() return 0.3 + animatedTransparency:get() * 0.3 end),
 				BorderSizePixel = 0,
 			},
 			New "Frame" {
-				Size = UDim2.new(0, 8, 0, 1),
-				Position = UDim2.new(0.5, 35, 0.5, -35),
+				Size = Computed(function()
+					local scale = sizeMultiplier:get()
+					local width = isLookingAtPhotoTarget:get() and 0.15 or 0.08
+					return UDim2.new(width * scale, 0, 0.01 * scale, 0)
+				end),
+				Position = UDim2.new(0.5 + 0.35, 0, 0.5 - 0.35, 0),
 				AnchorPoint = Vector2.new(0.5, 0.5),
 				Rotation = -45,
-				BackgroundColor3 = CAMERA_CONFIG.OverlayColor,
-				BackgroundTransparency = Computed(function() return 0.5 + animatedTransparency:get() * 0.5 end),
+				BackgroundColor3 = crosshairColor,
+				BackgroundTransparency = Computed(function() return 0.3 + animatedTransparency:get() * 0.3 end),
 				BorderSizePixel = 0,
 			},
 			New "Frame" {
-				Size = UDim2.new(0, 8, 0, 1),
-				Position = UDim2.new(0.5, -35, 0.5, 35),
+				Size = Computed(function()
+					local scale = sizeMultiplier:get()
+					local width = isLookingAtPhotoTarget:get() and 0.15 or 0.08
+					return UDim2.new(width * scale, 0, 0.01 * scale, 0)
+				end),
+				Position = UDim2.new(0.5 - 0.35, 0, 0.5 + 0.35, 0),
 				AnchorPoint = Vector2.new(0.5, 0.5),
 				Rotation = -45,
-				BackgroundColor3 = CAMERA_CONFIG.OverlayColor,
-				BackgroundTransparency = Computed(function() return 0.5 + animatedTransparency:get() * 0.5 end),
+				BackgroundColor3 = crosshairColor,
+				BackgroundTransparency = Computed(function() return 0.3 + animatedTransparency:get() * 0.3 end),
 				BorderSizePixel = 0,
 			},
 			New "Frame" {
-				Size = UDim2.new(0, 8, 0, 1),
-				Position = UDim2.new(0.5, 35, 0.5, 35),
+				Size = Computed(function()
+					local scale = sizeMultiplier:get()
+					local width = isLookingAtPhotoTarget:get() and 0.15 or 0.08
+					return UDim2.new(width * scale, 0, 0.01 * scale, 0)
+				end),
+				Position = UDim2.new(0.5 + 0.35, 0, 0.5 + 0.35, 0),
 				AnchorPoint = Vector2.new(0.5, 0.5),
 				Rotation = 45,
-				BackgroundColor3 = CAMERA_CONFIG.OverlayColor,
-				BackgroundTransparency = Computed(function() return 0.5 + animatedTransparency:get() * 0.5 end),
+				BackgroundColor3 = crosshairColor,
+				BackgroundTransparency = Computed(function() return 0.3 + animatedTransparency:get() * 0.3 end),
 				BorderSizePixel = 0,
+			},
+			-- "PHOTO" indicator when targeting
+			New "TextLabel" {
+				Size = UDim2.new(1, 0, 0.15, 0),
+				Position = UDim2.new(0.5, 0, 1.1, 0),
+				AnchorPoint = Vector2.new(0.5, 0),
+				BackgroundTransparency = 1,
+				Font = Enum.Font.RobotoMono,
+				TextScaled = true,
+				TextColor3 = crosshairColor,
+				TextTransparency = Computed(function()
+					return isLookingAtPhotoTarget:get() and animatedTransparency:get() or 1
+				end),
+				Text = "◉ PHOTO TARGET",
+			},
+		},
+	}
+end
+
+-- Gaze progress bar - shows when looking at a PhotoTarget
+local function createGazeProgressBar(parent, animatedTransparency)
+	-- Scale values (based on 1920x1080 reference)
+	local barWidth = 0.15   -- 288/1920
+	local barHeight = 0.008 -- 8/1080
+	
+	-- Smooth spring animation for progress
+	local progressSpring = Spring(gazeProgress, 30, 0.7)
+	
+	return New "Frame" {
+		Name = "GazeProgressBar",
+		Size = UDim2.new(barWidth, 0, barHeight, 0),
+		Position = UDim2.new(0.5, 0, 0.75, 0),  -- Bottom middle of screen
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		BackgroundColor3 = Color3.fromRGB(30, 30, 30),
+		BackgroundTransparency = Computed(function()
+			-- Hide when not looking at target (progress is 0)
+			local progress = gazeProgress:get()
+			if progress <= 0 then
+				return 1
+			end
+			return 0.5 + animatedTransparency:get() * 0.3
+		end),
+		BorderSizePixel = 0,
+		Parent = parent,
+		
+		[Children] = {
+			-- Corner rounding
+			New "UICorner" {
+				CornerRadius = UDim.new(0.5, 0),
+			},
+			
+			-- Border/stroke
+			New "UIStroke" {
+				Color = Computed(function()
+					if isNightVisionEnabled:get() then
+						return CAMERA_CONFIG.NightVisionOverlayColor
+					end
+					return Color3.fromRGB(0, 255, 0)  -- Green border
+				end),
+				Thickness = 1,
+				Transparency = Computed(function()
+					local progress = gazeProgress:get()
+					if progress <= 0 then
+						return 1
+					end
+					return animatedTransparency:get()
+				end),
+			},
+			
+			-- Progress fill
+			New "Frame" {
+				Name = "Fill",
+				Size = Computed(function()
+					local progress = progressSpring:get()
+					return UDim2.new(math.clamp(progress, 0, 1), 0, 1, 0)
+				end),
+				Position = UDim2.new(0, 0, 0, 0),
+				BackgroundColor3 = Computed(function()
+					local progress = gazeProgress:get()
+					-- Transition from green to bright cyan as it fills
+					if progress >= 1 then
+						return Color3.fromRGB(0, 255, 200)  -- Bright cyan when full
+					end
+					return Color3.fromRGB(0, 255, 0)  -- Green while filling
+				end),
+				BackgroundTransparency = Computed(function()
+					local progress = gazeProgress:get()
+					if progress <= 0 then
+						return 1
+					end
+					return animatedTransparency:get() * 0.3
+				end),
+				BorderSizePixel = 0,
+				
+				[Children] = {
+					New "UICorner" {
+						CornerRadius = UDim.new(0.5, 0),
+					},
+				},
+			},
+			
+			-- Label text
+			New "TextLabel" {
+				Name = "Label",
+				Size = UDim2.new(1, 0, 3, 0),
+				Position = UDim2.new(0.5, 0, -4, 0),
+				AnchorPoint = Vector2.new(0.5, 0),
+				BackgroundTransparency = 1,
+				Font = Enum.Font.RobotoMono,
+				TextScaled = true,
+				TextColor3 = Computed(function()
+					if isNightVisionEnabled:get() then
+						return CAMERA_CONFIG.NightVisionOverlayColor
+					end
+					return Color3.fromRGB(0, 255, 0)
+				end),
+				TextTransparency = Computed(function()
+					local progress = gazeProgress:get()
+					if progress <= 0 then
+						return 1
+					end
+					return animatedTransparency:get()
+				end),
+				Text = Computed(function()
+					local progress = gazeProgress:get()
+					if progress >= 1 then
+						return "◉ CAPTURED"
+					end
+					return string.format("CAPTURING... %d%%", math.floor(progress * 100))
+				end),
 			},
 		},
 	}
 end
 
 local function createAudioLevelMeter(parent, animatedTransparency, side, levelValue)
-	local meterHeight = 150
-	local meterWidth = 12
+	-- Scale values (based on 1920x1080 reference)
+	local meterHeightScale = 0.139   -- 150/1080
+	local meterWidthScale = 0.006    -- 12/1920
 	local segments = 12
-	local segmentHeight = meterHeight / segments
-	local xPos = side == "L" and UDim2.new(1, -400, 0.5, 0) or UDim2.new(1, -380, 0.5, 0)
+	local segmentHeightScale = meterHeightScale / segments
+	local xPosScale = side == "L" and 0.792 or 0.802  -- (1920-400)/1920, (1920-380)/1920
 	
 	local segmentFrames = {}
 	for i = 1, segments do
@@ -427,8 +636,8 @@ local function createAudioLevelMeter(parent, animatedTransparency, side, levelVa
 		end
 		
 		table.insert(segmentFrames, New "Frame" {
-			Size = UDim2.new(0, meterWidth, 0, segmentHeight - 2),
-			Position = UDim2.new(0, 0, 1, -(i * segmentHeight)),
+			Size = UDim2.new(1, 0, (1/segments) - 0.01, 0),
+			Position = UDim2.new(0, 0, 1 - (i / segments), 0),
 			BackgroundColor3 = segmentColor,
 			BackgroundTransparency = Computed(function()
 				local level = levelValue:get()
@@ -445,8 +654,8 @@ local function createAudioLevelMeter(parent, animatedTransparency, side, levelVa
 	
 	return New "Frame" {
 		Name = "AudioMeter_" .. side,
-		Size = UDim2.new(0, meterWidth, 0, meterHeight),
-		Position = xPos,
+		Size = UDim2.new(meterWidthScale, 0, meterHeightScale, 0),
+		Position = UDim2.new(xPosScale, 0, 0.5, 0),
 		AnchorPoint = Vector2.new(0, 0.5),
 		BackgroundTransparency = 1,
 		Parent = parent,
@@ -462,12 +671,12 @@ local function createAudioLevelMeter(parent, animatedTransparency, side, levelVa
 			},
 			-- Label
 			New "TextLabel" {
-				Size = UDim2.new(0, 24, 0, 20),
-				Position = UDim2.new(0.5, 0, 1, 8),
+				Size = UDim2.new(2, 0, 0.12, 0),
+				Position = UDim2.new(0.5, 0, 1.05, 0),
 				AnchorPoint = Vector2.new(0.5, 0),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
-				TextSize = 16,
+				TextScaled = true,
 				TextColor3 = CAMERA_CONFIG.OverlayColor,
 				TextTransparency = animatedTransparency,
 				Text = side,
@@ -481,8 +690,8 @@ end
 local function createRecIndicator(parent, animatedTransparency)
 	return New "Frame" {
 		Name = "RecIndicator",
-		Size = UDim2.new(0, 120, 0, 40),
-		Position = UDim2.new(0, 360, 0, 180),
+		Size = UDim2.new(0.0625, 0, 0.037, 0),  -- 120/1920, 40/1080
+		Position = UDim2.new(0.188, 0, 0.167, 0),  -- 360/1920, 180/1080
 		BackgroundTransparency = 1,
 		Parent = parent,
 		
@@ -490,7 +699,7 @@ local function createRecIndicator(parent, animatedTransparency)
 			-- REC dot
 			New "Frame" {
 				Name = "RecDot",
-				Size = UDim2.new(0, 20, 0, 20),
+				Size = UDim2.new(0.5, 0, 0.5, 0),
 				Position = UDim2.new(0, 0, 0.5, 0),
 				AnchorPoint = Vector2.new(0, 0.5),
 				BackgroundColor3 = CAMERA_CONFIG.RecColor,
@@ -503,16 +712,19 @@ local function createRecIndicator(parent, animatedTransparency)
 					New "UICorner" {
 						CornerRadius = UDim.new(1, 0),
 					},
+					New "UIAspectRatioConstraint" {
+						AspectRatio = 1,
+					},
 				},
 			},
 			-- REC text
 			New "TextLabel" {
 				Name = "RecText",
-				Size = UDim2.new(0, 70, 1, 0),
-				Position = UDim2.new(0, 28, 0, 0),
+				Size = UDim2.new(0.6, 0, 1, 0),
+				Position = UDim2.new(0.25, 0, 0, 0),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
-				TextSize = 28,
+				TextScaled = true,
 				TextColor3 = CAMERA_CONFIG.RecColor,
 				TextTransparency = Computed(function()
 					return recBlinkState:get() and animatedTransparency:get() or 0.5
@@ -527,12 +739,12 @@ end
 local function createTimestamp(parent, animatedTransparency)
 	return New "TextLabel" {
 		Name = "Timestamp",
-		Size = UDim2.new(0, 350, 0, 35),
-		Position = UDim2.new(1, -360, 0, 180),
+		Size = UDim2.new(0.182, 0, 0.032, 0),  -- 350/1920, 35/1080
+		Position = UDim2.new(0.812, 0, 0.167, 0),  -- (1920-360)/1920, 180/1080
 		AnchorPoint = Vector2.new(1, 0),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.RobotoMono,
-		TextSize = 26,
+		TextScaled = true,
 		TextColor3 = CAMERA_CONFIG.OverlayColor,
 		TextTransparency = animatedTransparency,
 		TextXAlignment = Enum.TextXAlignment.Right,
@@ -546,30 +758,30 @@ end
 local function createCameraSettings(parent, animatedTransparency)
 	return New "Frame" {
 		Name = "CameraSettings",
-		Size = UDim2.new(0, 250, 0, 110),
-		Position = UDim2.new(1, -360, 0, 220),
+		Size = UDim2.new(0.13, 0, 0.102, 0),  -- 250/1920, 110/1080
+		Position = UDim2.new(0.812, 0, 0.204, 0),  -- (1920-360)/1920, 220/1080
 		AnchorPoint = Vector2.new(1, 0),
 		BackgroundTransparency = 1,
 		Parent = parent,
 		
 		[Children] = {
 			New "TextLabel" {
-				Size = UDim2.new(1, 0, 0, 24),
+				Size = UDim2.new(1, 0, 0.22, 0),
 				Position = UDim2.new(0, 0, 0, 0),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
-				TextSize = 20,
+				TextScaled = true,
 				TextColor3 = CAMERA_CONFIG.OverlayColor,
 				TextTransparency = animatedTransparency,
 				TextXAlignment = Enum.TextXAlignment.Right,
 				Text = CAMERA_CONFIG.Aperture .. "  ISO " .. CAMERA_CONFIG.ISO,
 			},
 			New "TextLabel" {
-				Size = UDim2.new(1, 0, 0, 24),
-				Position = UDim2.new(0, 0, 0, 28),
+				Size = UDim2.new(1, 0, 0.22, 0),
+				Position = UDim2.new(0, 0, 0.25, 0),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
-				TextSize = 18,
+				TextScaled = true,
 				TextColor3 = CAMERA_CONFIG.OverlayColor,
 				TextTransparency = Computed(function() return 0.3 + animatedTransparency:get() * 0.7 end),
 				TextXAlignment = Enum.TextXAlignment.Right,
@@ -577,11 +789,11 @@ local function createCameraSettings(parent, animatedTransparency)
 			},
 			-- White balance
 			New "TextLabel" {
-				Size = UDim2.new(1, 0, 0, 22),
-				Position = UDim2.new(0, 0, 0, 58),
+				Size = UDim2.new(1, 0, 0.2, 0),
+				Position = UDim2.new(0, 0, 0.53, 0),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
-				TextSize = 16,
+				TextScaled = true,
 				TextColor3 = CAMERA_CONFIG.AccentColor,
 				TextTransparency = animatedTransparency,
 				TextXAlignment = Enum.TextXAlignment.Right,
@@ -591,64 +803,11 @@ local function createCameraSettings(parent, animatedTransparency)
 	}
 end
 
-local function createFocusDistance(parent, animatedTransparency)
-	return New "Frame" {
-		Name = "FocusDistance",
-		Size = UDim2.new(0, 150, 0, 70),
-		Position = UDim2.new(0.5, 0, 1, -240),
-		AnchorPoint = Vector2.new(0.5, 1),
-		BackgroundTransparency = 1,
-		Parent = parent,
-		
-		[Children] = {
-			New "TextLabel" {
-				Size = UDim2.new(1, 0, 0, 20),
-				Position = UDim2.new(0, 0, 0, 0),
-				BackgroundTransparency = 1,
-				Font = Enum.Font.RobotoMono,
-				TextSize = 16,
-				TextColor3 = Computed(function()
-					return isFocusLocked:get() and Color3.fromRGB(100, 255, 100) or CAMERA_CONFIG.OverlayColor
-				end),
-				TextTransparency = Computed(function() return 0.4 + animatedTransparency:get() * 0.6 end),
-				Text = Computed(function()
-					return isFocusLocked:get() and "◉ FOCUS LOCKED" or "○ FOCUS"
-				end),
-			},
-			New "TextLabel" {
-				Size = UDim2.new(1, 0, 0, 30),
-				Position = UDim2.new(0, 0, 0, 22),
-				BackgroundTransparency = 1,
-				Font = Enum.Font.RobotoMono,
-				TextSize = 24,
-				TextColor3 = CAMERA_CONFIG.AccentColor,
-				TextTransparency = animatedTransparency,
-				Text = Computed(function()
-					return string.format("%.1fm", focusDistance:get())
-				end),
-			},
-			-- Click hint
-			New "TextLabel" {
-				Size = UDim2.new(1, 0, 0, 16),
-				Position = UDim2.new(0, 0, 0, 52),
-				BackgroundTransparency = 1,
-				Font = Enum.Font.RobotoMono,
-				TextSize = 12,
-				TextColor3 = CAMERA_CONFIG.OverlayColor,
-				TextTransparency = Computed(function() return 0.5 + animatedTransparency:get() * 0.5 end),
-				Text = "[LMB] to focus",
-			},
-		},
-	}
-end
-
 local function createZoomIndicator(parent, animatedTransparency)
-	local barWidth = 180
-	
 	return New "Frame" {
 		Name = "ZoomIndicator",
-		Size = UDim2.new(0, barWidth, 0, 40),
-		Position = UDim2.new(0, 350, 0.5, 0),
+		Size = UDim2.new(0.094, 0, 0.037, 0),  -- 180/1920, 40/1080
+		Position = UDim2.new(0.182, 0, 0.5, 0),  -- 350/1920
 		AnchorPoint = Vector2.new(0, 0.5),
 		BackgroundTransparency = 1,
 		Parent = parent,
@@ -656,11 +815,11 @@ local function createZoomIndicator(parent, animatedTransparency)
 		[Children] = {
 			-- Label
 			New "TextLabel" {
-				Size = UDim2.new(0, 60, 0, 20),
+				Size = UDim2.new(0.33, 0, 0.5, 0),
 				Position = UDim2.new(0, 0, 0, 0),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
-				TextSize = 16,
+				TextScaled = true,
 				TextColor3 = CAMERA_CONFIG.OverlayColor,
 				TextTransparency = Computed(function() return 0.4 + animatedTransparency:get() * 0.6 end),
 				TextXAlignment = Enum.TextXAlignment.Left,
@@ -668,14 +827,14 @@ local function createZoomIndicator(parent, animatedTransparency)
 			},
 			-- Bar background
 			New "Frame" {
-				Size = UDim2.new(0, barWidth, 0, 6),
-				Position = UDim2.new(0, 0, 0, 24),
+				Size = UDim2.new(1, 0, 0.15, 0),
+				Position = UDim2.new(0, 0, 0.6, 0),
 				BackgroundColor3 = Color3.fromRGB(60, 60, 60),
 				BackgroundTransparency = 0.5,
 				BorderSizePixel = 0,
 				
 				[Children] = {
-					New "UICorner" { CornerRadius = UDim.new(0, 3) },
+					New "UICorner" { CornerRadius = UDim.new(0.5, 0) },
 					-- Fill bar
 					New "Frame" {
 						Size = Computed(function()
@@ -686,19 +845,19 @@ local function createZoomIndicator(parent, animatedTransparency)
 						BackgroundTransparency = animatedTransparency,
 						BorderSizePixel = 0,
 						[Children] = {
-							New "UICorner" { CornerRadius = UDim.new(0, 3) },
+							New "UICorner" { CornerRadius = UDim.new(0.5, 0) },
 						},
 					},
 				},
 			},
 			-- Zoom value
 			New "TextLabel" {
-				Size = UDim2.new(0, 60, 0, 20),
-				Position = UDim2.new(0, barWidth + 15, 0, 20),
+				Size = UDim2.new(0.33, 0, 0.5, 0),
+				Position = UDim2.new(1.1, 0, 0.5, 0),
 				AnchorPoint = Vector2.new(0, 0.5),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
-				TextSize = 18,
+				TextScaled = true,
 				TextColor3 = CAMERA_CONFIG.OverlayColor,
 				TextTransparency = animatedTransparency,
 				TextXAlignment = Enum.TextXAlignment.Left,
@@ -713,8 +872,8 @@ end
 local function createMemoryCard(parent, animatedTransparency)
 	return New "Frame" {
 		Name = "MemoryCard",
-		Size = UDim2.new(0, 150, 0, 55),
-		Position = UDim2.new(1, -360, 1, -180),
+		Size = UDim2.new(0.078, 0, 0.051, 0),  -- 150/1920, 55/1080
+		Position = UDim2.new(0.812, 0, 0.833, 0),  -- (1920-360)/1920, (1080-180)/1080
 		AnchorPoint = Vector2.new(1, 1),
 		BackgroundTransparency = 1,
 		Parent = parent,
@@ -722,17 +881,18 @@ local function createMemoryCard(parent, animatedTransparency)
 		[Children] = {
 			-- SD card icon (simplified)
 			New "Frame" {
-				Size = UDim2.new(0, 22, 0, 28),
+				Size = UDim2.new(0.15, 0, 0.5, 0),
 				Position = UDim2.new(0, 0, 0, 0),
 				BackgroundColor3 = CAMERA_CONFIG.OverlayColor,
 				BackgroundTransparency = animatedTransparency,
 				BorderSizePixel = 0,
 				[Children] = {
-					New "UICorner" { CornerRadius = UDim.new(0, 4) },
+					New "UICorner" { CornerRadius = UDim.new(0.1, 0) },
+					New "UIAspectRatioConstraint" { AspectRatio = 0.78 },
 					-- Notch
 					New "Frame" {
-						Size = UDim2.new(0, 8, 0, 8),
-						Position = UDim2.new(1, -8, 0, 0),
+						Size = UDim2.new(0.35, 0, 0.28, 0),
+						Position = UDim2.new(0.65, 0, 0, 0),
 						BackgroundColor3 = Color3.fromRGB(30, 30, 30),
 						BorderSizePixel = 0,
 					},
@@ -740,11 +900,11 @@ local function createMemoryCard(parent, animatedTransparency)
 			},
 			-- Memory text
 			New "TextLabel" {
-				Size = UDim2.new(0, 120, 0, 24),
-				Position = UDim2.new(0, 30, 0, 0),
+				Size = UDim2.new(0.8, 0, 0.44, 0),
+				Position = UDim2.new(0.2, 0, 0, 0),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
-				TextSize = 18,
+				TextScaled = true,
 				TextColor3 = CAMERA_CONFIG.OverlayColor,
 				TextTransparency = animatedTransparency,
 				TextXAlignment = Enum.TextXAlignment.Left,
@@ -754,11 +914,11 @@ local function createMemoryCard(parent, animatedTransparency)
 			},
 			-- Remaining time
 			New "TextLabel" {
-				Size = UDim2.new(0, 120, 0, 20),
-				Position = UDim2.new(0, 30, 0, 26),
+				Size = UDim2.new(0.8, 0, 0.36, 0),
+				Position = UDim2.new(0.2, 0, 0.47, 0),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
-				TextSize = 16,
+				TextScaled = true,
 				TextColor3 = CAMERA_CONFIG.OverlayColor,
 				TextTransparency = Computed(function() return 0.4 + animatedTransparency:get() * 0.6 end),
 				TextXAlignment = Enum.TextXAlignment.Left,
@@ -775,8 +935,8 @@ end
 local function createBatteryIndicator(parent, animatedTransparency)
 	return New "Frame" {
 		Name = "BatteryIndicator",
-		Size = UDim2.new(0, 130, 0, 32),
-		Position = UDim2.new(1, -360, 1, -240),
+		Size = UDim2.new(0.068, 0, 0.03, 0),  -- 130/1920, 32/1080
+		Position = UDim2.new(0.812, 0, 0.778, 0),  -- (1920-360)/1920, (1080-240)/1080
 		AnchorPoint = Vector2.new(1, 1),
 		BackgroundTransparency = 1,
 		Parent = parent,
@@ -785,7 +945,7 @@ local function createBatteryIndicator(parent, animatedTransparency)
 			-- Battery outline
 			New "Frame" {
 				Name = "BatteryOutline",
-				Size = UDim2.new(0, 50, 0, 26),
+				Size = UDim2.new(0.385, 0, 0.8, 0),
 				Position = UDim2.new(0, 0, 0.5, 0),
 				AnchorPoint = Vector2.new(0, 0.5),
 				BackgroundTransparency = 1,
@@ -794,19 +954,19 @@ local function createBatteryIndicator(parent, animatedTransparency)
 				[Children] = {
 					New "UIStroke" {
 						Color = CAMERA_CONFIG.OverlayColor,
-						Thickness = 3,
+						Thickness = 2,
 						Transparency = animatedTransparency,
 					},
 					New "UICorner" {
-						CornerRadius = UDim.new(0, 4),
+						CornerRadius = UDim.new(0.1, 0),
 					},
 					-- Battery fill
 					New "Frame" {
 						Name = "BatteryFill",
 						Size = Computed(function()
-							return UDim2.new(batteryLevel:get() / 100, -6, 1, -6)
+							return UDim2.new(batteryLevel:get() / 100 * 0.88, 0, 0.76, 0)
 						end),
-						Position = UDim2.new(0, 3, 0, 3),
+						Position = UDim2.new(0.06, 0, 0.12, 0),
 						BackgroundColor3 = Computed(function()
 							local level = batteryLevel:get()
 							if level <= 20 then
@@ -822,7 +982,7 @@ local function createBatteryIndicator(parent, animatedTransparency)
 						
 						[Children] = {
 							New "UICorner" {
-								CornerRadius = UDim.new(0, 2),
+								CornerRadius = UDim.new(0.1, 0),
 							},
 						},
 					},
@@ -831,8 +991,8 @@ local function createBatteryIndicator(parent, animatedTransparency)
 			-- Battery tip
 			New "Frame" {
 				Name = "BatteryTip",
-				Size = UDim2.new(0, 5, 0, 14),
-				Position = UDim2.new(0, 53, 0.5, 0),
+				Size = UDim2.new(0.04, 0, 0.44, 0),
+				Position = UDim2.new(0.41, 0, 0.5, 0),
 				AnchorPoint = Vector2.new(0, 0.5),
 				BackgroundColor3 = CAMERA_CONFIG.OverlayColor,
 				BackgroundTransparency = animatedTransparency,
@@ -840,18 +1000,18 @@ local function createBatteryIndicator(parent, animatedTransparency)
 				
 				[Children] = {
 					New "UICorner" {
-						CornerRadius = UDim.new(0, 2),
+						CornerRadius = UDim.new(0.2, 0),
 					},
 				},
 			},
 			-- Percentage text
 			New "TextLabel" {
 				Name = "BatteryText",
-				Size = UDim2.new(0, 55, 1, 0),
-				Position = UDim2.new(0, 65, 0, 0),
+				Size = UDim2.new(0.42, 0, 1, 0),
+				Position = UDim2.new(0.5, 0, 0, 0),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
-				TextSize = 20,
+				TextScaled = true,
 				TextColor3 = CAMERA_CONFIG.OverlayColor,
 				TextTransparency = animatedTransparency,
 				TextXAlignment = Enum.TextXAlignment.Left,
@@ -865,13 +1025,14 @@ end
 
 local function createScanLines(parent, animatedTransparency)
 	local lines = {}
-	local screenHeight = 1080
-	local lineCount = math.floor(screenHeight / CAMERA_CONFIG.ScanLineSpacing)
+	local lineCount = math.floor(1 / (CAMERA_CONFIG.ScanLineSpacing / 1080))  -- Convert to scale-based count
+	lineCount = math.min(lineCount, 200)
 	
-	for i = 1, math.min(lineCount, 200) do
+	for i = 1, lineCount do
+		local yPosScale = (i - 1) / lineCount
 		table.insert(lines, New "Frame" {
-			Size = UDim2.new(1, 0, 0, 1),
-			Position = UDim2.new(0, 0, 0, (i - 1) * CAMERA_CONFIG.ScanLineSpacing),
+			Size = UDim2.new(1, 0, 0.001, 0),  -- Very thin line
+			Position = UDim2.new(0, 0, yPosScale, 0),
 			BackgroundColor3 = Color3.fromRGB(0, 0, 0),
 			BackgroundTransparency = Computed(function()
 				return 1 - CAMERA_CONFIG.ScanLineOpacity + animatedTransparency:get() * CAMERA_CONFIG.ScanLineOpacity
@@ -909,8 +1070,8 @@ end
 local function createCameraInfo(parent, animatedTransparency)
 	return New "Frame" {
 		Name = "CameraInfo",
-		Size = UDim2.new(0, 280, 0, 200),
-		Position = UDim2.new(0, 360, 1, -180),
+		Size = UDim2.new(0.146, 0, 0.185, 0),  -- 280/1920, 200/1080
+		Position = UDim2.new(0.188, 0, 0.833, 0),  -- 360/1920, (1080-180)/1080
 		AnchorPoint = Vector2.new(0, 1),
 		BackgroundTransparency = 1,
 		Parent = parent,
@@ -918,11 +1079,11 @@ local function createCameraInfo(parent, animatedTransparency)
 		[Children] = {
 			-- Camera model
 			New "TextLabel" {
-				Size = UDim2.new(1, 0, 0, 28),
+				Size = UDim2.new(1, 0, 0.14, 0),
 				Position = UDim2.new(0, 0, 0, 0),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
-				TextSize = 22,
+				TextScaled = true,
 				TextColor3 = CAMERA_CONFIG.OverlayColor,
 				TextTransparency = animatedTransparency,
 				TextXAlignment = Enum.TextXAlignment.Left,
@@ -930,11 +1091,11 @@ local function createCameraInfo(parent, animatedTransparency)
 			},
 			-- Resolution
 			New "TextLabel" {
-				Size = UDim2.new(1, 0, 0, 24),
-				Position = UDim2.new(0, 0, 0, 32),
+				Size = UDim2.new(1, 0, 0.12, 0),
+				Position = UDim2.new(0, 0, 0.16, 0),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
-				TextSize = 18,
+				TextScaled = true,
 				TextColor3 = CAMERA_CONFIG.OverlayColor,
 				TextTransparency = Computed(function()
 					return 0.3 + animatedTransparency:get() * 0.7
@@ -944,11 +1105,11 @@ local function createCameraInfo(parent, animatedTransparency)
 			},
 			-- Night vision indicator
 			New "TextLabel" {
-				Size = UDim2.new(1, 0, 0, 24),
-				Position = UDim2.new(0, 0, 0, 60),
+				Size = UDim2.new(1, 0, 0.12, 0),
+				Position = UDim2.new(0, 0, 0.30, 0),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
-				TextSize = 18,
+				TextScaled = true,
 				TextColor3 = Computed(function()
 					return isNightVisionEnabled:get() and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(150, 150, 150)
 				end),
@@ -960,11 +1121,11 @@ local function createCameraInfo(parent, animatedTransparency)
 			},
 			-- Stabilization
 			New "TextLabel" {
-				Size = UDim2.new(1, 0, 0, 22),
-				Position = UDim2.new(0, 0, 0, 88),
+				Size = UDim2.new(1, 0, 0.11, 0),
+				Position = UDim2.new(0, 0, 0.44, 0),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
-				TextSize = 16,
+				TextScaled = true,
 				TextColor3 = CAMERA_CONFIG.AccentColor,
 				TextTransparency = animatedTransparency,
 				TextXAlignment = Enum.TextXAlignment.Left,
@@ -973,8 +1134,8 @@ local function createCameraInfo(parent, animatedTransparency)
 			
 			-- Divider
 			New "Frame" {
-				Size = UDim2.new(0.9, 0, 0, 1),
-				Position = UDim2.new(0, 0, 0, 118),
+				Size = UDim2.new(0.9, 0, 0.005, 0),
+				Position = UDim2.new(0, 0, 0.59, 0),
 				BackgroundColor3 = CAMERA_CONFIG.OverlayColor,
 				BackgroundTransparency = Computed(function()
 					return 0.6 + animatedTransparency:get() * 0.4
@@ -984,11 +1145,11 @@ local function createCameraInfo(parent, animatedTransparency)
 			
 			-- Target label
 			New "TextLabel" {
-				Size = UDim2.new(1, 0, 0, 18),
-				Position = UDim2.new(0, 0, 0, 125),
+				Size = UDim2.new(1, 0, 0.09, 0),
+				Position = UDim2.new(0, 0, 0.625, 0),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
-				TextSize = 14,
+				TextScaled = true,
 				TextColor3 = CAMERA_CONFIG.OverlayColor,
 				TextTransparency = Computed(function()
 					return 0.4 + animatedTransparency:get() * 0.6
@@ -999,11 +1160,11 @@ local function createCameraInfo(parent, animatedTransparency)
 			
 			-- Target object name
 			New "TextLabel" {
-				Size = UDim2.new(1, 0, 0, 22),
-				Position = UDim2.new(0, 0, 0, 143),
+				Size = UDim2.new(1, 0, 0.11, 0),
+				Position = UDim2.new(0, 0, 0.715, 0),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
-				TextSize = 18,
+				TextScaled = true,
 				TextColor3 = CAMERA_CONFIG.AccentColor,
 				TextTransparency = animatedTransparency,
 				TextXAlignment = Enum.TextXAlignment.Left,
@@ -1014,11 +1175,11 @@ local function createCameraInfo(parent, animatedTransparency)
 			
 			-- Target object class and distance
 			New "TextLabel" {
-				Size = UDim2.new(1, 0, 0, 18),
-				Position = UDim2.new(0, 0, 0, 167),
+				Size = UDim2.new(1, 0, 0.09, 0),
+				Position = UDim2.new(0, 0, 0.835, 0),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
-				TextSize = 14,
+				TextScaled = true,
 				TextColor3 = CAMERA_CONFIG.OverlayColor,
 				TextTransparency = Computed(function()
 					return 0.3 + animatedTransparency:get() * 0.7
@@ -1091,9 +1252,6 @@ local function createCameraEffectUI(self)
 					-- Camera settings (aperture, ISO, etc)
 					CAMERA_CONFIG.CameraSettingsEnabled and createCameraSettings(nil, animatedTransparency) or nil,
 					
-					-- Focus distance
-					CAMERA_CONFIG.FocusDistanceEnabled and createFocusDistance(nil, animatedTransparency) or nil,
-					
 					-- Zoom indicator
 					CAMERA_CONFIG.ZoomEnabled and createZoomIndicator(nil, animatedTransparency) or nil,
 					
@@ -1109,6 +1267,9 @@ local function createCameraEffectUI(self)
 					
 					-- Camera info
 					createCameraInfo(nil, animatedTransparency),
+					
+					-- Gaze progress bar (shows when looking at PhotoTarget)
+					createGazeProgressBar(nil, animatedTransparency),
 				},
 			},
 		},
@@ -1116,160 +1277,6 @@ local function createCameraEffectUI(self)
 	
 	self.screenGui = screenGui
 	return screenGui
-end
-
--- === DEPTH OF FIELD ===
-
-local depthOfFieldEffect = nil
-local currentFocusDistance = CAMERA_CONFIG.DOFDefaultDistance
-local targetFocusDistance = CAMERA_CONFIG.DOFDefaultDistance
-
--- === ENTITY BLUR EFFECT ===
--- Creates a visual blur effect directly on the entity using transparent shells and particles
-
-local currentBlurredEntity = nil
-local entityBlurParts = {}
-
-local function clearEntityBlur()
-	-- Remove all blur effect parts
-	for _, part in ipairs(entityBlurParts) do
-		if part and part.Parent then
-			part:Destroy()
-		end
-	end
-	entityBlurParts = {}
-	currentBlurredEntity = nil
-end
-
-local function applyEntityBlur(entity)
-	-- Clear any existing blur
-	clearEntityBlur()
-	
-	if not entity then return end
-	
-	currentBlurredEntity = entity
-	
-	-- Find all BaseParts in the entity
-	local parts = {}
-	if entity:IsA("BasePart") then
-		table.insert(parts, entity)
-	end
-	for _, descendant in ipairs(entity:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			table.insert(parts, descendant)
-		end
-	end
-	
-	-- Create blur shells around each part
-	for _, part in ipairs(parts) do
-		-- Create multiple offset transparent copies for blur effect
-		local offsets = {
-			Vector3.new(0.15, 0, 0),
-			Vector3.new(-0.15, 0, 0),
-			Vector3.new(0, 0.15, 0),
-			Vector3.new(0, -0.15, 0),
-			Vector3.new(0, 0, 0.15),
-			Vector3.new(0, 0, -0.15),
-			Vector3.new(0.1, 0.1, 0),
-			Vector3.new(-0.1, -0.1, 0),
-		}
-		
-		for i, offset in ipairs(offsets) do
-			local blurPart = Instance.new("Part")
-			blurPart.Name = "BlurShell_" .. i
-			blurPart.Size = part.Size * 1.02  -- Slightly larger
-			blurPart.CFrame = part.CFrame * CFrame.new(offset)
-			blurPart.Color = part.Color
-			blurPart.Material = Enum.Material.Glass
-			blurPart.Transparency = 0.7 + (i * 0.03)  -- Varying transparency
-			blurPart.Anchored = true
-			blurPart.CanCollide = false
-			blurPart.CanQuery = false
-			blurPart.CanTouch = false
-			blurPart.CastShadow = false
-			blurPart.Parent = workspace
-			
-			table.insert(entityBlurParts, blurPart)
-		end
-		
-		-- Add a foggy particle effect
-		local attachment = Instance.new("Attachment")
-		attachment.Name = "BlurAttachment"
-		attachment.Parent = part
-		table.insert(entityBlurParts, attachment)
-		
-		local particles = Instance.new("ParticleEmitter")
-		particles.Name = "BlurParticles"
-		particles.Color = ColorSequence.new(Color3.fromRGB(50, 50, 50))
-		particles.Size = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, part.Size.Magnitude * 0.3),
-			NumberSequenceKeypoint.new(1, part.Size.Magnitude * 0.5),
-		})
-		particles.Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0.6),
-			NumberSequenceKeypoint.new(0.5, 0.75),
-			NumberSequenceKeypoint.new(1, 1),
-		})
-		particles.Lifetime = NumberRange.new(0.3, 0.6)
-		particles.Rate = 30
-		particles.Speed = NumberRange.new(0.5, 1)
-		particles.SpreadAngle = Vector2.new(180, 180)
-		particles.LockedToPart = true
-		particles.Parent = attachment
-		table.insert(entityBlurParts, particles)
-		
-		-- Make the original part slightly transparent
-		if not part:GetAttribute("OriginalTransparency") then
-			part:SetAttribute("OriginalTransparency", part.Transparency)
-		end
-		part.Transparency = math.min(part.Transparency + 0.3, 0.9)
-	end
-	
-	print(string.format("[CameraEffectController] Applied blur effect to entity with %d blur parts", #entityBlurParts))
-end
-
-local function restoreEntityTransparency(entity)
-	if not entity then return end
-	
-	local parts = {}
-	if entity:IsA("BasePart") then
-		table.insert(parts, entity)
-	end
-	for _, descendant in ipairs(entity:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			table.insert(parts, descendant)
-		end
-	end
-	
-	for _, part in ipairs(parts) do
-		local originalTransparency = part:GetAttribute("OriginalTransparency")
-		if originalTransparency then
-			part.Transparency = originalTransparency
-			part:SetAttribute("OriginalTransparency", nil)
-		end
-	end
-end
-
-local function createDepthOfFieldEffect()
-	-- Check if DOF effect already exists in Lighting
-	depthOfFieldEffect = Lighting:FindFirstChild("CameraDepthOfField")
-	
-	if not depthOfFieldEffect then
-		depthOfFieldEffect = Instance.new("DepthOfFieldEffect")
-		depthOfFieldEffect.Name = "CameraDepthOfField"
-		depthOfFieldEffect.Parent = Lighting
-	end
-	
-	-- Always update the properties
-	depthOfFieldEffect.FarIntensity = CAMERA_CONFIG.DOFFarIntensity
-	depthOfFieldEffect.NearIntensity = CAMERA_CONFIG.DOFNearIntensity
-	depthOfFieldEffect.InFocusRadius = CAMERA_CONFIG.DOFInFocusRadius
-	depthOfFieldEffect.FocusDistance = CAMERA_CONFIG.DOFDefaultDistance
-	depthOfFieldEffect.Enabled = false  -- Start disabled, only enable when clicking on entity
-	
-	print("[CameraEffectController] DOF Effect created/updated - starts DISABLED until entity is clicked")
-	
-	return depthOfFieldEffect
 end
 
 local function performFocusRaycast()
@@ -1304,7 +1311,7 @@ local function performFocusRaycast()
 	
 	return workspace:Raycast(
 		unitRay.Origin,
-		unitRay.Direction * CAMERA_CONFIG.DOFMaxDistance,
+		unitRay.Direction * CAMERA_CONFIG.RaycastMaxDistance,
 		raycastParams
 	), unitRay
 end
@@ -1392,11 +1399,109 @@ local function hasEntityTag(instance)
 	return false, nil
 end
 
+local function hasPhotoTargetTag(instance)
+	-- Check if the instance itself has the PhotoTarget tag
+	if CollectionService:HasTag(instance, PHOTO_TARGET_TAG) then
+		return true, instance
+	end
+	
+	-- Check ancestors for the tag
+	local current = instance.Parent
+	while current and current ~= workspace do
+		if CollectionService:HasTag(current, PHOTO_TARGET_TAG) then
+			return true, current
+		end
+		current = current.Parent
+	end
+	
+	return false, nil
+end
+
+-- Update crosshair appearance based on what we're looking at
+local function updateCrosshairState(isTargeting)
+	if isTargeting then
+		-- Photo target detected - larger
+		crosshairScale:set(1.3)
+	else
+		-- Normal state - normal size
+		crosshairScale:set(1)
+	end
+end
+
+-- Continuous raycast to check what we're looking at
+local function checkPhotoTargetInView(deltaTime)
+	local camera = workspace.CurrentCamera
+	if not camera then return end
+	
+	local viewportSize = camera.ViewportSize
+	local centerScreenPos = Vector2.new(viewportSize.X / 2, viewportSize.Y / 2)
+	local unitRay = camera:ViewportPointToRay(centerScreenPos.X, centerScreenPos.Y)
+	
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+	
+	local excludeList = {}
+	local player = Players.LocalPlayer
+	if player and player.Character then
+		table.insert(excludeList, player.Character)
+	end
+	
+	local gridCubes = CollectionService:GetTagged(GRID_CUBE_TAG)
+	for _, cube in ipairs(gridCubes) do
+		table.insert(excludeList, cube)
+	end
+	
+	raycastParams.FilterDescendantsInstances = excludeList
+	
+	local raycastResult = workspace:Raycast(
+		unitRay.Origin,
+		unitRay.Direction * CAMERA_CONFIG.RaycastMaxDistance,
+		raycastParams
+	)
+	
+	local hitPhotoTarget = false
+	local hitTargetInstance = nil
+	if raycastResult then
+		hitPhotoTarget, hitTargetInstance = hasPhotoTargetTag(raycastResult.Instance)
+	end
+	
+	local wasLooking = isLookingAtPhotoTarget:get()
+	local dt = deltaTime or 0.016
+	
+	if hitPhotoTarget then
+		-- Check if we're looking at a different target than before
+		if hitTargetInstance ~= currentTargetInstance then
+			-- Reset progress when switching to a different target
+			gazeProgress:set(0)
+			currentTargetInstance = hitTargetInstance
+		end
+		
+		-- Switch to targeting mode
+		if not wasLooking then
+			isLookingAtPhotoTarget:set(true)
+			updateCrosshairState(true)
+		end
+		
+		-- Increase gaze progress while looking at target
+		local currentProgress = gazeProgress:get()
+		local newProgress = math.min(1, currentProgress + (dt / GAZE_FILL_TIME))
+		gazeProgress:set(newProgress)
+	else
+		-- Immediately switch off when not looking at target
+		if wasLooking then
+			isLookingAtPhotoTarget:set(false)
+			updateCrosshairState(false)
+			gazeProgress:set(0)
+			currentTargetInstance = nil
+		end
+	end
+end
+
 local function lockFocusOnTarget()
 	local raycastResult, unitRay = performFocusRaycast()
 	
 	local rayOrigin = unitRay.Origin
-	local rayEnd = rayOrigin + unitRay.Direction * CAMERA_CONFIG.DOFMaxDistance
+	local rayEnd = rayOrigin + unitRay.Direction * CAMERA_CONFIG.RaycastMaxDistance
 	
 	if raycastResult then
 		local hitPart = raycastResult.Instance
@@ -1418,43 +1523,27 @@ local function lockFocusOnTarget()
 			end
 			
 			targetObjectDistance:set(math.floor(entityDistance * 10) / 10)
-			isFocusLocked:set(true)
-			
-			-- Apply blur effect directly to the entity
-			local entityToBlur = taggedEntity or hitPart.Parent
-			applyEntityBlur(entityToBlur)
 			
 			-- Draw debug gizmos - GREEN for valid entity hit
 			drawDebugArrow(rayOrigin, hitPosition, CAMERA_CONFIG.DebugLineColor, CAMERA_CONFIG.DebugLineDuration)
 			drawDebugSphere(hitPosition, CAMERA_CONFIG.DebugLineColor, CAMERA_CONFIG.DebugHitPointSize, CAMERA_CONFIG.DebugLineDuration, "ENTITY")
 			
-			print(string.format("[CameraEffectController] Entity detected: %s (%.1fm) - BLUR APPLIED TO ENTITY", 
+			print(string.format("[CameraEffectController] Entity detected: %s (%.1fm)", 
 				targetObjectName:get(), entityDistance))
 		else
-			-- Hit something but it doesn't have the entity tag - clear blur
-			if currentBlurredEntity then
-				restoreEntityTransparency(currentBlurredEntity)
-				clearEntityBlur()
-			end
-			
+			-- Hit something but it doesn't have the entity tag
 			targetObjectName:set("---")
 			targetObjectClass:set("---")
 			targetObjectDistance:set(0)
-			isFocusLocked:set(false)
 			
 			-- Draw debug gizmos - YELLOW for hit without tag
 			drawDebugArrow(rayOrigin, hitPosition, CAMERA_CONFIG.DebugLineNoTagColor, CAMERA_CONFIG.DebugLineDuration)
 			drawDebugSphere(hitPosition, CAMERA_CONFIG.DebugLineNoTagColor, CAMERA_CONFIG.DebugHitPointSize, CAMERA_CONFIG.DebugLineDuration, "NO TAG")
 			
-			print(string.format("[CameraEffectController] Hit object '%s' does not have '%s' tag - blur cleared", hitPart.Name, ENTITY_TAG))
+			print(string.format("[CameraEffectController] Hit object '%s' does not have '%s' tag", hitPart.Name, ENTITY_TAG))
 		end
 	else
-		-- No hit - clear blur
-		if currentBlurredEntity then
-			restoreEntityTransparency(currentBlurredEntity)
-			clearEntityBlur()
-		end
-		
+		-- No hit
 		-- Draw debug gizmos - red line to max distance
 		drawDebugRay(rayOrigin, rayEnd, CAMERA_CONFIG.DebugLineMissColor, CAMERA_CONFIG.DebugLineDuration)
 		drawDebugBox(rayEnd, Vector3.new(0.5, 0.5, 0.5), CAMERA_CONFIG.DebugLineMissColor, CAMERA_CONFIG.DebugLineDuration)
@@ -1462,24 +1551,8 @@ local function lockFocusOnTarget()
 		targetObjectName:set("---")
 		targetObjectClass:set("---")
 		targetObjectDistance:set(0)
-		isFocusLocked:set(false)
-		print("[CameraEffectController] No object hit by raycast - blur cleared")
+		print("[CameraEffectController] No object hit by raycast")
 	end
-end
-
-local function updateDepthOfField(deltaTime)
-	if not CAMERA_CONFIG.DepthOfFieldEnabled then return end
-	if not depthOfFieldEffect then return end
-	
-	-- Smooth focus transition
-	local smoothingFactor = CAMERA_CONFIG.DOFSmoothingSpeed * deltaTime
-	currentFocusDistance = currentFocusDistance + (targetFocusDistance - currentFocusDistance) * math.min(smoothingFactor, 1)
-	
-	-- Apply to depth of field effect
-	depthOfFieldEffect.FocusDistance = currentFocusDistance
-	
-	-- Update the focus distance display in UI
-	focusDistance:set(currentFocusDistance)
 end
 
 -- === CAMERA CONTROLS ===
@@ -1495,11 +1568,9 @@ local function initializeCameraControls(self)
 		)
 	end)
 	
-	-- Left mouse click to focus on target
+	-- Left mouse click to detect and apply blur to target entity
 	mouse.LeftDown:Connect(function()
-		if CAMERA_CONFIG.DepthOfFieldEnabled then
-			lockFocusOnTarget()
-		end
+		lockFocusOnTarget()
 	end)
 	
 	-- Night vision toggle (N key by default)
@@ -1555,24 +1626,6 @@ local function startUpdateLoops(self)
 		end
 	end)
 	
-	-- Update focus distance based on camera raycast
-	task.spawn(function()
-		local camera = workspace.CurrentCamera
-		while true do
-			if camera then
-				local ray = Ray.new(camera.CFrame.Position, camera.CFrame.LookVector * 100)
-				local hit, hitPos = workspace:FindPartOnRay(ray)
-				if hit then
-					local dist = (hitPos - camera.CFrame.Position).Magnitude
-					focusDistance:set(dist)
-				else
-					focusDistance:set(99.9)
-				end
-			end
-			task.wait(0.1)
-		end
-	end)
-	
 	-- Slowly increase memory usage
 	task.spawn(function()
 		while true do
@@ -1592,6 +1645,15 @@ local function startUpdateLoops(self)
 			if current > 5 then
 				batteryLevel:set(current - 1)
 			end
+		end
+	end)
+	
+	-- Continuously check if looking at photo target (for crosshair updates)
+	task.spawn(function()
+		local dt = 0.05
+		while true do
+			checkPhotoTargetInView(dt)
+			task.wait(dt)  -- Check 20 times per second for responsive feel
 		end
 	end)
 end
@@ -1616,23 +1678,17 @@ function CameraEffectController:KnitStart()
 	-- Hide mouse cursor
 	UserInputService.MouseIconEnabled = false
 	
-	-- Initialize depth of field effect
-	if CAMERA_CONFIG.DepthOfFieldEnabled then
-		createDepthOfFieldEffect()
-	end
-	
 	-- Initialize camera controls (zoom only, camera uses default Roblox behavior)
 	if CAMERA_CONFIG.ControlsEnabled then
 		initializeCameraControls(self)
 		
-		-- Start camera control update loop for zoom and DOF
+		-- Start camera control update loop for zoom
 		self.cameraControlConnection = RunService.RenderStepped:Connect(function(deltaTime)
 			updateCameraControls(self, deltaTime)
-			updateDepthOfField(deltaTime)
 		end)
 	end
 	
-	print("[CameraEffectController] Initialized with camera effect GUI and DOF")
+	print("[CameraEffectController] Initialized with camera effect GUI")
 end
 
 -- === PUBLIC METHODS ===
@@ -1731,54 +1787,6 @@ end
 
 function CameraEffectController:IsNightVisionEnabled()
 	return isNightVisionEnabled:get()
-end
-
--- Depth of Field Controls
-function CameraEffectController:EnableDepthOfField()
-	CAMERA_CONFIG.DepthOfFieldEnabled = true
-	if depthOfFieldEffect then
-		depthOfFieldEffect.Enabled = true
-	end
-end
-
-function CameraEffectController:DisableDepthOfField()
-	CAMERA_CONFIG.DepthOfFieldEnabled = false
-	if depthOfFieldEffect then
-		depthOfFieldEffect.Enabled = false
-	end
-end
-
-function CameraEffectController:ToggleDepthOfField()
-	if CAMERA_CONFIG.DepthOfFieldEnabled then
-		self:DisableDepthOfField()
-	else
-		self:EnableDepthOfField()
-	end
-	return CAMERA_CONFIG.DepthOfFieldEnabled
-end
-
-function CameraEffectController:IsDepthOfFieldEnabled()
-	return CAMERA_CONFIG.DepthOfFieldEnabled
-end
-
-function CameraEffectController:SetDOFInFocusRadius(radius)
-	CAMERA_CONFIG.DOFInFocusRadius = radius
-	if depthOfFieldEffect then
-		depthOfFieldEffect.InFocusRadius = radius
-	end
-end
-
-function CameraEffectController:SetDOFIntensity(nearIntensity, farIntensity)
-	CAMERA_CONFIG.DOFNearIntensity = nearIntensity or CAMERA_CONFIG.DOFNearIntensity
-	CAMERA_CONFIG.DOFFarIntensity = farIntensity or CAMERA_CONFIG.DOFFarIntensity
-	if depthOfFieldEffect then
-		depthOfFieldEffect.NearIntensity = CAMERA_CONFIG.DOFNearIntensity
-		depthOfFieldEffect.FarIntensity = CAMERA_CONFIG.DOFFarIntensity
-	end
-end
-
-function CameraEffectController:GetCurrentFocusDistance()
-	return currentFocusDistance
 end
 
 -- Debug Gizmo Controls
