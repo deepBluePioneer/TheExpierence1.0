@@ -817,7 +817,7 @@ end
 
 function ScuttlerService:KnitStart()
 	task.delay(3, function()
-		generateScuttlers(self)
+		--generateScuttlers(self)
 	end)
 end
 

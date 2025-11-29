@@ -1,5 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local CollectionService = game:GetService("CollectionService")
 
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
@@ -27,6 +28,7 @@ local GridService = Knit.CreateService {
 local TARGET_CELLS_PER_SIDE = 20  -- Target number of cells per side (will adjust to fit)
 local GRID_FOLDER_NAME = "GridCubes"
 local BATCH_SIZE = 50              -- Create this many parts before yielding
+local GRID_CUBE_TAG = "gridCube"   -- Tag for each grid cube
 
 -- Timer Config
 local TIMER_DURATION = 60  -- Timer duration in seconds
@@ -117,6 +119,9 @@ local function createCubeFast(x, z, folder)
 	else
 		cube.Color = Color3.fromRGB(245, 166, 66)  -- Orange
 	end
+	
+	-- Add tag for identification
+	CollectionService:AddTag(cube, GRID_CUBE_TAG)
 	
 	cube.Parent = folder
 	return cube

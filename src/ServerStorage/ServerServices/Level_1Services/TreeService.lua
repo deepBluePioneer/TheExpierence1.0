@@ -13,13 +13,13 @@ local TreeService = Knit.CreateService {
 -- === CONFIG ===
 local TREE_CONFIG = {
 	-- Spawning
-	TreeCount = 100,             -- Number of trees to spawn
+	TreeCount = 200,             -- Number of trees to spawn
 	MinSpacing = 18,             -- Minimum distance between trees
 	EdgePadding = 12,            -- Keep trees away from baseplate edges
 	
 	-- Trunk variations (taller!)
 	TrunkHeightMin = 20,
-	TrunkHeightMax = 35,
+	TrunkHeightMax = 40,
 	TrunkWidthMin = 2.5,
 	TrunkWidthMax = 5,
 	TrunkColor = Color3.fromRGB(101, 67, 33),

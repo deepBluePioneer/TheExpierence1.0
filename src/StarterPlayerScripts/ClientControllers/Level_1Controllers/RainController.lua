@@ -81,8 +81,8 @@ local LIGHTNING_CONFIG = {
 	
 	-- Lighting flash (synced with bolt)
 	LightingFlashEnabled = true,
-	FlashBrightness = 25,      -- Peak brightness during flash (very intense!)
-	FlashAmbient = Color3.fromRGB(250, 250, 255),  -- Near white ambient
+	FlashBrightness = 50,      -- Peak brightness during flash (even more intense!)
+	FlashAmbient = Color3.fromRGB(255, 255, 255),  -- Pure white ambient
 	FlashFadeTime = 0.6,       -- Longer fade to match linger
 }
 
