@@ -176,6 +176,12 @@ local function spawnRaindrop(self)
 		table.insert(excludeList, part)
 	end
 	
+	-- Exclude debug visualization
+	local debugFolder = Workspace:FindFirstChild("ExclusionZoneDebug")
+	if debugFolder then
+		table.insert(excludeList, debugFolder)
+	end
+	
 	rayParams.FilterDescendantsInstances = excludeList
 	
 	local rayResult = Workspace:Raycast(spawnPos, Vector3.new(0, -200, 0), rayParams)

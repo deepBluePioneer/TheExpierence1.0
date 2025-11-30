@@ -405,6 +405,12 @@ local function performRaycast()
 		table.insert(excludeList, part)
 	end
 	
+	-- Exclude debug visualization
+	local debugFolder = workspace:FindFirstChild("ExclusionZoneDebug")
+	if debugFolder then
+		table.insert(excludeList, debugFolder)
+	end
+	
 	raycastParams.FilterDescendantsInstances = excludeList
 	
 	return workspace:Raycast(

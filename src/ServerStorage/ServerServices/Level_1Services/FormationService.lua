@@ -791,9 +791,18 @@ local function isValidPosition(newPos, existingPositions, minSpacing)
 	end)
 	
 	if GridService then
+		-- Check exclusion zones
 		local excluded = GridService:IsPositionExcluded(newPos)
 		if excluded then
 			return false
+		end
+		
+		-- Check if position is in a reserved/occupied cell
+		if GridService.WorldToGrid and GridService.IsCellOccupied then
+			local gridX, gridZ = GridService:WorldToGrid(newPos)
+			if gridX and gridZ and GridService:IsCellOccupied(gridX, gridZ) then
+				return false
+			end
 		end
 	end
 	
@@ -850,6 +859,77 @@ local function generateFormationPositions(baseplateInfo, count)
 	return positions
 end
 
+-- Clean up formations that are too close to reserved cells
+local function cleanupFormationsNearReservedCells(self)
+	local ReservedZoneService = nil
+	local GridService = nil
+	
+	pcall(function()
+		ReservedZoneService = Knit.GetService("ReservedZoneService")
+		GridService = Knit.GetService("GridService")
+	end)
+	
+	if not ReservedZoneService or not GridService then
+		return
+	end
+	
+	local reservedCells = ReservedZoneService:GetReservedCells()
+	if not reservedCells or #reservedCells == 0 then
+		return
+	end
+	
+	-- Calculate the center of the reserved area
+	local cellPositions = {}
+	for _, cell in ipairs(reservedCells) do
+		local cellPos = GridService:GridToWorld(cell.x, cell.z)
+		table.insert(cellPositions, cellPos)
+	end
+	
+	-- Get the center of the reserved area (average of all cell centers)
+	local centerX, centerZ = 0, 0
+	for _, pos in ipairs(cellPositions) do
+		centerX = centerX + pos.X
+		centerZ = centerZ + pos.Z
+	end
+	centerX = centerX / #cellPositions
+	centerZ = centerZ / #cellPositions
+	
+	-- Calculate radius: distance from center to farthest corner of 2x2 block
+	-- For a 2x2 block, the farthest corner is at distance: cellSize * sqrt(2)
+	local cellSize = GridService:GetCellSize()
+	local reservedRadius = cellSize * math.sqrt(2)  -- Distance to corner
+	local bufferDistance = 5  -- Additional buffer distance in studs
+	local totalRadius = reservedRadius + bufferDistance
+	
+	local removedCount = 0
+	local formationsToKeep = {}
+	
+	for _, formation in ipairs(self.formations) do
+		if formation and formation.Parent then
+			local formationPos = formation:GetPivot().Position
+			local distance = math.sqrt((formationPos.X - centerX)^2 + (formationPos.Z - centerZ)^2)
+			
+			if distance < totalRadius then
+				-- Formation is too close to reserved area, remove it
+				formation:Destroy()
+				removedCount = removedCount + 1
+			else
+				table.insert(formationsToKeep, formation)
+			end
+		else
+			-- Keep invalid formations in the list (they'll be cleaned up elsewhere)
+			table.insert(formationsToKeep, formation)
+		end
+	end
+	
+	self.formations = formationsToKeep
+	
+	if removedCount > 0 then
+		print(string.format("[FormationService] Removed %d formations within %.1f studs of reserved area", 
+			removedCount, totalRadius))
+	end
+end
+
 local function generateFormations(self)
 	local startTime = tick()
 	
@@ -898,6 +978,9 @@ local function generateFormations(self)
 	local elapsed = tick() - startTime
 	print(string.format("[FormationService] Generated %d formations in %.2fs", #positions, elapsed))
 	
+	-- Clean up formations near reserved cells
+	cleanupFormationsNearReservedCells(self)
+	
 	reportProgress(100, 100, "Terrain complete")
 	
 	if LoadingService then
@@ -913,9 +996,25 @@ end
 
 function FormationService:KnitStart()
 	print("[FormationService] Starting...")
-	-- Wait for trees to generate first
-	task.wait(1)
-	generateFormations(self)
+	
+	-- Get LoadingService to wait for ReservedZoneService
+	local LoadingService = nil
+	pcall(function()
+		LoadingService = Knit.GetService("LoadingService")
+	end)
+	
+	if LoadingService then
+		-- Wait for ReservedZoneService to complete before generating formations
+		print("[FormationService] Waiting for ReservedZoneService to complete...")
+		LoadingService:OnStepComplete("ReservedZoneService", function()
+			print("[FormationService] ReservedZoneService complete, generating formations...")
+			generateFormations(self)
+		end)
+	else
+		-- Fallback if LoadingService not available
+		warn("[FormationService] LoadingService not found, generating formations immediately")
+		generateFormations(self)
+	end
 end
 
 -- === PUBLIC METHODS ===

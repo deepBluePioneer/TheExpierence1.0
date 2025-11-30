@@ -684,7 +684,7 @@ end
 
 -- === PLACEMENT ===
 
--- Check if position is valid using GridService for exclusion zones
+-- Check if position is valid using GridService for exclusion zones and reserved cells
 local function isValidPosition(newPos, existingPositions, minSpacing)
 	-- Check GridService exclusion zones first
 	local GridService = nil
@@ -693,9 +693,18 @@ local function isValidPosition(newPos, existingPositions, minSpacing)
 	end)
 	
 	if GridService then
+		-- Check exclusion zones
 		local excluded = GridService:IsPositionExcluded(newPos)
 		if excluded then
 			return false
+		end
+		
+		-- Check if position is in a reserved/occupied cell
+		if GridService.WorldToGrid and GridService.IsCellOccupied then
+			local gridX, gridZ = GridService:WorldToGrid(newPos)
+			if gridX and gridZ and GridService:IsCellOccupied(gridX, gridZ) then
+				return false
+			end
 		end
 	end
 	
@@ -730,6 +739,77 @@ local function generateTreePositions(baseplateInfo, count)
 	end
 	
 	return positions
+end
+
+-- Clean up trees that are too close to reserved cells
+local function cleanupTreesNearReservedCells(self)
+	local ReservedZoneService = nil
+	local GridService = nil
+	
+	pcall(function()
+		ReservedZoneService = Knit.GetService("ReservedZoneService")
+		GridService = Knit.GetService("GridService")
+	end)
+	
+	if not ReservedZoneService or not GridService then
+		return
+	end
+	
+	local reservedCells = ReservedZoneService:GetReservedCells()
+	if not reservedCells or #reservedCells == 0 then
+		return
+	end
+	
+	-- Calculate the center of the reserved area
+	local cellPositions = {}
+	for _, cell in ipairs(reservedCells) do
+		local cellPos = GridService:GridToWorld(cell.x, cell.z)
+		table.insert(cellPositions, cellPos)
+	end
+	
+	-- Get the center of the reserved area (average of all cell centers)
+	local centerX, centerZ = 0, 0
+	for _, pos in ipairs(cellPositions) do
+		centerX = centerX + pos.X
+		centerZ = centerZ + pos.Z
+	end
+	centerX = centerX / #cellPositions
+	centerZ = centerZ / #cellPositions
+	
+	-- Calculate radius: distance from center to farthest corner of 2x2 block
+	-- For a 2x2 block, the farthest corner is at distance: cellSize * sqrt(2)
+	local cellSize = GridService:GetCellSize()
+	local reservedRadius = cellSize * math.sqrt(2)  -- Distance to corner
+	local bufferDistance = 5  -- Additional buffer distance in studs
+	local totalRadius = reservedRadius + bufferDistance
+	
+	local removedCount = 0
+	local treesToKeep = {}
+	
+	for _, tree in ipairs(self.trees) do
+		if tree and tree.Parent then
+			local treePos = tree:GetPivot().Position
+			local distance = math.sqrt((treePos.X - centerX)^2 + (treePos.Z - centerZ)^2)
+			
+			if distance < totalRadius then
+				-- Tree is too close to reserved area, remove it
+				tree:Destroy()
+				removedCount = removedCount + 1
+			else
+				table.insert(treesToKeep, tree)
+			end
+		else
+			-- Keep invalid trees in the list (they'll be cleaned up elsewhere)
+			table.insert(treesToKeep, tree)
+		end
+	end
+	
+	self.trees = treesToKeep
+	
+	if removedCount > 0 then
+		print(string.format("[TreeService] Removed %d trees within %.1f studs of reserved area", 
+			removedCount, totalRadius))
+	end
 end
 
 local function generateTrees(self)
@@ -780,6 +860,9 @@ local function generateTrees(self)
 	local elapsed = tick() - startTime
 	print(string.format("[TreeService] Generated %d trees in %.2fs", #positions, elapsed))
 	
+	-- Clean up trees near reserved cells
+	cleanupTreesNearReservedCells(self)
+	
 	reportProgress(100, 100, "Forest complete")
 	
 	if LoadingService then
@@ -795,7 +878,25 @@ end
 
 function TreeService:KnitStart()
 	print("[TreeService] Starting...")
-	generateTrees(self)
+	
+	-- Get LoadingService to wait for ReservedZoneService
+	local LoadingService = nil
+	pcall(function()
+		LoadingService = Knit.GetService("LoadingService")
+	end)
+	
+	if LoadingService then
+		-- Wait for ReservedZoneService to complete before generating trees
+		print("[TreeService] Waiting for ReservedZoneService to complete...")
+		LoadingService:OnStepComplete("ReservedZoneService", function()
+			print("[TreeService] ReservedZoneService complete, generating trees...")
+			generateTrees(self)
+		end)
+	else
+		-- Fallback if LoadingService not available
+		warn("[TreeService] LoadingService not found, generating trees immediately")
+		generateTrees(self)
+	end
 end
 
 -- === PUBLIC METHODS ===

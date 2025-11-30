@@ -72,21 +72,69 @@ local function unlockAndShowCursor()
 	mouse:Unlock()
 end
 
--- === HEAD TRANSPARENCY ===
+-- === BODY TRANSPARENCY ===
 
-local function makeHeadInvisible(character)
+-- Parts to KEEP visible (arms and hands)
+local VISIBLE_PARTS = {
+	-- R15 arms
+	["LeftUpperArm"] = true,
+	["LeftLowerArm"] = true,
+	["LeftHand"] = true,
+	["RightUpperArm"] = true,
+	["RightLowerArm"] = true,
+	["RightHand"] = true,
+	-- R6 arms
+	["Left Arm"] = true,
+	["Right Arm"] = true,
+}
+
+-- Parts to HIDE
+local HIDDEN_PARTS = {
+	-- Head
+	["Head"] = true,
+	-- R15 torso
+	["UpperTorso"] = true,
+	["LowerTorso"] = true,
+	-- R15 legs
+	["LeftUpperLeg"] = true,
+	["LeftLowerLeg"] = true,
+	["LeftFoot"] = true,
+	["RightUpperLeg"] = true,
+	["RightLowerLeg"] = true,
+	["RightFoot"] = true,
+	-- R6
+	["Torso"] = true,
+	["Left Leg"] = true,
+	["Right Leg"] = true,
+	-- Root part (invisible anyway but just in case)
+	["HumanoidRootPart"] = true,
+}
+
+local function makeBodyInvisible(character)
 	if not character then return end
 	
-	local head = character:FindFirstChild("Head")
-	if head then
-		head.LocalTransparencyModifier = 1
-		for _, child in ipairs(head:GetChildren()) do
-			if child:IsA("Decal") then
-				child.Transparency = 1
+	-- Hide body parts (except arms/hands)
+	for _, part in ipairs(character:GetDescendants()) do
+		if part:IsA("BasePart") then
+			local partName = part.Name
+			
+			-- Check if this is a part we should hide
+			if HIDDEN_PARTS[partName] then
+				part.LocalTransparencyModifier = 1
+				
+				-- Also hide decals on head
+				if partName == "Head" then
+					for _, child in ipairs(part:GetChildren()) do
+						if child:IsA("Decal") then
+							child.Transparency = 1
+						end
+					end
+				end
 			end
 		end
 	end
 	
+	-- Handle accessories - hide head/torso ones, keep arm ones
 	for _, accessory in ipairs(character:GetChildren()) do
 		if accessory:IsA("Accessory") then
 			local handle = accessory:FindFirstChild("Handle")
@@ -94,13 +142,38 @@ local function makeHeadInvisible(character)
 				local attachment = handle:FindFirstChildOfClass("Attachment")
 				if attachment then
 					local attachName = attachment.Name:lower()
+					
+					-- Hide head/hair/face accessories
 					if attachName:find("hat") or attachName:find("hair") or attachName:find("face") or attachName:find("head") then
+						handle.LocalTransparencyModifier = 1
+					end
+					
+					-- Hide body/torso accessories
+					if attachName:find("body") or attachName:find("torso") or attachName:find("waist") or 
+					   attachName:find("back") or attachName:find("neck") or attachName:find("shoulder") then
+						handle.LocalTransparencyModifier = 1
+					end
+					
+					-- Hide leg accessories
+					if attachName:find("leg") or attachName:find("foot") then
 						handle.LocalTransparencyModifier = 1
 					end
 				end
 			end
 		end
 	end
+	
+	-- Handle clothing
+	for _, item in ipairs(character:GetChildren()) do
+		if item:IsA("Shirt") or item:IsA("Pants") then
+			-- Can't fully hide these, but we've hidden the parts they're on
+		end
+	end
+end
+
+-- Alias for backward compatibility
+local function makeHeadInvisible(character)
+	makeBodyInvisible(character)
 end
 
 -- === CAMERA UPDATE ===

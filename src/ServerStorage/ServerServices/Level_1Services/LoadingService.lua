@@ -32,7 +32,6 @@ local LOADING_CONFIG = {
 		"TreeService",
 		"ParticleService",
 		"WeatherService",
-		"RoomService",
 		-- Add more services as needed
 	},
 }
@@ -143,12 +142,11 @@ local function initializeLoading(self)
 	registerLoadingStep(self, "Initializing", "Initializing game systems...")
 	registerLoadingStep(self, "GridService", "Generating world grid...")
 	registerLoadingStep(self, "TerrainService", "Generating terrain...")
+	registerLoadingStep(self, "ReservedZoneService", "Reserving zones...")
 	registerLoadingStep(self, "TreeService", "Growing alien forest...")
 	registerLoadingStep(self, "FormationService", "Creating alien formations...")
 	registerLoadingStep(self, "ParticleService", "Adding ambient effects...")
 	registerLoadingStep(self, "WeatherService", "Setting up weather system...")
-	registerLoadingStep(self, "RoomService", "Building rooms...")
-	registerLoadingStep(self, "MonolithEntityService", "Awakening the Monolith...")
 	registerLoadingStep(self, "AudioLogService", "Placing audio logs...")
 	registerLoadingStep(self, "Finalizing", "Finalizing world...")
 	

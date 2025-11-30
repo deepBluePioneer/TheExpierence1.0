@@ -604,6 +604,12 @@ local function getGroundHeight(x, z, fallbackY)
 		table.insert(excludeList, monolithFolder)
 	end
 	
+	-- Exclude debug visualization
+	local debugFolder = Workspace:FindFirstChild("ExclusionZoneDebug")
+	if debugFolder then
+		table.insert(excludeList, debugFolder)
+	end
+	
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 	raycastParams.FilterDescendantsInstances = excludeList

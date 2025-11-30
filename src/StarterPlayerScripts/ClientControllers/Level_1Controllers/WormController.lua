@@ -68,10 +68,20 @@ raycastParams.FilterDescendantsInstances = {}
 -- === HELPER FUNCTIONS ===
 
 local function getGroundHeight(x, z)
+	local excludeList = {}
+	
 	local wormsFolder = Workspace:FindFirstChild("Worms")
 	if wormsFolder then
-		raycastParams.FilterDescendantsInstances = {wormsFolder}
+		table.insert(excludeList, wormsFolder)
 	end
+	
+	-- Exclude debug visualization
+	local debugFolder = Workspace:FindFirstChild("ExclusionZoneDebug")
+	if debugFolder then
+		table.insert(excludeList, debugFolder)
+	end
+	
+	raycastParams.FilterDescendantsInstances = excludeList
 	
 	local result = Workspace:Raycast(
 		Vector3.new(x, 500, z),
