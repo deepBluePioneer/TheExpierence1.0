@@ -34,6 +34,9 @@ local GridService = Knit.CreateService {
 		cells = {},        -- { ["x_z"] = { cube = Part, occupied = false, owner = nil } }
 		occupiedCells = {}, -- { ["x_z"] = ownerId }
 	},
+	
+	-- Exclusion zones (areas where objects should not spawn)
+	_exclusionZones = {}, -- { [id] = { position = Vector3, radius = number, height = number, owner = string } }
 }
 
 -- === CONFIG ===
@@ -215,6 +218,20 @@ end
 local function generateGrid(self)
 	local startTime = tick()
 	
+	-- Get LoadingService for progress updates
+	local LoadingService = nil
+	pcall(function()
+		LoadingService = Knit.GetService("LoadingService")
+	end)
+	
+	local function reportProgress(message, current, total)
+		if LoadingService then
+			LoadingService:ReportProgress("GridService", current or 0, total or 1, message)
+		end
+	end
+	
+	reportProgress("Calculating grid dimensions", 0, 100)
+	
 	-- Calculate grid size from baseplate and update gridData
 	calculateGridFromBaseplate(self._gridData)
 	
@@ -228,6 +245,8 @@ local function generateGrid(self)
 		self.mapReplica:SetValue({"GridDepth"}, GRID_DEPTH)
 	end
 	
+	reportProgress("Clearing existing grid", 5, 100)
+	
 	-- Clear existing zones
 	for _, zone in pairs(self.zones) do
 		zone:Destroy()
@@ -240,15 +259,23 @@ local function generateGrid(self)
 	-- PHASE 1: Batch create all parts first (fast)
 	local allCubes = {}
 	local batchCount = 0
+	local totalCells = GRID_WIDTH * GRID_DEPTH
+	local cellsCreated = 0
+	
+	reportProgress("Creating grid cells", 10, 100)
 	
 	for x = 1, GRID_WIDTH do
 		for z = 1, GRID_DEPTH do
 			local cube = createCubeFast(x, z, folder, self._gridData)
 			table.insert(allCubes, {cube = cube, x = x, z = z})
 			
+			cellsCreated += 1
 			batchCount += 1
 			if batchCount >= BATCH_SIZE then
 				batchCount = 0
+				-- Report progress (10-60% range for cell creation)
+				local cellProgress = 10 + (cellsCreated / totalCells) * 50
+				reportProgress("Creating grid cells", math.floor(cellProgress), 100)
 				task.wait()  -- Yield to prevent lag spikes
 			end
 		end
@@ -256,15 +283,22 @@ local function generateGrid(self)
 	
 	local partTime = tick()
 	print(string.format("[GridService] Created %d parts in %.2fs", #allCubes, partTime - startTime))
+	reportProgress("Grid cells created", 60, 100)
 	
 	-- PHASE 2: Attach zones in batches (slower, do after parts visible)
+	reportProgress("Attaching zones", 65, 100)
+	
 	task.spawn(function()
 		local zoneCount = 0
+		local totalZones = #allCubes
 		for _, data in ipairs(allCubes) do
 			attachZone(data.cube, data.x, data.z, self.zones, self.mapReplica)
 			
 			zoneCount += 1
 			if zoneCount % BATCH_SIZE == 0 then
+				-- Report progress (65-95% range for zone attachment)
+				local zoneProgress = 65 + (zoneCount / totalZones) * 30
+				reportProgress("Attaching zones", math.floor(zoneProgress), 100)
 				task.wait()  -- Yield periodically
 			end
 		end
@@ -272,6 +306,13 @@ local function generateGrid(self)
 		local totalTime = tick()
 		print(string.format("[GridService] Attached %d zones in %.2fs (total: %.2fs)", 
 			zoneCount, totalTime - partTime, totalTime - startTime))
+		
+		reportProgress("Grid complete", 100, 100)
+		
+		-- Mark GridService step as complete in LoadingService
+		if LoadingService then
+			LoadingService:MarkStepComplete("GridService")
+		end
 	end)
 	
 	print(string.format("[GridService] Generated %dx%d grid (%d cells, size %.1f each)", 
@@ -489,6 +530,79 @@ function GridService:WorldToGrid(worldPos)
 	local gridZ = math.floor(offsetZ / self._gridData.cellSize + (self._gridData.depth + 1) / 2 + 0.5)
 	
 	return gridX, gridZ
+end
+
+-- === EXCLUSION ZONE MANAGEMENT ===
+
+-- Register an exclusion zone where objects should not spawn
+function GridService:RegisterExclusionZone(id, position, radius, height, owner)
+	self._exclusionZones[id] = {
+		position = position,
+		radius = radius or 50,
+		height = height or 100,
+		owner = owner or "unknown",
+	}
+	print(string.format("[GridService] Registered exclusion zone '%s' at (%.1f, %.1f, %.1f) radius=%.1f owner=%s",
+		id, position.X, position.Y, position.Z, radius or 50, owner or "unknown"))
+	return true
+end
+
+-- Remove an exclusion zone
+function GridService:RemoveExclusionZone(id)
+	if self._exclusionZones[id] then
+		self._exclusionZones[id] = nil
+		print("[GridService] Removed exclusion zone:", id)
+		return true
+	end
+	return false
+end
+
+-- Check if a position is inside any exclusion zone
+function GridService:IsPositionExcluded(position)
+	for id, zone in pairs(self._exclusionZones) do
+		local dx = position.X - zone.position.X
+		local dz = position.Z - zone.position.Z
+		local horizontalDist = math.sqrt(dx * dx + dz * dz)
+		
+		if horizontalDist < zone.radius then
+			local dy = position.Y - zone.position.Y
+			if dy > -10 and dy < zone.height then
+				return true, id
+			end
+		end
+	end
+	return false, nil
+end
+
+-- Get all exclusion zones
+function GridService:GetExclusionZones()
+	return self._exclusionZones
+end
+
+-- Get a specific exclusion zone
+function GridService:GetExclusionZone(id)
+	return self._exclusionZones[id]
+end
+
+-- Check if a position is valid for spawning (not excluded and optionally not too close to others)
+function GridService:IsValidSpawnPosition(position, minSpacing, existingPositions)
+	-- Check exclusion zones first
+	local excluded, zoneId = self:IsPositionExcluded(position)
+	if excluded then
+		return false, "excluded by " .. (zoneId or "unknown")
+	end
+	
+	-- Check spacing from existing positions if provided
+	if existingPositions and minSpacing then
+		for _, pos in ipairs(existingPositions) do
+			local distance = (Vector3.new(position.X, 0, position.Z) - Vector3.new(pos.X, 0, pos.Z)).Magnitude
+			if distance < minSpacing then
+				return false, "too close to existing"
+			end
+		end
+	end
+	
+	return true, nil
 end
 
 return GridService

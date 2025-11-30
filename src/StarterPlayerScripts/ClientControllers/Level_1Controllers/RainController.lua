@@ -4,6 +4,7 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
 local TweenService = game:GetService("TweenService")
+local CollectionService = game:GetService("CollectionService")
 
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Knit = require(Packages.Knit)
@@ -162,12 +163,19 @@ local function spawnRaindrop(self)
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	
-	-- Exclude rain effects, player, and grid cells from raycast
+	-- Exclude rain effects, player, grid cells, and particle groups from raycast
 	local gridFolder = Workspace:FindFirstChild("GridCubes")
 	local excludeList = {getRainFolder(), Player.Character}
 	if gridFolder then
 		table.insert(excludeList, gridFolder)
 	end
+	
+	-- Exclude all particle group anchors
+	local particleGroups = CollectionService:GetTagged("particleGroup")
+	for _, part in ipairs(particleGroups) do
+		table.insert(excludeList, part)
+	end
+	
 	rayParams.FilterDescendantsInstances = excludeList
 	
 	local rayResult = Workspace:Raycast(spawnPos, Vector3.new(0, -200, 0), rayParams)

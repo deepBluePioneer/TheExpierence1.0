@@ -336,6 +336,20 @@ function RoomService:KnitInit()
 end
 
 function RoomService:KnitStart()
+	-- Get LoadingService for progress updates
+	local LoadingService = nil
+	pcall(function()
+		LoadingService = Knit.GetService("LoadingService")
+	end)
+	
+	local function reportProgress(message)
+		if LoadingService then
+			LoadingService:UpdateStatus("RoomService", message, 0)
+		end
+	end
+	
+	reportProgress("Waiting for grid...")
+	
 	-- Get reference to GridService
 	self._gridService = Knit.GetService("GridService")
 	
@@ -346,11 +360,20 @@ function RoomService:KnitStart()
 	print(string.format("[RoomService] Connected to GridService - Grid: %dx%d, Cell size: %.1f", 
 		gridData.width, gridData.depth, gridData.cellSize))
 	
+	reportProgress("Building rooms...")
+	
 	-- Create a test room (4x4 cells, 2 cells high)
 	self:CreateRoom(5, 5, ROOM_CONFIG.DefaultWidth, ROOM_CONFIG.DefaultDepth, {
 		name = "TestRoom",
 		doors = { south = true },
 	})
+	
+	reportProgress("Rooms complete")
+	
+	-- Mark step complete
+	if LoadingService then
+		LoadingService:MarkStepComplete("RoomService")
+	end
 end
 
 -- === PUBLIC API ===

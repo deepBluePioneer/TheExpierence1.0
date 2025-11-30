@@ -93,7 +93,7 @@ local AUDIOLOG_CONFIG = {
 	-- Animation
 	LightBlinkEnabled = true,
 	LightBlinkSpeed = 1.5,
-	ReelSpinEnabled = true,
+	ReelSpinEnabled = false,  -- Disabled: conflicts with physics (welded parts)
 	ReelSpinSpeed = 0.5,
 }
 
@@ -488,6 +488,50 @@ local function createAudioLog(position, folder, stats)
 		proximityPrompt.Parent = body
 	end
 	
+	-- === PHYSICS SETUP - WELD ALL PARTS TO BODY ===
+	-- Weld all parts to the body so they fall as a unit
+	for _, part in ipairs(allParts) do
+		if part ~= body and part:IsA("BasePart") then
+			local weld = Instance.new("WeldConstraint")
+			weld.Name = "AudioLogWeld"
+			weld.Part0 = body
+			weld.Part1 = part
+			weld.Parent = body
+			
+			-- Unanchor the welded part
+			part.Anchored = false
+			part.CanCollide = false  -- Only body needs collision
+		end
+	end
+	
+	-- Also weld the reels
+	for _, reel in ipairs(reels) do
+		if reel:IsA("BasePart") then
+			local weld = Instance.new("WeldConstraint")
+			weld.Name = "ReelWeld"
+			weld.Part0 = body
+			weld.Part1 = reel
+			weld.Parent = body
+			reel.Anchored = false
+			reel.CanCollide = false
+		end
+	end
+	
+	-- Unanchor the body so it falls with gravity
+	body.Anchored = false
+	body.CanCollide = true
+	
+	-- Set mass/density for realistic falling
+	if body:IsA("BasePart") then
+		body.CustomPhysicalProperties = PhysicalProperties.new(
+			2,    -- Density (heavier than default)
+			0.3,  -- Friction
+			0.1,  -- Elasticity (low bounce)
+			1,    -- FrictionWeight
+			1     -- ElasticityWeight
+		)
+	end
+	
 	return {
 		model = logModel,
 		parts = allParts,
@@ -532,9 +576,61 @@ end
 
 -- === GENERATION ===
 
+-- Raycast to find ground height at a position
+local function getGroundHeight(x, z, fallbackY)
+	local rayOrigin = Vector3.new(x, 500, z)  -- Start high above
+	local rayDirection = Vector3.new(0, -1000, 0)  -- Cast downward
+	
+	-- Build exclude list - ignore audio logs, trees, and formations so we hit actual ground
+	local excludeList = {}
+	
+	local audioLogFolder = Workspace:FindFirstChild("AudioLogs")
+	if audioLogFolder then
+		table.insert(excludeList, audioLogFolder)
+	end
+	
+	local treesFolder = Workspace:FindFirstChild("Trees")
+	if treesFolder then
+		table.insert(excludeList, treesFolder)
+	end
+	
+	local formationsFolder = Workspace:FindFirstChild("AlienFormations")
+	if formationsFolder then
+		table.insert(excludeList, formationsFolder)
+	end
+	
+	local monolithFolder = Workspace:FindFirstChild("MonolithEntity")
+	if monolithFolder then
+		table.insert(excludeList, monolithFolder)
+	end
+	
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+	raycastParams.FilterDescendantsInstances = excludeList
+	raycastParams.IgnoreWater = true
+	
+	local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+	
+	if result then
+		return result.Position.Y
+	end
+	
+	return fallbackY or 0
+end
+
 local function generateAudioLogs(self)
 	local startTime = tick()
 	local config = AUDIOLOG_CONFIG
+	
+	-- Get LoadingService
+	local LoadingService = nil
+	pcall(function()
+		LoadingService = Knit.GetService("LoadingService")
+	end)
+	
+	if LoadingService then
+		LoadingService:UpdateStatus("AudioLogService", "Placing audio logs...", 0)
+	end
 	
 	local folder = getAudioLogFolder()
 	folder:ClearAllChildren()
@@ -545,7 +641,7 @@ local function generateAudioLogs(self)
 		return
 	end
 	
-	local groundY = baseplateInfo.topY
+	local fallbackY = baseplateInfo.topY
 	
 	for i = 1, config.LogCount do
 		local stats = generateAudioLogStats()
@@ -556,7 +652,11 @@ local function generateAudioLogs(self)
 		
 		local x = baseplateInfo.position.X + math.cos(angle) * distance
 		local z = baseplateInfo.position.Z + math.sin(angle) * distance
-		local y = groundY + stats.BodyHeight / 2 + 0.1
+		
+		-- Raycast to find actual ground height (terrain or baseplate)
+		local groundY = getGroundHeight(x, z, fallbackY)
+		-- Spawn above ground and let physics drop it down
+		local y = groundY + stats.BodyHeight / 2 + 3  -- Spawn 3 studs above ground, will fall into place
 		
 		local position = Vector3.new(x, y, z)
 		local audioLog = createAudioLog(position, folder, stats)
@@ -575,6 +675,11 @@ local function generateAudioLogs(self)
 		
 		table.insert(self.audioLogs, audioLog)
 		
+		-- Report progress
+		if LoadingService then
+			LoadingService:ReportProgress("AudioLogService", i, config.LogCount, "Placing audio logs")
+		end
+		
 		print(string.format(
 			"[AudioLogService] Audio Log %d (Entry #%d): Position=(%.0f, %.0f, %.0f)",
 			i, audioLog.entryIndex, position.X, position.Y, position.Z
@@ -586,6 +691,11 @@ local function generateAudioLogs(self)
 	local elapsed = tick() - startTime
 	print(string.format("[AudioLogService] Generated %d audio logs in %.2fs", config.LogCount, elapsed))
 	
+	-- Mark step complete
+	if LoadingService then
+		LoadingService:MarkStepComplete("AudioLogService")
+	end
+	
 	-- Print all tagged audio logs
 	local taggedLogs = CollectionService:GetTagged(AUDIO_LOG_TAG)
 	print(string.format("[AudioLogService] Found %d instances with '%s' tag:", #taggedLogs, AUDIO_LOG_TAG))
@@ -594,17 +704,27 @@ local function generateAudioLogs(self)
 	end
 	
 	-- Connect proximity prompt events
+	local connectedCount = 0
 	for _, audioLog in ipairs(self.audioLogs) do
 		if audioLog.proximityPrompt then
+			connectedCount = connectedCount + 1
+			print("[AudioLogService] Connecting prompt for:", audioLog.model.Name)
+			
 			audioLog.proximityPrompt.Triggered:Connect(function(player)
+				print("[AudioLogService] Prompt triggered by:", player.Name, "for:", audioLog.model.Name)
+				
 				-- Don't allow if an audio log is already playing
 				if self:IsAudioLogPlaying() then
+					print("[AudioLogService] Blocked - audio log already playing")
 					return
 				end
 				self:OnAudioLogTriggered(audioLog, player)
 			end)
+		else
+			warn("[AudioLogService] No proximity prompt for:", audioLog.model and audioLog.model.Name or "unknown")
 		end
 	end
+	print("[AudioLogService] Connected", connectedCount, "proximity prompts")
 	
 	-- Start animations
 	animateAudioLogs(self)
@@ -617,9 +737,29 @@ function AudioLogService:KnitInit()
 end
 
 function AudioLogService:KnitStart()
-	task.delay(1.5, function()
-		generateAudioLogs(self)
+	-- Get LoadingService for signal-based communication
+	local LoadingService = nil
+	pcall(function()
+		LoadingService = Knit.GetService("LoadingService")
 	end)
+	
+	if LoadingService then
+		print("[AudioLogService] Waiting for terrain generation via signals...")
+		
+		-- Wait for terrain-related services to complete via signals
+		local stepsToWait = {"TerrainService", "TreeService", "FormationService"}
+		
+		LoadingService:OnStepsComplete(stepsToWait, function()
+			print("[AudioLogService] Terrain generation complete, placing audio logs...")
+			generateAudioLogs(self)
+		end)
+	else
+		-- Fallback: generate after a short delay if no LoadingService
+		warn("[AudioLogService] No LoadingService found, using fallback delay")
+		task.delay(4, function()
+			generateAudioLogs(self)
+		end)
+	end
 end
 
 -- === PUBLIC METHODS ===
@@ -671,6 +811,7 @@ function AudioLogService:OnAudioLogTriggered(audioLog, player)
 	-- Disable ALL prompts while playing
 	self.isAudioLogPlaying = true
 	self:DisableAllPrompts()
+	print("[AudioLogService] Prompts disabled, isAudioLogPlaying =", self.isAudioLogPlaying)
 	
 	-- Fire custom callback if set
 	if self.onTriggeredCallback then
@@ -679,7 +820,10 @@ function AudioLogService:OnAudioLogTriggered(audioLog, player)
 	
 	-- Fire client event ONLY to the player who triggered it, with the entry index
 	if self.Client and self.Client.AudioLogTriggered then
+		print("[AudioLogService] Firing AudioLogTriggered signal to", player.Name, "with entryIndex", entryIndex)
 		self.Client.AudioLogTriggered:Fire(player, entryIndex)
+	else
+		warn("[AudioLogService] Cannot fire signal - self.Client or AudioLogTriggered is nil")
 	end
 end
 

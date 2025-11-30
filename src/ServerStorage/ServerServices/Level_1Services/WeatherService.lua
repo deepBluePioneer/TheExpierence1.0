@@ -177,40 +177,38 @@ local function updateTimeOfDay(self, deltaTime)
 end
 
 local function startDayNightCycle(self)
-	-- Initialize time (start at night for testing - change to DayStart for normal behavior)
-	self._currentTime = DAY_NIGHT_CONFIG.NightStart  -- Start at night to test rain
-	self._isNight = isNightTime(self._currentTime)
+	-- Initialize time - start at night
+	self._currentTime = DAY_NIGHT_CONFIG.NightStart  -- Start at 8 PM (night)
+	self._isNight = true
+	self._dayNightEnabled = false  -- Disable day/night cycle - stay in night
 	Lighting.ClockTime = self._currentTime
 	
 	-- Set initial IsNight state in replica
-	print("[WeatherService] *** SETTING INITIAL REPLICA VALUES ***")
-	print(string.format("[WeatherService] _isNight = %s", tostring(self._isNight)))
-	print(string.format("[WeatherService] _currentTime = %.1f", self._currentTime))
-	
 	self.weatherReplica:SetValue({"IsNight"}, self._isNight)
 	self.weatherReplica:SetValue({"ClockTime"}, self._currentTime)
+	self.weatherReplica:SetValue({"DayNightEnabled"}, self._dayNightEnabled)
 	
 	-- Fire initial signal to all clients
-	print(string.format("[WeatherService] Firing INITIAL IsNightChanged signal: %s", tostring(self._isNight)))
 	self.Client.IsNightChanged:FireAll(self._isNight)
 	
-	print(string.format("[WeatherService] Replica IsNight now: %s", tostring(self.weatherReplica.Data.IsNight)))
-	print(string.format("[WeatherService] Initial state - IsNight: %s, Time: %.1f", tostring(self._isNight), self._currentTime))
+	print(string.format("[WeatherService] Initial state - IsNight: %s, Time: %.1f, CycleEnabled: %s", 
+		tostring(self._isNight), self._currentTime, tostring(self._dayNightEnabled)))
 	
-	-- Set initial weather based on time
-	if self._isNight then
-		self:SetWeather(DAY_NIGHT_CONFIG.NightWeather, 0)
-	else
-		self:SetWeather(DAY_NIGHT_CONFIG.DayWeather, 0)
-	end
+	-- Set initial weather to night (stormy)
+	self:SetWeather(DAY_NIGHT_CONFIG.NightWeather, 0)
 	
-	-- Update loop
+	-- Update loop (only advances time if cycle is enabled)
 	RunService.Heartbeat:Connect(function(deltaTime)
 		updateTimeOfDay(self, deltaTime)
 	end)
 	
-	print(string.format("[WeatherService] Day/Night cycle started - %.1f seconds per hour, starting at %d:00", 
-		DAY_NIGHT_CONFIG.SecondsPerHour, math.floor(self._currentTime)))
+	if self._dayNightEnabled then
+		print(string.format("[WeatherService] Day/Night cycle started - %.1f seconds per hour, starting at %d:00", 
+			DAY_NIGHT_CONFIG.SecondsPerHour, math.floor(self._currentTime)))
+	else
+		print(string.format("[WeatherService] Time fixed at %d:00 (night) - cycle disabled", 
+			math.floor(self._currentTime)))
+	end
 end
 
 -- === PUBLIC METHODS ===
@@ -304,9 +302,24 @@ function WeatherService:KnitInit()
 end
 
 function WeatherService:KnitStart()
-	-- Start the day/night cycle
+	-- Get LoadingService for progress updates
+	local LoadingService = nil
+	pcall(function()
+		LoadingService = Knit.GetService("LoadingService")
+	end)
+	
+	if LoadingService then
+		LoadingService:UpdateStatus("WeatherService", "Initializing weather system...", 0)
+	end
+	
+	-- Start the day/night cycle (disabled by default - stays night)
 	startDayNightCycle(self)
-	print("[WeatherService] Started with day/night cycle enabled")
+	print("[WeatherService] Started - Day/night cycle DISABLED, fixed at night")
+	
+	if LoadingService then
+		LoadingService:UpdateStatus("WeatherService", "Weather system ready", 1)
+		LoadingService:MarkStepComplete("WeatherService")
+	end
 end
 
 return WeatherService

@@ -77,11 +77,16 @@ local function createDialogUI(self)
 	local player = Players.LocalPlayer
 	local playerGui = player:WaitForChild("PlayerGui")
 	
+	print("[AudioLogController] Creating dialog UI for player:", player.Name)
+	
 	-- State values
 	self.isVisible = Value(false)
 	self.currentTitle = Value("")
 	self.displayedText = Value("")
 	self.dialogTransparency = Value(1)
+	
+	-- Track state changes for debugging
+	local Observer = Fusion.Observer
 	
 	-- Animated transparency
 	local animatedTransparency = Spring(self.dialogTransparency, 20, 1)
@@ -216,8 +221,15 @@ end
 -- === PUBLIC METHODS ===
 
 function AudioLogController:ShowDialog(logIndex)
+	print("[AudioLogController] ========== SHOW DIALOG ==========")
+	print("[AudioLogController] ShowDialog called with index:", logIndex, "type:", type(logIndex))
+	print("[AudioLogController] isPlaying:", isPlaying)
+	print("[AudioLogController] self.isVisible exists:", self.isVisible ~= nil)
+	print("[AudioLogController] self.screenGui exists:", self.screenGui ~= nil)
+	
 	-- Don't show if already playing
 	if isPlaying then
+		print("[AudioLogController] Blocked - already playing")
 		return
 	end
 	
@@ -228,7 +240,9 @@ function AudioLogController:ShowDialog(logIndex)
 	
 	-- Clamp to valid range
 	if logIndex < 1 or logIndex > #AUDIO_LOG_ENTRIES then
+		local oldIndex = logIndex
 		logIndex = ((logIndex - 1) % #AUDIO_LOG_ENTRIES) + 1
+		print("[AudioLogController] Clamped index from", oldIndex, "to", logIndex)
 	end
 	
 	local entry = AUDIO_LOG_ENTRIES[logIndex]
@@ -238,20 +252,49 @@ function AudioLogController:ShowDialog(logIndex)
 		return
 	end
 	
+	print("[AudioLogController] Found entry:", entry.title)
+	
 	-- Update content
-	self.currentTitle:set(entry.title)
-	self.currentContent = entry.content
-	self.displayedText:set("")
+	local setSuccess, setErr = pcall(function()
+		print("[AudioLogController] Setting title to:", entry.title)
+		self.currentTitle:set(entry.title)
+		self.currentContent = entry.content
+		self.displayedText:set("")
+		
+		print("[AudioLogController] Setting isVisible to true")
+		self.isVisible:set(true)
+		print("[AudioLogController] isVisible:get() =", self.isVisible:get())
+		
+		print("[AudioLogController] Setting dialogTransparency to 0")
+		self.dialogTransparency:set(0)
+		print("[AudioLogController] dialogTransparency:get() =", self.dialogTransparency:get())
+	end)
 	
-	-- Show dialog
-	self.isVisible:set(true)
-	self.dialogTransparency:set(0)
+	if not setSuccess then
+		warn("[AudioLogController] Failed to set UI values:", setErr)
+		isPlaying = false
+		return
+	end
 	
+	print("[AudioLogController] UI values set successfully")
+	print("[AudioLogController] Checking screenGui visibility...")
+	if self.screenGui then
+		local dialogContainer = self.screenGui:FindFirstChild("DialogContainer")
+		if dialogContainer then
+			print("[AudioLogController] DialogContainer.Visible =", dialogContainer.Visible)
+			print("[AudioLogController] DialogContainer.BackgroundTransparency =", dialogContainer.BackgroundTransparency)
+		else
+			warn("[AudioLogController] DialogContainer not found!")
+		end
+	else
+		warn("[AudioLogController] screenGui is nil!")
+	end
 	print("[AudioLogController] Showing entry #" .. logIndex .. ": " .. entry.title)
 	
 	-- Start typewriter effect
 	task.spawn(function()
 		task.wait(UI_CONFIG.FadeInTime)
+		print("[AudioLogController] Starting typewriter effect")
 		typewriterEffect(self, entry.content, function()
 			self:HideDialog()
 		end)
@@ -261,13 +304,18 @@ end
 function AudioLogController:HideDialog()
 	if not isPlaying then return end
 	
+	print("[AudioLogController] Hiding dialog...")
+	
 	self.isTyping = false
 	isPlaying = false
 	self.dialogTransparency:set(1)
 	
 	-- Notify server that we're done
 	if AudioLogService then
+		print("[AudioLogController] Notifying server dialog closed")
 		AudioLogService:NotifyDialogClosed()
+	else
+		warn("[AudioLogController] Cannot notify server - AudioLogService is nil")
 	end
 	
 	task.delay(0.3, function()
@@ -279,6 +327,13 @@ function AudioLogController:IsPlaying()
 	return isPlaying
 end
 
+-- Test function to verify UI works (can be called from command bar)
+function AudioLogController:TestUI()
+	print("[AudioLogController] ========== TESTING UI ==========")
+	print("[AudioLogController] Manually showing dialog for entry #1")
+	self:ShowDialog(1)
+end
+
 -- === KNIT LIFECYCLE ===
 
 function AudioLogController:KnitInit()
@@ -288,19 +343,56 @@ function AudioLogController:KnitInit()
 end
 
 function AudioLogController:KnitStart()
+	print("[AudioLogController] KnitStart called")
+	
 	-- Create UI
-	createDialogUI(self)
+	local success, err = pcall(function()
+		createDialogUI(self)
+	end)
+	
+	if success then
+		print("[AudioLogController] UI created successfully")
+		print("[AudioLogController] screenGui exists:", self.screenGui ~= nil)
+		if self.screenGui then
+			print("[AudioLogController] screenGui parent:", self.screenGui.Parent and self.screenGui.Parent.Name or "nil")
+		end
+	else
+		warn("[AudioLogController] Failed to create UI:", err)
+	end
 	
 	-- Connect to server audio log events
-	AudioLogService = Knit.GetService("AudioLogService")
+	local serviceSuccess, serviceErr = pcall(function()
+		AudioLogService = Knit.GetService("AudioLogService")
+	end)
+	
+	if not serviceSuccess then
+		warn("[AudioLogController] Failed to get AudioLogService:", serviceErr)
+		return
+	end
+	
+	print("[AudioLogController] Got AudioLogService:", AudioLogService ~= nil)
+	print("[AudioLogController] AudioLogTriggered signal exists:", AudioLogService.AudioLogTriggered ~= nil)
 	
 	-- Only this player receives the signal (server fires to specific player with entry index)
 	AudioLogService.AudioLogTriggered:Connect(function(entryIndex)
+		print("[AudioLogController] ========== SIGNAL RECEIVED ==========")
 		print("[AudioLogController] Received trigger for entry:", entryIndex)
+		print("[AudioLogController] Entry type:", type(entryIndex))
 		self:ShowDialog(entryIndex)
 	end)
 	
-	print("[AudioLogController] Initialized")
+	print("[AudioLogController] Initialized and listening for signals")
+	
+	-- DEBUG: Add keyboard shortcut to test UI (press P to test)
+	local UserInputService = game:GetService("UserInputService")
+	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+		if input.KeyCode == Enum.KeyCode.P then
+			print("[AudioLogController] DEBUG: P key pressed - testing UI")
+			self:TestUI()
+		end
+	end)
+	print("[AudioLogController] DEBUG: Press P to test the audio log UI")
 end
 
 return AudioLogController
