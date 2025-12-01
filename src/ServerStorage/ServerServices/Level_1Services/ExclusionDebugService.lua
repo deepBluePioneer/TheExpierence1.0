@@ -20,7 +20,7 @@ local ExclusionDebugService = Knit.CreateService {
 	_gridService = nil,
 	_visualParts = {},
 	_enabled = true,
-	_updateConnection = nil,
+	_zoneChangedConnection = nil,
 }
 
 -- === CONFIG ===
@@ -35,8 +35,8 @@ local DEBUG_CONFIG = {
 	-- Cylinder settings (for circular zones)
 	SegmentsPerCircle = 24,           -- How smooth the circle is
 	
-	-- Update settings
-	UpdateInterval = 2,               -- Seconds between updates
+	-- Update settings (fallback polling if events not available)
+	UpdateInterval = 2,               -- Seconds between updates (fallback only)
 }
 
 local DEBUG_FOLDER_NAME = "ExclusionZoneDebug"
@@ -172,15 +172,26 @@ function ExclusionDebugService:KnitStart()
 		updateVisuals(self)
 	end)
 	
-	-- Periodic updates
-	task.spawn(function()
-		while true do
-			task.wait(DEBUG_CONFIG.UpdateInterval)
+	-- Listen for exclusion zone changes instead of polling
+	if self._gridService.ExclusionZoneChanged then
+		self._zoneChangedConnection = self._gridService.ExclusionZoneChanged:Connect(function()
 			if self._enabled then
 				updateVisuals(self)
 			end
-		end
-	end)
+		end)
+		print("[ExclusionDebugService] Listening to exclusion zone changes via signal")
+	else
+		warn("[ExclusionDebugService] GridService.ExclusionZoneChanged signal not available, falling back to polling")
+		-- Fallback to polling if signal not available
+		task.spawn(function()
+			while true do
+				task.wait(DEBUG_CONFIG.UpdateInterval)
+				if self._enabled then
+					updateVisuals(self)
+				end
+			end
+		end)
+	end
 	
 	print("[ExclusionDebugService] Started")
 end
@@ -196,6 +207,13 @@ end
 function ExclusionDebugService:Disable()
 	self._enabled = false
 	clearVisuals(self)
+	
+	-- Disconnect from signal
+	if self._zoneChangedConnection then
+		self._zoneChangedConnection:Disconnect()
+		self._zoneChangedConnection = nil
+	end
+	
 	print("[ExclusionDebugService] Disabled")
 end
 

@@ -797,11 +797,29 @@ local function isValidPosition(newPos, existingPositions, minSpacing)
 			return false
 		end
 		
-		-- Check if position is in a reserved/occupied cell
-		if GridService.WorldToGrid and GridService.IsCellOccupied then
+		-- Check if position is in a Building zone (not Radiation zones)
+		if GridService.WorldToGrid then
 			local gridX, gridZ = GridService:WorldToGrid(newPos)
-			if gridX and gridZ and GridService:IsCellOccupied(gridX, gridZ) then
-				return false
+			if gridX and gridZ then
+				-- Check ReservedZoneService for Building zones specifically
+				local ReservedZoneService = nil
+				pcall(function()
+					ReservedZoneService = Knit.GetService("ReservedZoneService")
+				end)
+				
+				if ReservedZoneService and ReservedZoneService.IsCellInZone then
+					-- Block placement in Building zones, but allow in Radiation zones
+					if ReservedZoneService:IsCellInZone(gridX, gridZ, "Building") then
+						return false
+					end
+				else
+					-- Fallback: check if cell is occupied (for backwards compatibility)
+					if GridService.IsCellOccupied and GridService:IsCellOccupied(gridX, gridZ) then
+						-- Only block if it's a Building zone (we can't tell, so be conservative)
+						-- This is a fallback, so we'll block all occupied cells
+						return false
+					end
+				end
 			end
 		end
 	end
@@ -873,14 +891,25 @@ local function cleanupFormationsNearReservedCells(self)
 		return
 	end
 	
-	local reservedCells = ReservedZoneService:GetReservedCells()
-	if not reservedCells or #reservedCells == 0 then
+	-- Collect reserved cells only from Building zones (not Radiation zones)
+	local allReservedCells = {}
+	local zones = ReservedZoneService:GetZones()
+	if zones then
+		local buildingZone = zones["Building"]
+		if buildingZone and buildingZone.cells then
+			for _, cell in ipairs(buildingZone.cells) do
+				table.insert(allReservedCells, cell)
+			end
+		end
+	end
+	
+	if #allReservedCells == 0 then
 		return
 	end
 	
 	-- Calculate the center of the reserved area
 	local cellPositions = {}
-	for _, cell in ipairs(reservedCells) do
+	for _, cell in ipairs(allReservedCells) do
 		local cellPos = GridService:GridToWorld(cell.x, cell.z)
 		table.insert(cellPositions, cellPos)
 	end

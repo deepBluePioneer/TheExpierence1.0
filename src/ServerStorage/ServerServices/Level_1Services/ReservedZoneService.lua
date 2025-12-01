@@ -1,32 +1,59 @@
 --[[
 	ReservedZoneService
-	Selects random grid cells and marks them as reserved, making them semi-transparent
+	Manages different types of zones: Building zones and Radiation zones
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Packages = ReplicatedStorage:WaitForChild("Packages")
+local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
 local Knit = require(Packages.Knit)
+
+-- Zone+ Module
+local ZoneRoot = CustomPackages:WaitForChild("ZoneRoot")
+local Zone = require(ZoneRoot:WaitForChild("Zone"))
 
 local ReservedZoneService = Knit.CreateService {
 	Name = "ReservedZoneService",
 	Client = {},
 	_gridService = nil,
-	_reservedCells = {},  -- Track which cells we've reserved
+	_zones = {},  -- Track all zones by type: { [zoneType] = { cells = {}, zoneCube = Part, zone = Zone } }
+}
+
+-- === ZONE TYPE DEFINITIONS ===
+local ZONE_TYPES = {
+	Building = {
+		name = "Building",
+		cellTransparency = 1.0,  -- Fully transparent cells
+		zoneCubeTransparency = 0.7,
+		zoneCubeColor = Color3.fromRGB(255, 255, 0),  -- Yellow
+		flattenTerrain = true,
+	},
+	Radiation = {
+		name = "Radiation",
+		cellTransparency = 1.0,  -- Fully transparent cells
+		zoneCubeTransparency = 0.7,
+		zoneCubeColor = Color3.fromRGB(128, 0, 128),  -- Purple
+		flattenTerrain = false,
+	},
 }
 
 -- === CONFIG ===
-local RESERVED_CONFIG = {
-	BlockSizeX = 2,             -- Width of reserved block (cells)
-	BlockSizeZ = 2,             -- Depth of reserved block (cells)
-	Transparency = 0.5,         -- Transparency for reserved cell cubes
-	OwnerId = "ReservedZoneService",  -- Owner identifier for reserved cells
+local ZONE_CONFIG = {
+	BuildingZoneSizeX = 2,      -- Width of building zone (cells)
+	BuildingZoneSizeZ = 2,      -- Depth of building zone (cells)
+	RadiationZoneSizeX = 2,     -- Width of radiation zone (cells)
+	RadiationZoneSizeZ = 2,     -- Depth of radiation zone (cells)
+	OwnerId = "ReservedZoneService",
 }
 
 -- === TERRAIN FLATTENING ===
 
 -- Flatten terrain under the reserved area
-local function flattenTerrainUnderReservedArea(self, cellPositions)
+local function flattenTerrainUnderReservedArea(self, cellPositions, zoneType)
+	if not ZONE_TYPES[zoneType] or not ZONE_TYPES[zoneType].flattenTerrain then
+		return  -- Don't flatten if zone type doesn't require it
+	end
 	if not cellPositions or #cellPositions == 0 then
 		return
 	end
@@ -105,8 +132,121 @@ local function flattenTerrainUnderReservedArea(self, cellPositions)
 	print("[ReservedZoneService] Terrain flattened and grass removed under reserved area")
 end
 
--- Separate function to handle the actual reservation process
-local function proceedWithReservation(self, LoadingService, reportProgress)
+-- Create a zone for a specific zone type
+local function createZone(self, zoneType, cells, sizeX, sizeZ)
+	if not self._gridService then
+		return
+	end
+	
+	if not ZONE_TYPES[zoneType] then
+		warn(string.format("[ReservedZoneService] Invalid zone type: %s", tostring(zoneType)))
+		return
+	end
+	
+	if not cells or #cells == 0 then
+		warn(string.format("[ReservedZoneService] No cells provided for %s zone", zoneType))
+		return
+	end
+	
+	local zoneTypeData = ZONE_TYPES[zoneType]
+	
+	-- Clear any existing zone of this type
+	if self._zones[zoneType] then
+		local existingZone = self._zones[zoneType]
+		if existingZone.zone and existingZone.zone.Destroy then
+			existingZone.zone:Destroy()
+		end
+		if existingZone.zoneCube then
+			existingZone.zoneCube:Destroy()
+		end
+	end
+	
+	-- Calculate the center position and size
+	local cellSize = self._gridService:GetCellSize()
+	
+	-- Calculate center position and boundaries from the cells
+	local minX, maxX = math.huge, -math.huge
+	local minZ, maxZ = math.huge, -math.huge
+	
+	for _, cell in ipairs(cells) do
+		local worldPos = self._gridService:GridToWorld(cell.x, cell.z)
+		minX = math.min(minX, worldPos.X)
+		maxX = math.max(maxX, worldPos.X)
+		minZ = math.min(minZ, worldPos.Z)
+		maxZ = math.max(maxZ, worldPos.Z)
+	end
+	
+	-- Calculate total size to cover all cells
+	local totalSizeX = (maxX - minX) + cellSize
+	local totalSizeZ = (maxZ - minZ) + cellSize
+	
+	-- Center position
+	local centerX = (minX + maxX) / 2
+	local centerZ = (minZ + maxZ) / 2
+	-- Match grid cube height: grid cubes are positioned at topY + cellSize/2
+	local centerY = self._gridService._gridData.topY + (cellSize / 2)
+	
+	-- Create a cube part covering the entire area
+	local cube = Instance.new("Part")
+	cube.Name = string.format("%sZoneCube", zoneType)
+	cube.Size = Vector3.new(totalSizeX, cellSize, totalSizeZ)
+	cube.Position = Vector3.new(centerX, centerY, centerZ)
+	cube.Transparency = zoneTypeData.zoneCubeTransparency
+	cube.Color = zoneTypeData.zoneCubeColor
+	cube.CanCollide = false
+	cube.Anchored = true
+	cube.Parent = workspace
+	
+	-- Create Zone+ zone on the cube
+	local success, zoneInstance = pcall(function()
+		return Zone.new(cube)
+	end)
+	
+	if not success then
+		warn(string.format("[ReservedZoneService] Failed to create %s zone: %s", zoneType, tostring(zoneInstance)))
+		return
+	end
+	
+	-- Event handlers for the zone
+	zoneInstance.playerEntered:Connect(function(player)
+		local character = player.Character
+		local position = character and character:FindFirstChild("HumanoidRootPart") and 
+			character.HumanoidRootPart.Position or Vector3.zero
+		
+		print(string.format(
+			"[ReservedZoneService] >>> Player '%s' (UserId: %d) ENTERED %s zone at position (%.1f, %.1f, %.1f)",
+			player.Name, player.UserId, zoneType, position.X, position.Y, position.Z
+		))
+	end)
+	
+	zoneInstance.playerExited:Connect(function(player)
+		local character = player.Character
+		local position = character and character:FindFirstChild("HumanoidRootPart") and 
+			character.HumanoidRootPart.Position or Vector3.zero
+		
+		print(string.format(
+			"[ReservedZoneService] <<< Player '%s' (UserId: %d) EXITED %s zone at position (%.1f, %.1f, %.1f)",
+			player.Name, player.UserId, zoneType, position.X, position.Y, position.Z
+		))
+	end)
+	
+	-- Store zone data
+	self._zones[zoneType] = {
+		cells = cells,
+		zoneCube = cube,
+		zone = zoneInstance,
+	}
+	
+	print(string.format("[ReservedZoneService] ✓ Created %s zone (%.1f x %.1f x %.1f studs) covering %d cells", 
+		zoneType, totalSizeX, cellSize, totalSizeZ, #cells))
+end
+
+-- Helper function to create a zone of a specific type
+local function createZoneOfType(self, zoneType, sizeX, sizeZ, LoadingService, reportProgress)
+	if not ZONE_TYPES[zoneType] then
+		warn(string.format("[ReservedZoneService] Invalid zone type: %s", tostring(zoneType)))
+		return
+	end
 	
 	-- Get grid dimensions
 	local gridWidth, gridDepth = self._gridService:GetGridDimensions()
@@ -116,28 +256,26 @@ local function proceedWithReservation(self, LoadingService, reportProgress)
 		return
 	end
 	
-	print(string.format("[ReservedZoneService] Grid size: %dx%d", gridWidth, gridDepth))
-	
-	-- Find a valid 2x2 block of cells
+	-- Find a valid block of cells
 	local startX, startZ = nil, nil
 	local attempts = 0
 	local maxAttempts = 100
 	
-	-- Valid starting positions for a 2x2 block
-	local maxStartX = gridWidth - RESERVED_CONFIG.BlockSizeX + 1
-	local maxStartZ = gridDepth - RESERVED_CONFIG.BlockSizeZ + 1
+	-- Valid starting positions for the block
+	local maxStartX = gridWidth - sizeX + 1
+	local maxStartZ = gridDepth - sizeZ + 1
 	
 	while attempts < maxAttempts do
 		attempts += 1
 		
-		-- Random starting cell for the 2x2 block
+		-- Random starting cell for the block
 		local testX = math.random(1, maxStartX)
 		local testZ = math.random(1, maxStartZ)
 		
-		-- Check if all 4 cells in the 2x2 block are available
+		-- Check if all cells in the block are available
 		local allCellsValid = true
-		for dx = 0, RESERVED_CONFIG.BlockSizeX - 1 do
-			for dz = 0, RESERVED_CONFIG.BlockSizeZ - 1 do
+		for dx = 0, sizeX - 1 do
+			for dz = 0, sizeZ - 1 do
 				local checkX = testX + dx
 				local checkZ = testZ + dz
 				
@@ -159,62 +297,103 @@ local function proceedWithReservation(self, LoadingService, reportProgress)
 	end
 	
 	if not startX or not startZ then
-		warn(string.format("[ReservedZoneService] Could not find valid 2x2 block after %d attempts", maxAttempts))
+		warn(string.format("[ReservedZoneService] Could not find valid %dx%d block for %s zone after %d attempts", 
+			sizeX, sizeZ, zoneType, maxAttempts))
 		return
 	end
 	
-	print(string.format("[ReservedZoneService] Selected 2x2 block starting at (%d,%d)", startX, startZ))
+	print(string.format("[ReservedZoneService] Selected %dx%d block starting at (%d,%d) for %s zone", 
+		sizeX, sizeZ, startX, startZ, zoneType))
 	
-	-- Reserve all cells in the 2x2 block
-	local cellIndex = 0
-	local totalCells = RESERVED_CONFIG.BlockSizeX * RESERVED_CONFIG.BlockSizeZ
+	local zoneTypeData = ZONE_TYPES[zoneType]
+	local cells = {}
 	local cellPositions = {}  -- Store cell positions for terrain flattening
+	local totalCells = sizeX * sizeZ
+	local cellIndex = 0
 	
-	for dx = 0, RESERVED_CONFIG.BlockSizeX - 1 do
-		for dz = 0, RESERVED_CONFIG.BlockSizeZ - 1 do
+	-- Reserve all cells in the block
+	for dx = 0, sizeX - 1 do
+		for dz = 0, sizeZ - 1 do
 			local cellX = startX + dx
 			local cellZ = startZ + dz
 			cellIndex += 1
 			
 			-- Mark cell as occupied
 			if self._gridService.SetCellOccupied then
-				self._gridService:SetCellOccupied(cellX, cellZ, RESERVED_CONFIG.OwnerId)
+				self._gridService:SetCellOccupied(cellX, cellZ, ZONE_CONFIG.OwnerId)
 			end
 			
 			-- Get the cell data and modify the cube
 			local cellData = self._gridService:GetCell(cellX, cellZ)
 			if cellData and cellData.cube then
-				cellData.cube.Transparency = RESERVED_CONFIG.Transparency
-				print(string.format("[ReservedZoneService] Reserved cell (%d,%d) - cube transparency set to %.1f", 
-					cellX, cellZ, RESERVED_CONFIG.Transparency))
+				cellData.cube.Transparency = zoneTypeData.cellTransparency
+				-- Color doesn't matter when fully transparent, but set it anyway
+				print(string.format("[ReservedZoneService] Reserved cell (%d,%d) for %s zone", 
+					cellX, cellZ, zoneType))
 			else
 				warn(string.format("[ReservedZoneService] Could not find cube for cell (%d,%d)", cellX, cellZ))
 			end
 			
-			-- Store cell position for terrain flattening
+			-- Store cell position for terrain flattening (if needed)
 			local cellPos = self._gridService:GridToWorld(cellX, cellZ)
 			table.insert(cellPositions, cellPos)
 			
 			-- Store reserved cell
-			table.insert(self._reservedCells, {x = cellX, z = cellZ})
+			table.insert(cells, {x = cellX, z = cellZ})
 			
-			local progress = 10 + (cellIndex / totalCells) * 70
-			reportProgress(string.format("Reserving zones (%d/%d)...", cellIndex, totalCells), progress)
+			if reportProgress then
+				local progress = 10 + (cellIndex / totalCells) * 60
+				reportProgress(string.format("Reserving %s zone (%d/%d)...", zoneType, cellIndex, totalCells), progress)
+			end
 		end
 	end
 	
-	-- Flatten terrain under the reserved area
-	reportProgress("Flattening terrain...", 80)
-	flattenTerrainUnderReservedArea(self, cellPositions)
+	-- Wait a moment for GridService zones to be fully initialized
+	task.wait(0.5)
 	
-	reportProgress("Zones reserved", 100)
+	-- Create the zone
+	if reportProgress then
+		reportProgress(string.format("Creating %s zone...", zoneType), 75)
+	end
+	createZone(self, zoneType, cells, sizeX, sizeZ)
+	
+	-- Flatten terrain if needed
+	if zoneTypeData.flattenTerrain then
+		if reportProgress then
+			reportProgress(string.format("Flattening terrain for %s zone...", zoneType), 85)
+		end
+		flattenTerrainUnderReservedArea(self, cellPositions, zoneType)
+	end
+	
+	if reportProgress then
+		reportProgress(string.format("%s zone created", zoneType), 100)
+	end
+end
+
+-- Main function to create all zones
+local function proceedWithReservation(self, LoadingService, reportProgress)
+	-- Create building zone
+	createZoneOfType(self, "Building", ZONE_CONFIG.BuildingZoneSizeX, ZONE_CONFIG.BuildingZoneSizeZ, 
+		LoadingService, function(msg, progress)
+			if reportProgress then
+				reportProgress(msg, progress * 0.5)  -- Building zone takes first 50%
+			end
+		end)
+	
+	-- Create radiation zone
+	createZoneOfType(self, "Radiation", ZONE_CONFIG.RadiationZoneSizeX, ZONE_CONFIG.RadiationZoneSizeZ, 
+		LoadingService, function(msg, progress)
+			if reportProgress then
+				reportProgress(msg, 50 + progress * 0.5)  -- Radiation zone takes second 50%
+			end
+		end)
 	
 	-- Mark step complete
 	if LoadingService then
 		LoadingService:MarkStepComplete("ReservedZoneService")
 	end
 	
-	print(string.format("[ReservedZoneService] Reserved %d cells", #self._reservedCells))
+	print("[ReservedZoneService] All zones created")
 end
 
 -- === KNIT LIFECYCLE ===
@@ -262,12 +441,22 @@ end
 
 -- === PUBLIC API ===
 
-function ReservedZoneService:GetReservedCells()
-	return self._reservedCells
+function ReservedZoneService:GetZones()
+	return self._zones
 end
 
-function ReservedZoneService:IsCellReserved(x, z)
-	for _, cell in ipairs(self._reservedCells) do
+function ReservedZoneService:GetZone(zoneType)
+	return self._zones[zoneType]
+end
+
+function ReservedZoneService:GetZoneCells(zoneType)
+	local zoneData = self._zones[zoneType]
+	return zoneData and zoneData.cells or {}
+end
+
+function ReservedZoneService:IsCellInZone(x, z, zoneType)
+	local cells = self:GetZoneCells(zoneType)
+	for _, cell in ipairs(cells) do
 		if cell.x == x and cell.z == z then
 			return true
 		end
@@ -275,21 +464,60 @@ function ReservedZoneService:IsCellReserved(x, z)
 	return false
 end
 
-function ReservedZoneService:ClearReservedCells()
-	for _, cell in ipairs(self._reservedCells) do
+function ReservedZoneService:IsCellReserved(x, z)
+	-- Check if cell is in any zone
+	for zoneType, _ in pairs(self._zones) do
+		if self:IsCellInZone(x, z, zoneType) then
+			return true
+		end
+	end
+	return false
+end
+
+function ReservedZoneService:ClearZone(zoneType)
+	local zoneData = self._zones[zoneType]
+	if not zoneData then
+		return
+	end
+	
+	-- Destroy zone
+	if zoneData.zone and zoneData.zone.Destroy then
+		zoneData.zone:Destroy()
+	end
+	
+	-- Destroy zone cube
+	if zoneData.zoneCube then
+		zoneData.zoneCube:Destroy()
+	end
+	
+	-- Clear cell occupancy and reset transparency
+	for _, cell in ipairs(zoneData.cells) do
 		if self._gridService and self._gridService.ClearCellOccupancy then
 			self._gridService:ClearCellOccupancy(cell.x, cell.z)
 		end
 		
-		-- Reset cube transparency
+		-- Reset cube transparency and color (checkerboard pattern)
 		local cellData = self._gridService:GetCell(cell.x, cell.z)
 		if cellData and cellData.cube then
 			cellData.cube.Transparency = 0
+			-- Reset to original checkerboard color
+			if (cell.x + cell.z) % 2 == 0 then
+				cellData.cube.Color = Color3.fromRGB(66, 135, 245)  -- Blue
+			else
+				cellData.cube.Color = Color3.fromRGB(245, 166, 66)  -- Orange
+			end
 		end
 	end
 	
-	self._reservedCells = {}
-	print("[ReservedZoneService] Cleared all reserved cells")
+	self._zones[zoneType] = nil
+	print(string.format("[ReservedZoneService] Cleared %s zone", zoneType))
+end
+
+function ReservedZoneService:ClearAllZones()
+	for zoneType, _ in pairs(self._zones) do
+		self:ClearZone(zoneType)
+	end
+	print("[ReservedZoneService] Cleared all zones")
 end
 
 return ReservedZoneService

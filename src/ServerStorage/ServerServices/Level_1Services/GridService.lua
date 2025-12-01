@@ -6,6 +6,7 @@ local Packages = ReplicatedStorage:WaitForChild("Packages")
 local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
 local Knit = require(Packages.Knit)
 local Timer = require(Packages.timer)
+local Signal = require(Packages.Signal)
 
 -- Zone+ Module
 local ZoneRoot = CustomPackages:WaitForChild("ZoneRoot")
@@ -37,6 +38,9 @@ local GridService = Knit.CreateService {
 	
 	-- Exclusion zones (areas where objects should not spawn)
 	_exclusionZones = {}, -- { [id] = { position = Vector3, radius = number, height = number, owner = string } }
+	
+	-- Signal fired when exclusion zones change (added or removed)
+	ExclusionZoneChanged = nil,  -- Signal() - fires when zones are added/removed
 }
 
 -- === CONFIG ===
@@ -383,6 +387,9 @@ end
 
 function GridService:KnitInit()
 	initReplica(self)
+	
+	-- Initialize exclusion zone changed signal
+	self.ExclusionZoneChanged = Signal.new()
 end
 
 function GridService:KnitStart()
@@ -544,6 +551,12 @@ function GridService:RegisterExclusionZone(id, position, radius, height, owner)
 	}
 	print(string.format("[GridService] Registered exclusion zone '%s' at (%.1f, %.1f, %.1f) radius=%.1f owner=%s",
 		id, position.X, position.Y, position.Z, radius or 50, owner or "unknown"))
+	
+	-- Fire signal to notify listeners
+	if self.ExclusionZoneChanged then
+		self.ExclusionZoneChanged:Fire()
+	end
+	
 	return true
 end
 
@@ -552,6 +565,12 @@ function GridService:RemoveExclusionZone(id)
 	if self._exclusionZones[id] then
 		self._exclusionZones[id] = nil
 		print("[GridService] Removed exclusion zone:", id)
+		
+		-- Fire signal to notify listeners
+		if self.ExclusionZoneChanged then
+			self.ExclusionZoneChanged:Fire()
+		end
+		
 		return true
 	end
 	return false
