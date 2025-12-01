@@ -197,7 +197,9 @@ local function createLoadingScreen(progressValue, statusText, tipsText, isVisibl
 								Font = Enum.Font.GothamBold,
 								Text = Computed(function()
 									local progress = progressValue:get()
-									return string.format("%.0f%%", progress * 100)
+									-- Clamp progress to 0-1 range to prevent values over 100%
+									local clampedProgress = math.clamp(progress, 0, 1)
+									return string.format("%.0f%%", clampedProgress * 100)
 								end),
 								TextColor3 = LOADING_CONFIG.TextColor,
 								TextScaled = true,
@@ -371,29 +373,13 @@ function LoadingController:KnitStart()
 	print("[LoadingController] Connecting to LoadingService...")
 	self._loadingService = Knit.GetService("LoadingService")
 	
-	-- Get initial progress (returns a Promise, so we need to handle it)
-	self._loadingService:GetLoadingProgress():andThen(function(initialProgress, initialStatus)
-		print(string.format("[LoadingController] Initial progress: %.0f%% - %s", (initialProgress or 0) * 100, initialStatus or "Loading..."))
-		if initialProgress then
-			progressValue:set(math.max(progressValue:get(), initialProgress))
-		end
-		if initialStatus then
-			statusText:set(initialStatus)
-		end
-	end):catch(function(err)
-		warn("[LoadingController] Failed to get initial progress:", err)
-	end)
-	
-	-- Listen for progress updates
-	self._loadingService.LoadingProgress:Connect(function(progress, description)
-		print(string.format("[LoadingController] Progress update: %.0f%% - %s", progress * 100, description))
-		progressValue:set(progress)
-		statusText:set(description)
-	end)
+	-- Track if server is ready to prevent progress from going backwards
+	local serverReady = false
 	
 	-- Listen for server ready
 	self._loadingService.ServerReady:Connect(function()
 		print("[LoadingController] Server ready signal received!")
+		serverReady = true
 		progressValue:set(1)
 		statusText:set("Ready!")
 		
@@ -404,14 +390,49 @@ function LoadingController:KnitStart()
 		hideLoadingScreen(self, self._screenGui, isVisible)
 	end)
 	
-	-- Check if already ready
+	-- Listen for progress updates (set up early to catch all updates)
+	self._loadingService.LoadingProgress:Connect(function(progress, description)
+		if not serverReady then
+			-- Clamp progress to 0-1 range to prevent invalid values
+			local clampedProgress = math.clamp(progress or 0, 0, 1)
+			-- Only update if progress is higher than current (monotonic - never go backwards)
+			local currentProgress = progressValue:get()
+			if clampedProgress > currentProgress then
+				print(string.format("[LoadingController] Progress update: %.0f%% - %s", clampedProgress * 100, description))
+				progressValue:set(clampedProgress)
+				statusText:set(description)
+			end
+		end
+	end)
+	
+	-- Check if already ready FIRST (before getting progress)
 	self._loadingService:IsServerReady():andThen(function(isReady)
 		if isReady then
 			print("[LoadingController] Server already ready!")
+			serverReady = true
 			progressValue:set(1)
 			statusText:set("Ready!")
 			task.wait(0.5)
 			hideLoadingScreen(self, self._screenGui, isVisible)
+		else
+			-- Only get initial progress if server is not ready yet
+			self._loadingService:GetLoadingProgress():andThen(function(initialProgress, initialStatus)
+				if not serverReady then
+					-- Clamp initial progress to 0-1 range
+					local clampedInitial = initialProgress and math.clamp(initialProgress, 0, 1) or 0
+					-- Only update if progress is higher than current (monotonic - never go backwards)
+					local currentProgress = progressValue:get()
+					if clampedInitial > currentProgress then
+						print(string.format("[LoadingController] Initial progress: %.0f%% - %s", clampedInitial * 100, initialStatus or "Loading..."))
+						progressValue:set(clampedInitial)
+						if initialStatus then
+							statusText:set(initialStatus)
+						end
+					end
+				end
+			end):catch(function(err)
+				warn("[LoadingController] Failed to get initial progress:", err)
+			end)
 		end
 	end):catch(function(err)
 		warn("[LoadingController] Failed to check server ready:", err)
