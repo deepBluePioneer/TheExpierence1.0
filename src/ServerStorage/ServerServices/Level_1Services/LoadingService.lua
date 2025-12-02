@@ -139,10 +139,14 @@ end
 
 local function initializeLoading(self)
 	-- Register loading steps (order matters for display)
+	-- WorldInitService controls the order:
+	--   1. Baseplates -> 2. Grid -> 3. Terrain -> 4. Reserve/Flatten -> 5. Vegetation -> 6. Cleanup
 	registerLoadingStep(self, "Initializing", "Initializing game systems...")
-	registerLoadingStep(self, "GridService", "Generating world grid...")
+	registerLoadingStep(self, "WorldInitService", "Setting up world...")
+	registerLoadingStep(self, "GridService", "Creating world grid...")
 	registerLoadingStep(self, "TerrainService", "Generating terrain...")
-	registerLoadingStep(self, "ReservedZoneService", "Reserving zones...")
+	registerLoadingStep(self, "ReservedZoneService", "Reserving and flattening zones...")
+	registerLoadingStep(self, "RedZoneService", "Creating boundary zones...")
 	registerLoadingStep(self, "TreeService", "Growing alien forest...")
 	registerLoadingStep(self, "FormationService", "Creating alien formations...")
 	registerLoadingStep(self, "ParticleService", "Adding ambient effects...")

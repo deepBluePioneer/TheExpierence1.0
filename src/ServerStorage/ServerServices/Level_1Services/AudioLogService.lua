@@ -127,6 +127,43 @@ local function varyColor(baseColor, variation)
 end
 
 local function getBaseplateInfo()
+	-- First try to get info from WorldInitService (preferred)
+	local WorldInitService = nil
+	pcall(function()
+		WorldInitService = Knit.GetService("WorldInitService")
+	end)
+	
+	if WorldInitService then
+		local info = WorldInitService:GetBaseplateInfo()
+		if info then
+			return {
+				position = info.position,
+				size = info.size,
+				topY = info.topY,
+			}
+		end
+	end
+	
+	-- Fallback: Try GridService for grid dimensions
+	local GridService = nil
+	pcall(function()
+		GridService = Knit.GetService("GridService")
+	end)
+	
+	if GridService then
+		local gridData = GridService:GetGridData()
+		if gridData and gridData.cellSize > 0 then
+			local totalWidth = gridData.width * gridData.cellSize
+			local totalDepth = gridData.depth * gridData.cellSize
+			return {
+				position = Vector3.new(gridData.centerX, gridData.topY, gridData.centerZ),
+				size = Vector3.new(totalWidth, 1, totalDepth),
+				topY = gridData.topY,
+			}
+		end
+	end
+	
+	-- Legacy fallback: look for physical Baseplate
 	local baseplate = Workspace:FindFirstChild("Baseplate")
 	if baseplate and baseplate:IsA("BasePart") then
 		return {
@@ -135,7 +172,14 @@ local function getBaseplateInfo()
 			topY = baseplate.Position.Y + baseplate.Size.Y / 2,
 		}
 	end
-	return nil
+	
+	-- Default fallback (3x3 grid of 128x128 baseplates)
+	print("[AudioLogService] Using default baseplate dimensions (384x384)")
+	return {
+		position = Vector3.new(0, 0, 0),
+		size = Vector3.new(384, 1, 384),
+		topY = 0,
+	}
 end
 
 -- Fixed stats for all audio logs (identical appearance)

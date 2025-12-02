@@ -41,6 +41,11 @@ local GridService = Knit.CreateService {
 	
 	-- Signal fired when exclusion zones change (added or removed)
 	ExclusionZoneChanged = nil,  -- Signal() - fires when zones are added/removed
+	
+	-- State tracking for orchestrated initialization
+	_isGridReady = false,
+	_baseplateInfo = nil,
+	_autoStart = false,  -- Set to false to let WorldInitService control initialization
 }
 
 -- === CONFIG ===
@@ -59,44 +64,71 @@ local CUBE_SIZE = 8        -- Will be recalculated to fit baseplate exactly
 local BASEPLATE_CENTER = Vector3.zero
 local BASEPLATE_TOP_Y = 0
 
+-- Calculate grid from provided dimensions (no physical baseplate needed)
+local function calculateGridFromDimensions(gridData, width, depth, centerPos, topY)
+	width = width or 128
+	depth = depth or 128
+	centerPos = centerPos or Vector3.zero
+	topY = topY or 0
+	
+	BASEPLATE_CENTER = Vector3.new(centerPos.X, centerPos.Y, centerPos.Z)
+	BASEPLATE_TOP_Y = topY
+	
+	-- Calculate cell size to exactly fit the area
+	local minSide = math.min(width, depth)
+	CUBE_SIZE = math.floor(minSide / TARGET_CELLS_PER_SIDE)
+	CUBE_SIZE = math.max(CUBE_SIZE, 4)  -- Minimum cell size of 4
+	
+	-- Calculate grid dimensions to exactly fill area
+	GRID_WIDTH = math.floor(width / CUBE_SIZE)
+	GRID_DEPTH = math.floor(depth / CUBE_SIZE)
+	
+	-- Recalculate cell size to perfectly fit (no gaps at edges)
+	local cellSizeX = width / GRID_WIDTH
+	local cellSizeZ = depth / GRID_DEPTH
+	CUBE_SIZE = math.min(cellSizeX, cellSizeZ)  -- Use uniform size
+	
+	-- Update gridData structure
+	if gridData then
+		gridData.width = GRID_WIDTH
+		gridData.depth = GRID_DEPTH
+		gridData.cellSize = CUBE_SIZE
+		gridData.centerX = BASEPLATE_CENTER.X
+		gridData.centerZ = BASEPLATE_CENTER.Z
+		gridData.topY = BASEPLATE_TOP_Y
+	end
+	
+	print(string.format("[GridService] Grid area: %.0fx%.0f | Grid: %dx%d | Cell size: %.1f", 
+		width, depth, GRID_WIDTH, GRID_DEPTH, CUBE_SIZE))
+	
+	return GRID_WIDTH, GRID_DEPTH
+end
+
+-- Legacy function - kept for backward compatibility but now uses default values
 local function calculateGridFromBaseplate(gridData)
+	-- Check if we already have baseplateInfo from WorldInitService
+	-- If not, use default dimensions
+	local defaultWidth = 384  -- 3x128 baseplate grid
+	local defaultDepth = 384
+	local defaultCenter = Vector3.zero
+	local defaultTopY = 0
+	
+	-- Try to find a physical baseplate as fallback (legacy support)
 	local baseplate = Workspace:FindFirstChild("Baseplate")
 	if baseplate and baseplate:IsA("BasePart") then
+		print("[GridService] Found physical baseplate, using its dimensions")
 		local baseplateSize = baseplate.Size
-		BASEPLATE_CENTER = baseplate.Position
-		BASEPLATE_TOP_Y = baseplate.Position.Y + (baseplateSize.Y / 2)
-		
-		-- Calculate cell size to exactly fit the baseplate
-		local minSide = math.min(baseplateSize.X, baseplateSize.Z)
-		CUBE_SIZE = math.floor(minSide / TARGET_CELLS_PER_SIDE)
-		CUBE_SIZE = math.max(CUBE_SIZE, 4)  -- Minimum cell size of 4
-		
-		-- Calculate grid dimensions to exactly fill baseplate
-		GRID_WIDTH = math.floor(baseplateSize.X / CUBE_SIZE)
-		GRID_DEPTH = math.floor(baseplateSize.Z / CUBE_SIZE)
-		
-		-- Recalculate cell size to perfectly fit (no gaps at edges)
-		local cellSizeX = baseplateSize.X / GRID_WIDTH
-		local cellSizeZ = baseplateSize.Z / GRID_DEPTH
-		CUBE_SIZE = math.min(cellSizeX, cellSizeZ)  -- Use uniform size
-		
-		-- Update gridData structure
-		if gridData then
-			gridData.width = GRID_WIDTH
-			gridData.depth = GRID_DEPTH
-			gridData.cellSize = CUBE_SIZE
-			gridData.centerX = BASEPLATE_CENTER.X
-			gridData.centerZ = BASEPLATE_CENTER.Z
-			gridData.topY = BASEPLATE_TOP_Y
-		end
-		
-		print(string.format("[GridService] Baseplate: %.0fx%.0f | Grid: %dx%d | Cell size: %.1f", 
-			baseplateSize.X, baseplateSize.Z, GRID_WIDTH, GRID_DEPTH, CUBE_SIZE))
+		return calculateGridFromDimensions(
+			gridData,
+			baseplateSize.X,
+			baseplateSize.Z,
+			baseplate.Position,
+			baseplate.Position.Y + (baseplateSize.Y / 2)
+		)
 	else
-		warn("[GridService] No Baseplate found, using default grid size")
-		CUBE_SIZE = 8
+		print("[GridService] No physical baseplate found, using defaults (will be updated by WorldInitService)")
+		return calculateGridFromDimensions(gridData, defaultWidth, defaultDepth, defaultCenter, defaultTopY)
 	end
-	return GRID_WIDTH, GRID_DEPTH
 end
 
 -- === HELPERS ===
@@ -236,8 +268,11 @@ local function generateGrid(self)
 	
 	reportProgress("Calculating grid dimensions", 0, 100)
 	
-	-- Calculate grid size from baseplate and update gridData
-	calculateGridFromBaseplate(self._gridData)
+	-- Only calculate from baseplate if we don't already have dimensions set
+	-- (WorldInitService will set these via InitializeWithBaseplates)
+	if GRID_WIDTH <= 0 or GRID_DEPTH <= 0 then
+		calculateGridFromBaseplate(self._gridData)
+	end
 	
 	-- Clear cell tracking
 	self._gridData.cells = {}
@@ -393,8 +428,175 @@ function GridService:KnitInit()
 end
 
 function GridService:KnitStart()
-	generateGrid(self)
+	-- Only auto-generate if _autoStart is true (legacy mode)
+	-- WorldInitService will call InitializeWithBaseplates() instead
+	if self._autoStart then
+		generateGrid(self)
+		startTimer(self)
+	else
+		print("[GridService] Waiting for WorldInitService to initialize grid...")
+	end
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║               WORLDINITSERVICE INTEGRATION                                 ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- Initialize grid using baseplate info from WorldInitService
+function GridService:InitializeWithBaseplates(baseplateInfo)
+	if not baseplateInfo then
+		warn("[GridService] No baseplate info provided!")
+		return false
+	end
+	
+	print("[GridService] Initializing with baseplate info from WorldInitService...")
+	self._baseplateInfo = baseplateInfo
+	self._isGridReady = false
+	
+	-- Update grid dimensions from baseplate info
+	local totalWidth = baseplateInfo.size.X
+	local totalDepth = baseplateInfo.size.Z
+	
+	-- Calculate cell size based on total area
+	CUBE_SIZE = math.floor(math.min(totalWidth, totalDepth) / TARGET_CELLS_PER_SIDE)
+	CUBE_SIZE = math.max(CUBE_SIZE, 4)  -- Minimum cell size of 4
+	
+	-- Calculate grid dimensions
+	GRID_WIDTH = math.floor(totalWidth / CUBE_SIZE)
+	GRID_DEPTH = math.floor(totalDepth / CUBE_SIZE)
+	
+	-- Recalculate cell size to perfectly fit
+	local cellSizeX = totalWidth / GRID_WIDTH
+	local cellSizeZ = totalDepth / GRID_DEPTH
+	CUBE_SIZE = math.min(cellSizeX, cellSizeZ)
+	
+	-- Update baseplate center and top
+	BASEPLATE_CENTER = Vector3.new(baseplateInfo.position.X, baseplateInfo.position.Y, baseplateInfo.position.Z)
+	BASEPLATE_TOP_Y = baseplateInfo.topY
+	
+	-- Update gridData
+	self._gridData.width = GRID_WIDTH
+	self._gridData.depth = GRID_DEPTH
+	self._gridData.cellSize = CUBE_SIZE
+	self._gridData.centerX = BASEPLATE_CENTER.X
+	self._gridData.centerZ = BASEPLATE_CENTER.Z
+	self._gridData.topY = BASEPLATE_TOP_Y
+	
+	print(string.format("[GridService] Grid config: %dx%d cells, %.1f studs each, total area: %.0fx%.0f", 
+		GRID_WIDTH, GRID_DEPTH, CUBE_SIZE, totalWidth, totalDepth))
+	
+	-- Update replicas
+	if self.mapReplica then
+		self.mapReplica:SetValue({"GridWidth"}, GRID_WIDTH)
+		self.mapReplica:SetValue({"GridDepth"}, GRID_DEPTH)
+	end
+	
+	-- Generate the grid
+	self:GenerateGridNow()
+	
+	-- Start timer
 	startTimer(self)
+	
+	return true
+end
+
+-- Generate grid immediately (called by InitializeWithBaseplates or manually)
+function GridService:GenerateGridNow()
+	local startTime = tick()
+	print("[GridService] Generating grid...")
+	
+	-- Get LoadingService for progress updates
+	local LoadingService = nil
+	pcall(function()
+		LoadingService = Knit.GetService("LoadingService")
+	end)
+	
+	local function reportProgress(message, current, total)
+		if LoadingService then
+			LoadingService:ReportProgress("GridService", current or 0, total or 1, message)
+		end
+	end
+	
+	reportProgress("Preparing grid", 0, 100)
+	
+	-- Clear cell tracking
+	self._gridData.cells = {}
+	self._gridData.occupiedCells = {}
+	
+	-- Clear existing zones
+	for _, zone in pairs(self.zones) do
+		zone:Destroy()
+	end
+	self.zones = {}
+	
+	clearGrid()
+	local folder = getGridFolder()
+	
+	-- Create all cubes
+	local allCubes = {}
+	local batchCount = 0
+	local totalCells = GRID_WIDTH * GRID_DEPTH
+	local cellsCreated = 0
+	
+	reportProgress("Creating grid cells", 10, 100)
+	
+	for x = 1, GRID_WIDTH do
+		for z = 1, GRID_DEPTH do
+			local cube = createCubeFast(x, z, folder, self._gridData)
+			table.insert(allCubes, {cube = cube, x = x, z = z})
+			
+			cellsCreated += 1
+			batchCount += 1
+			if batchCount >= BATCH_SIZE then
+				batchCount = 0
+				local cellProgress = 10 + (cellsCreated / totalCells) * 50
+				reportProgress("Creating grid cells", math.floor(cellProgress), 100)
+				task.wait()
+			end
+		end
+	end
+	
+	local partTime = tick()
+	print(string.format("[GridService] Created %d parts in %.2fs", #allCubes, partTime - startTime))
+	reportProgress("Grid cells created", 60, 100)
+	
+	-- Attach zones in background
+	reportProgress("Attaching zones", 65, 100)
+	
+	task.spawn(function()
+		local zoneCount = 0
+		local totalZones = #allCubes
+		for _, data in ipairs(allCubes) do
+			attachZone(data.cube, data.x, data.z, self.zones, self.mapReplica)
+			
+			zoneCount += 1
+			if zoneCount % BATCH_SIZE == 0 then
+				local zoneProgress = 65 + (zoneCount / totalZones) * 30
+				reportProgress("Attaching zones", math.floor(zoneProgress), 100)
+				task.wait()
+			end
+		end
+		
+		local totalTime = tick()
+		print(string.format("[GridService] Attached %d zones in %.2fs (total: %.2fs)", 
+			zoneCount, totalTime - partTime, totalTime - startTime))
+		
+		reportProgress("Grid complete", 100, 100)
+		self._isGridReady = true
+	end)
+	
+	print(string.format("[GridService] Generated %dx%d grid (%d cells, size %.1f each)", 
+		GRID_WIDTH, GRID_DEPTH, #allCubes, CUBE_SIZE))
+end
+
+-- Check if grid is ready (all zones attached)
+function GridService:IsGridReady()
+	return self._isGridReady
+end
+
+-- Get the baseplate info used for initialization
+function GridService:GetBaseplateInfo()
+	return self._baseplateInfo
 end
 
 -- === PUBLIC METHODS ===

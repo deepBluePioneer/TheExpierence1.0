@@ -8,6 +8,8 @@ local TreeService = Knit.CreateService {
 	Name = "TreeService",
 	Client = {},
 	trees = {},
+	_autoStart = false,  -- Set to false to let WorldInitService control initialization
+	_baseplateInfo = nil,
 }
 
 -- === CONFIG ===
@@ -16,6 +18,10 @@ local TREE_CONFIG = {
 	TreeCount = 200,
 	MinSpacing = 18,
 	EdgePadding = 12,
+	TerrainEmbedDepth = 2,  -- Base studs below terrain surface to embed tree
+	TerrainEmbedMin = 1,    -- Minimum embed depth (guaranteed)
+	TerrainEmbedMax = 4,    -- Maximum embed depth (prevents too deep on steep slopes)
+	FootprintRadius = 5,    -- Radius to sample for ground height (prevents floating on slopes)
 	
 	-- Trunk colors (dark, organic, alien bark)
 	TrunkHeightMin = 25,
@@ -135,6 +141,43 @@ local function lerpColor(c1, c2, t)
 end
 
 local function getBaseplateInfo()
+	-- First try to get info from WorldInitService (preferred)
+	local WorldInitService = nil
+	pcall(function()
+		WorldInitService = Knit.GetService("WorldInitService")
+	end)
+	
+	if WorldInitService then
+		local info = WorldInitService:GetBaseplateInfo()
+		if info then
+			return {
+				position = info.position,
+				size = info.size,
+				topY = info.topY,
+			}
+		end
+	end
+	
+	-- Fallback: Try GridService for grid dimensions
+	local GridService = nil
+	pcall(function()
+		GridService = Knit.GetService("GridService")
+	end)
+	
+	if GridService then
+		local gridData = GridService:GetGridData()
+		if gridData and gridData.cellSize > 0 then
+			local totalWidth = gridData.width * gridData.cellSize
+			local totalDepth = gridData.depth * gridData.cellSize
+			return {
+				position = Vector3.new(gridData.centerX, gridData.topY, gridData.centerZ),
+				size = Vector3.new(totalWidth, 1, totalDepth),
+				topY = gridData.topY,
+			}
+		end
+	end
+	
+	-- Legacy fallback: look for physical Baseplate
 	local baseplate = Workspace:FindFirstChild("Baseplate")
 	if baseplate and baseplate:IsA("BasePart") then
 		return {
@@ -143,7 +186,13 @@ local function getBaseplateInfo()
 			topY = baseplate.Position.Y + baseplate.Size.Y / 2,
 		}
 	end
-	return nil
+	
+	-- Default fallback
+	return {
+		position = Vector3.new(0, 0, 0),
+		size = Vector3.new(384, 1, 384),
+		topY = 0,
+	}
 end
 
 local function pickTreeType()
@@ -736,6 +785,91 @@ local function isValidPosition(newPos, existingPositions, minSpacing)
 	return true
 end
 
+-- Create raycast params (cached for performance)
+local terrainRaycastParams = RaycastParams.new()
+terrainRaycastParams.FilterType = Enum.RaycastFilterType.Exclude
+
+local function updateTerrainRaycastFilter()
+	local excludeList = {}
+	
+	-- Exclude non-terrain objects
+	local treesFolder = Workspace:FindFirstChild("ProceduralTrees")
+	if treesFolder then table.insert(excludeList, treesFolder) end
+	
+	local formationsFolder = Workspace:FindFirstChild("AlienFormations")
+	if formationsFolder then table.insert(excludeList, formationsFolder) end
+	
+	local baseplatesFolder = Workspace:FindFirstChild("WorldBaseplates")
+	if baseplatesFolder then table.insert(excludeList, baseplatesFolder) end
+	
+	local gridFolder = Workspace:FindFirstChild("GridCubes")
+	if gridFolder then table.insert(excludeList, gridFolder) end
+	
+	local redZonesFolder = Workspace:FindFirstChild("RedZones")
+	if redZonesFolder then table.insert(excludeList, redZonesFolder) end
+	
+	local spawnedEnemies = Workspace:FindFirstChild("SpawnedEnemies")
+	if spawnedEnemies then table.insert(excludeList, spawnedEnemies) end
+	
+	terrainRaycastParams.FilterDescendantsInstances = excludeList
+end
+
+-- Single raycast to find terrain height
+local function raycastTerrainHeight(x, z, fallbackY)
+	local rayOrigin = Vector3.new(x, 500, z)
+	local rayDirection = Vector3.new(0, -1000, 0)
+	
+	local raycastResult = Workspace:Raycast(rayOrigin, rayDirection, terrainRaycastParams)
+	
+	if raycastResult then
+		return raycastResult.Position.Y
+	else
+		return fallbackY or 0
+	end
+end
+
+-- ROBUST terrain height sampling: samples multiple points and returns the LOWEST
+-- This ensures objects are never floating, even on slopes
+local function getTerrainHeightRobust(x, z, fallbackY, footprintRadius)
+	footprintRadius = footprintRadius or TREE_CONFIG.TrunkWidthMax or 5
+	
+	updateTerrainRaycastFilter()
+	
+	-- Sample center point
+	local centerY = raycastTerrainHeight(x, z, fallbackY)
+	local lowestY = centerY
+	
+	-- Sample 8 points around the footprint (like a compass rose)
+	local sampleOffsets = {
+		{1, 0},   -- East
+		{-1, 0},  -- West
+		{0, 1},   -- North
+		{0, -1},  -- South
+		{0.7, 0.7},   -- NE
+		{-0.7, 0.7},  -- NW
+		{0.7, -0.7},  -- SE
+		{-0.7, -0.7}, -- SW
+	}
+	
+	for _, offset in ipairs(sampleOffsets) do
+		local sampleX = x + offset[1] * footprintRadius
+		local sampleZ = z + offset[2] * footprintRadius
+		local sampleY = raycastTerrainHeight(sampleX, sampleZ, fallbackY)
+		
+		if sampleY < lowestY then
+			lowestY = sampleY
+		end
+	end
+	
+	return lowestY
+end
+
+-- Legacy single-point function (kept for compatibility)
+local function getTerrainHeight(x, z, fallbackY)
+	updateTerrainRaycastFilter()
+	return raycastTerrainHeight(x, z, fallbackY)
+end
+
 local function generateTreePositions(baseplateInfo, count)
 	local positions = {}
 	local attempts = 0
@@ -744,18 +878,33 @@ local function generateTreePositions(baseplateInfo, count)
 	local halfX = baseplateInfo.size.X / 2 - TREE_CONFIG.EdgePadding
 	local halfZ = baseplateInfo.size.Z / 2 - TREE_CONFIG.EdgePadding
 	
+	print(string.format("[TreeService] Generating %d tree positions in area %.0fx%.0f centered at (%.0f, %.0f)", 
+		count, halfX * 2, halfZ * 2, baseplateInfo.position.X, baseplateInfo.position.Z))
+	
 	while #positions < count and attempts < maxAttempts do
 		attempts += 1
 		
 		local x = baseplateInfo.position.X + (math.random() - 0.5) * halfX * 2
 		local z = baseplateInfo.position.Z + (math.random() - 0.5) * halfZ * 2
-		local newPos = Vector3.new(x, baseplateInfo.topY, z)
+		
+		-- ROBUST: Sample terrain at multiple points around footprint and use LOWEST
+		-- This prevents floating on slopes
+		local lowestTerrainY = getTerrainHeightRobust(x, z, baseplateInfo.topY, TREE_CONFIG.FootprintRadius)
+		
+		-- Calculate embed depth with variation for natural look
+		local embedVariation = math.random() * (TREE_CONFIG.TerrainEmbedMax - TREE_CONFIG.TerrainEmbedMin)
+		local embedDepth = TREE_CONFIG.TerrainEmbedMin + embedVariation
+		
+		-- Final Y position: lowest terrain point minus embed depth
+		local finalY = lowestTerrainY - embedDepth
+		local newPos = Vector3.new(x, finalY, z)
 		
 		if isValidPosition(newPos, positions, TREE_CONFIG.MinSpacing) then
 			table.insert(positions, newPos)
 		end
 	end
 	
+	print(string.format("[TreeService] Generated %d tree positions after %d attempts", #positions, attempts))
 	return positions
 end
 
@@ -908,24 +1057,101 @@ end
 function TreeService:KnitStart()
 	print("[TreeService] Starting...")
 	
-	-- Get LoadingService to wait for ReservedZoneService
+	-- Only auto-generate if _autoStart is true (legacy mode)
+	-- WorldInitService will call GenerateTreesWithBaseplates() instead
+	if self._autoStart then
+		-- Get LoadingService to wait for ReservedZoneService
+		local LoadingService = nil
+		pcall(function()
+			LoadingService = Knit.GetService("LoadingService")
+		end)
+		
+		if LoadingService then
+			-- Wait for ReservedZoneService to complete before generating trees
+			print("[TreeService] Waiting for ReservedZoneService to complete...")
+			LoadingService:OnStepComplete("ReservedZoneService", function()
+				print("[TreeService] ReservedZoneService complete, generating trees...")
+				generateTrees(self)
+			end)
+		else
+			-- Fallback if LoadingService not available
+			warn("[TreeService] LoadingService not found, generating trees immediately")
+			generateTrees(self)
+		end
+	else
+		print("[TreeService] Waiting for WorldInitService to generate trees...")
+	end
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║               WORLDINITSERVICE INTEGRATION                                 ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- Generate trees using baseplate info from WorldInitService
+function TreeService:GenerateTreesWithBaseplates(baseplateInfo)
+	if not baseplateInfo then
+		warn("[TreeService] No baseplate info provided!")
+		return false
+	end
+	
+	print("[TreeService] Generating trees with baseplate info from WorldInitService...")
+	self._baseplateInfo = baseplateInfo
+	
+	-- Create a fake baseplate info structure compatible with generateTreePositions
+	local fakeBaseplateInfo = {
+		position = baseplateInfo.position,
+		size = baseplateInfo.size,
+		topY = baseplateInfo.topY,
+	}
+	
+	local startTime = tick()
+	
 	local LoadingService = nil
 	pcall(function()
 		LoadingService = Knit.GetService("LoadingService")
 	end)
 	
-	if LoadingService then
-		-- Wait for ReservedZoneService to complete before generating trees
-		print("[TreeService] Waiting for ReservedZoneService to complete...")
-		LoadingService:OnStepComplete("ReservedZoneService", function()
-			print("[TreeService] ReservedZoneService complete, generating trees...")
-			generateTrees(self)
-		end)
-	else
-		-- Fallback if LoadingService not available
-		warn("[TreeService] LoadingService not found, generating trees immediately")
-		generateTrees(self)
+	local function reportProgress(current, total, message)
+		if LoadingService then
+			LoadingService:ReportProgress("TreeService", current, total, message or "Growing trees")
+		end
 	end
+	
+	reportProgress(0, 100, "Preparing forest")
+	
+	clearTrees()
+	local folder = getTreeFolder()
+	
+	reportProgress(5, 100, "Finding tree positions")
+	
+	local positions = generateTreePositions(fakeBaseplateInfo, TREE_CONFIG.TreeCount)
+	
+	reportProgress(15, 100, "Growing trees")
+	
+	local totalTrees = #positions
+	local batchSize = 15
+	
+	for i, pos in ipairs(positions) do
+		local tree = createTree(pos, folder)
+		table.insert(self.trees, tree)
+		
+		if i % batchSize == 0 then
+			local treeProgress = 15 + (i / totalTrees) * 80
+			reportProgress(math.floor(treeProgress), 100, string.format("Growing trees (%d/%d)", i, totalTrees))
+			task.wait()
+		end
+	end
+	
+	local elapsed = tick() - startTime
+	print(string.format("[TreeService] Generated %d trees in %.2fs", #positions, elapsed))
+	
+	-- Clean up trees near reserved cells
+	cleanupTreesNearReservedCells(self)
+	
+	reportProgress(100, 100, "Forest complete")
+	
+	print("[TreeService] Tree generation complete")
+	return true
 end
 
 -- === PUBLIC METHODS ===

@@ -4,6 +4,7 @@
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
@@ -17,7 +18,10 @@ local ReservedZoneService = Knit.CreateService {
 	Name = "ReservedZoneService",
 	Client = {},
 	_gridService = nil,
+	_terrainService = nil,
 	_zones = {},  -- Track all zones by type: { [zoneType] = { cells = {}, zoneCube = Part, zone = Zone } }
+	_autoStart = false,  -- Set to false to let WorldInitService control initialization
+	_isInitialized = false,
 }
 
 -- === ZONE TYPE DEFINITIONS ===
@@ -49,7 +53,7 @@ local ZONE_CONFIG = {
 
 -- === TERRAIN FLATTENING ===
 
--- Flatten terrain under the reserved area
+-- Flatten terrain under the reserved area using TerrainService
 local function flattenTerrainUnderReservedArea(self, cellPositions, zoneType)
 	if not ZONE_TYPES[zoneType] or not ZONE_TYPES[zoneType].flattenTerrain then
 		return  -- Don't flatten if zone type doesn't require it
@@ -58,12 +62,7 @@ local function flattenTerrainUnderReservedArea(self, cellPositions, zoneType)
 		return
 	end
 	
-	-- Get TerrainService
-	local TerrainService = nil
-	pcall(function()
-		TerrainService = Knit.GetService("TerrainService")
-	end)
-	
+	local TerrainService = self._terrainService
 	if not TerrainService then
 		warn("[ReservedZoneService] TerrainService not found, cannot flatten terrain")
 		return
@@ -77,16 +76,13 @@ local function flattenTerrainUnderReservedArea(self, cellPositions, zoneType)
 	-- Calculate the bounds of the reserved area
 	local minX, maxX = math.huge, -math.huge
 	local minZ, maxZ = math.huge, -math.huge
-	local avgY = 0
 	
 	for _, pos in ipairs(cellPositions) do
 		minX = math.min(minX, pos.X)
 		maxX = math.max(maxX, pos.X)
 		minZ = math.min(minZ, pos.Z)
 		maxZ = math.max(maxZ, pos.Z)
-		avgY = avgY + pos.Y
 	end
-	avgY = avgY / #cellPositions
 	
 	-- Calculate center and size of the reserved area
 	local centerX = (minX + maxX) / 2
@@ -95,41 +91,61 @@ local function flattenTerrainUnderReservedArea(self, cellPositions, zoneType)
 	local sizeX = maxX - minX + cellSize
 	local sizeZ = maxZ - minZ + cellSize
 	
-	-- Get the desired height (use baseplate top or a default height)
-	local baseplate = Workspace:FindFirstChild("Baseplate")
-	local flatHeight = avgY
-	if baseplate and baseplate:IsA("BasePart") then
-		flatHeight = baseplate.Position.Y + baseplate.Size.Y / 2
+	-- Get the flat height from GridService topY (the ground level)
+	local flatHeight = self._gridService:GetTopY()
+	if not flatHeight or flatHeight == 0 then
+		-- Fallback: raycast to find terrain height at center
+		local Terrain = Workspace.Terrain
+		local rayOrigin = Vector3.new(centerX, 500, centerZ)
+		local rayDirection = Vector3.new(0, -1000, 0)
+		local rayParams = RaycastParams.new()
+		rayParams.FilterType = Enum.RaycastFilterType.Include
+		rayParams.FilterDescendantsInstances = {Terrain}
+		
+		local rayResult = Workspace:Raycast(rayOrigin, rayDirection, rayParams)
+		if rayResult then
+			flatHeight = rayResult.Position.Y
+		else
+			flatHeight = 0  -- Default to 0 if all else fails
+		end
 	end
 	
 	local centerPos = Vector3.new(centerX, flatHeight, centerZ)
-	local areaSize = Vector3.new(sizeX, 10, sizeZ)  -- Height of 10 for the flat area
+	local areaSize = Vector3.new(sizeX + 4, 50, sizeZ + 4)  -- Extra padding and height to clear terrain
 	
-	-- Flatten the terrain
-	print(string.format("[ReservedZoneService] Flattening terrain at (%.1f, %.1f, %.1f) size (%.1f, %.1f, %.1f)", 
-		centerPos.X, centerPos.Y, centerPos.Z, areaSize.X, areaSize.Y, areaSize.Z))
+	-- Flatten the terrain via TerrainService
+	print(string.format(
+		"[ReservedZoneService] Flattening terrain at (%.1f, %.1f, %.1f) size (%.1f, %.1f, %.1f)", 
+		centerPos.X, centerPos.Y, centerPos.Z, areaSize.X, areaSize.Y, areaSize.Z
+	))
 	
 	TerrainService:CreateFlatArea(centerPos, areaSize, flatHeight)
 	
-	-- Remove grass by replacing it with a non-grass material (Rock/Concrete)
-	-- Create a region that covers the flat area
-	local region = Region3.new(
-		Vector3.new(centerPos.X - areaSize.X/2, flatHeight - 5, centerPos.Z - areaSize.Z/2),
-		Vector3.new(centerPos.X + areaSize.X/2, flatHeight + 2, centerPos.Z + areaSize.Z/2)
+	-- Remove grass by replacing it with a non-grass material (Concrete) via TerrainService helper
+	-- Use a larger vertical range to catch all terrain
+	TerrainService:ReplaceMaterialRegion(
+		centerPos,
+		Vector3.new(sizeX + 4, 30, sizeZ + 4),
+		Enum.Material.Grass,
+		Enum.Material.Concrete
 	)
 	
-	-- Replace grass with concrete/rock to remove grass appearance
-	local Workspace = game:GetService("Workspace")
-	local Terrain = Workspace.Terrain
-	local resolution = 4  -- Standard terrain resolution
+	-- Also replace other common materials to ensure flat concrete surface
+	TerrainService:ReplaceMaterialRegion(
+		centerPos,
+		Vector3.new(sizeX + 4, 30, sizeZ + 4),
+		Enum.Material.Sand,
+		Enum.Material.Concrete
+	)
 	
-	-- Replace Grass with Concrete (or Rock) to remove grass
-	pcall(function()
-		Terrain:ReplaceMaterial(region, resolution, Enum.Material.Grass, Enum.Material.Concrete)
-		print("[ReservedZoneService] Replaced grass with concrete in reserved area")
-	end)
+	TerrainService:ReplaceMaterialRegion(
+		centerPos,
+		Vector3.new(sizeX + 4, 30, sizeZ + 4),
+		Enum.Material.Rock,
+		Enum.Material.Concrete
+	)
 	
-	print("[ReservedZoneService] Terrain flattened and grass removed under reserved area")
+	print("[ReservedZoneService] Terrain flattened and converted to concrete under Building zone")
 end
 
 -- Create a zone for a specific zone type
@@ -405,9 +421,64 @@ function ReservedZoneService:KnitInit()
 	pcall(function()
 		self._gridService = Knit.GetService("GridService")
 	end)
+
+	-- Get TerrainService reference
+	pcall(function()
+		self._terrainService = Knit.GetService("TerrainService")
+	end)
 end
 
 function ReservedZoneService:KnitStart()
+	-- Only auto-initialize if _autoStart is true (legacy mode)
+	-- WorldInitService will call InitializeZones() instead
+	if self._autoStart then
+		-- Get LoadingService for progress updates
+		local LoadingService = nil
+		pcall(function()
+			LoadingService = Knit.GetService("LoadingService")
+		end)
+		
+		local function reportProgress(message, progress)
+			if LoadingService then
+				LoadingService:UpdateStatus("ReservedZoneService", message, progress or 0)
+			end
+		end
+		
+		if not self._gridService then
+			warn("[ReservedZoneService] GridService not found!")
+			return
+		end
+		
+		-- Wait for TerrainService to complete before flattening
+		if LoadingService then
+			print("[ReservedZoneService] Waiting for TerrainService to complete...")
+			LoadingService:OnStepComplete("TerrainService", function()
+				print("[ReservedZoneService] TerrainService complete, proceeding with reservation...")
+				proceedWithReservation(self, LoadingService, reportProgress)
+			end)
+		else
+			-- Fallback if LoadingService not available
+			task.wait(2)  -- Give terrain time to generate
+			proceedWithReservation(self, LoadingService, reportProgress)
+		end
+	else
+		print("[ReservedZoneService] Waiting for WorldInitService to initialize zones...")
+	end
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║               WORLDINITSERVICE INTEGRATION                                 ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- Initialize zones (called by WorldInitService)
+function ReservedZoneService:InitializeZones()
+	if self._isInitialized then
+		print("[ReservedZoneService] Already initialized, skipping...")
+		return true
+	end
+	
+	print("[ReservedZoneService] Initializing zones (called by WorldInitService)...")
+	
 	-- Get LoadingService for progress updates
 	local LoadingService = nil
 	pcall(function()
@@ -422,21 +493,15 @@ function ReservedZoneService:KnitStart()
 	
 	if not self._gridService then
 		warn("[ReservedZoneService] GridService not found!")
-		return
+		return false
 	end
 	
-	-- Wait for TerrainService to complete before flattening
-	if LoadingService then
-		print("[ReservedZoneService] Waiting for TerrainService to complete...")
-		LoadingService:OnStepComplete("TerrainService", function()
-			print("[ReservedZoneService] TerrainService complete, proceeding with reservation...")
-			proceedWithReservation(self, LoadingService, reportProgress)
-		end)
-	else
-		-- Fallback if LoadingService not available
-		task.wait(2)  -- Give terrain time to generate
-		proceedWithReservation(self, LoadingService, reportProgress)
-	end
+	-- Proceed with reservation (no waiting for terrain since WorldInitService handles order)
+	proceedWithReservation(self, LoadingService, reportProgress)
+	
+	self._isInitialized = true
+	print("[ReservedZoneService] Zone initialization complete")
+	return true
 end
 
 -- === PUBLIC API ===
@@ -521,4 +586,3 @@ function ReservedZoneService:ClearAllZones()
 end
 
 return ReservedZoneService
-

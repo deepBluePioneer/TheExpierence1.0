@@ -8,6 +8,8 @@ local FormationService = Knit.CreateService {
 	Name = "FormationService",
 	Client = {},
 	formations = {},
+	_autoStart = false,  -- Set to false to let WorldInitService control initialization
+	_baseplateInfo = nil,
 }
 
 -- === CONFIG ===
@@ -17,6 +19,10 @@ local CONFIG = {
 	MinSpacing = 25,
 	EdgePadding = 15,
 	TreeAvoidDistance = 12, -- Avoid spawning too close to trees
+	TerrainEmbedDepth = 3,  -- Base studs below terrain surface to embed formation
+	TerrainEmbedMin = 2,    -- Minimum embed depth (guaranteed)
+	TerrainEmbedMax = 5,    -- Maximum embed depth (prevents too deep on steep slopes)
+	FootprintRadius = 8,    -- Radius to sample for ground height (larger for formations)
 	
 	-- Base colors (dark, alien palette)
 	BaseColors = {
@@ -121,6 +127,43 @@ local function pickFormationType()
 end
 
 local function getBaseplateInfo()
+	-- First try to get info from WorldInitService (preferred)
+	local WorldInitService = nil
+	pcall(function()
+		WorldInitService = Knit.GetService("WorldInitService")
+	end)
+	
+	if WorldInitService then
+		local info = WorldInitService:GetBaseplateInfo()
+		if info then
+			return {
+				position = info.position,
+				size = info.size,
+				topY = info.topY,
+			}
+		end
+	end
+	
+	-- Fallback: Try GridService for grid dimensions
+	local GridService = nil
+	pcall(function()
+		GridService = Knit.GetService("GridService")
+	end)
+	
+	if GridService then
+		local gridData = GridService:GetGridData()
+		if gridData and gridData.cellSize > 0 then
+			local totalWidth = gridData.width * gridData.cellSize
+			local totalDepth = gridData.depth * gridData.cellSize
+			return {
+				position = Vector3.new(gridData.centerX, gridData.topY, gridData.centerZ),
+				size = Vector3.new(totalWidth, 1, totalDepth),
+				topY = gridData.topY,
+			}
+		end
+	end
+	
+	-- Legacy fallback: look for physical Baseplate
 	local baseplate = Workspace:FindFirstChild("Baseplate")
 	if baseplate and baseplate:IsA("BasePart") then
 		return {
@@ -129,7 +172,13 @@ local function getBaseplateInfo()
 			topY = baseplate.Position.Y + baseplate.Size.Y / 2,
 		}
 	end
-	return nil
+	
+	-- Default fallback
+	return {
+		position = Vector3.new(0, 0, 0),
+		size = Vector3.new(384, 1, 384),
+		topY = 0,
+	}
 end
 
 local function createSubtleGlow(position, size, color, parent)
@@ -849,6 +898,91 @@ local function getTreePositions()
 	return positions
 end
 
+-- Create raycast params (cached for performance)
+local terrainRaycastParams = RaycastParams.new()
+terrainRaycastParams.FilterType = Enum.RaycastFilterType.Exclude
+
+local function updateTerrainRaycastFilter()
+	local excludeList = {}
+	
+	-- Exclude non-terrain objects
+	local treesFolder = Workspace:FindFirstChild("ProceduralTrees")
+	if treesFolder then table.insert(excludeList, treesFolder) end
+	
+	local formationsFolder = Workspace:FindFirstChild("AlienFormations")
+	if formationsFolder then table.insert(excludeList, formationsFolder) end
+	
+	local baseplatesFolder = Workspace:FindFirstChild("WorldBaseplates")
+	if baseplatesFolder then table.insert(excludeList, baseplatesFolder) end
+	
+	local gridFolder = Workspace:FindFirstChild("GridCubes")
+	if gridFolder then table.insert(excludeList, gridFolder) end
+	
+	local redZonesFolder = Workspace:FindFirstChild("RedZones")
+	if redZonesFolder then table.insert(excludeList, redZonesFolder) end
+	
+	local spawnedEnemies = Workspace:FindFirstChild("SpawnedEnemies")
+	if spawnedEnemies then table.insert(excludeList, spawnedEnemies) end
+	
+	terrainRaycastParams.FilterDescendantsInstances = excludeList
+end
+
+-- Single raycast to find terrain height
+local function raycastTerrainHeight(x, z, fallbackY)
+	local rayOrigin = Vector3.new(x, 500, z)
+	local rayDirection = Vector3.new(0, -1000, 0)
+	
+	local raycastResult = Workspace:Raycast(rayOrigin, rayDirection, terrainRaycastParams)
+	
+	if raycastResult then
+		return raycastResult.Position.Y
+	else
+		return fallbackY or 0
+	end
+end
+
+-- ROBUST terrain height sampling: samples multiple points and returns the LOWEST
+-- This ensures formations are never floating, even on slopes
+local function getTerrainHeightRobust(x, z, fallbackY, footprintRadius)
+	footprintRadius = footprintRadius or CONFIG.FootprintRadius or 8
+	
+	updateTerrainRaycastFilter()
+	
+	-- Sample center point
+	local centerY = raycastTerrainHeight(x, z, fallbackY)
+	local lowestY = centerY
+	
+	-- Sample 8 points around the footprint (like a compass rose)
+	local sampleOffsets = {
+		{1, 0},   -- East
+		{-1, 0},  -- West
+		{0, 1},   -- North
+		{0, -1},  -- South
+		{0.7, 0.7},   -- NE
+		{-0.7, 0.7},  -- NW
+		{0.7, -0.7},  -- SE
+		{-0.7, -0.7}, -- SW
+	}
+	
+	for _, offset in ipairs(sampleOffsets) do
+		local sampleX = x + offset[1] * footprintRadius
+		local sampleZ = z + offset[2] * footprintRadius
+		local sampleY = raycastTerrainHeight(sampleX, sampleZ, fallbackY)
+		
+		if sampleY < lowestY then
+			lowestY = sampleY
+		end
+	end
+	
+	return lowestY
+end
+
+-- Legacy single-point function (kept for compatibility)
+local function getTerrainHeight(x, z, fallbackY)
+	updateTerrainRaycastFilter()
+	return raycastTerrainHeight(x, z, fallbackY)
+end
+
 local function generateFormationPositions(baseplateInfo, count)
 	local positions = {}
 	local treePositions = getTreePositions()
@@ -858,12 +992,26 @@ local function generateFormationPositions(baseplateInfo, count)
 	local halfX = baseplateInfo.size.X / 2 - CONFIG.EdgePadding
 	local halfZ = baseplateInfo.size.Z / 2 - CONFIG.EdgePadding
 	
+	print(string.format("[FormationService] Generating %d formation positions in area %.0fx%.0f centered at (%.0f, %.0f)", 
+		count, halfX * 2, halfZ * 2, baseplateInfo.position.X, baseplateInfo.position.Z))
+	
 	while #positions < count and attempts < maxAttempts do
 		attempts += 1
 		
 		local x = baseplateInfo.position.X + (math.random() - 0.5) * halfX * 2
 		local z = baseplateInfo.position.Z + (math.random() - 0.5) * halfZ * 2
-		local newPos = Vector3.new(x, baseplateInfo.topY, z)
+		
+		-- ROBUST: Sample terrain at multiple points around footprint and use LOWEST
+		-- This prevents floating on slopes (formations are larger so use bigger footprint)
+		local lowestTerrainY = getTerrainHeightRobust(x, z, baseplateInfo.topY, CONFIG.FootprintRadius)
+		
+		-- Calculate embed depth with variation for natural look
+		local embedVariation = math.random() * (CONFIG.TerrainEmbedMax - CONFIG.TerrainEmbedMin)
+		local embedDepth = CONFIG.TerrainEmbedMin + embedVariation
+		
+		-- Final Y position: lowest terrain point minus embed depth
+		local finalY = lowestTerrainY - embedDepth
+		local newPos = Vector3.new(x, finalY, z)
 		
 		-- Check spacing from other formations
 		if isValidPosition(newPos, positions, CONFIG.MinSpacing) then
@@ -874,6 +1022,7 @@ local function generateFormationPositions(baseplateInfo, count)
 		end
 	end
 	
+	print(string.format("[FormationService] Generated %d formation positions after %d attempts", #positions, attempts))
 	return positions
 end
 
@@ -1026,24 +1175,101 @@ end
 function FormationService:KnitStart()
 	print("[FormationService] Starting...")
 	
-	-- Get LoadingService to wait for ReservedZoneService
+	-- Only auto-generate if _autoStart is true (legacy mode)
+	-- WorldInitService will call GenerateFormationsWithBaseplates() instead
+	if self._autoStart then
+		-- Get LoadingService to wait for ReservedZoneService
+		local LoadingService = nil
+		pcall(function()
+			LoadingService = Knit.GetService("LoadingService")
+		end)
+		
+		if LoadingService then
+			-- Wait for ReservedZoneService to complete before generating formations
+			print("[FormationService] Waiting for ReservedZoneService to complete...")
+			LoadingService:OnStepComplete("ReservedZoneService", function()
+				print("[FormationService] ReservedZoneService complete, generating formations...")
+				generateFormations(self)
+			end)
+		else
+			-- Fallback if LoadingService not available
+			warn("[FormationService] LoadingService not found, generating formations immediately")
+			generateFormations(self)
+		end
+	else
+		print("[FormationService] Waiting for WorldInitService to generate formations...")
+	end
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║               WORLDINITSERVICE INTEGRATION                                 ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- Generate formations using baseplate info from WorldInitService
+function FormationService:GenerateFormationsWithBaseplates(baseplateInfo)
+	if not baseplateInfo then
+		warn("[FormationService] No baseplate info provided!")
+		return false
+	end
+	
+	print("[FormationService] Generating formations with baseplate info from WorldInitService...")
+	self._baseplateInfo = baseplateInfo
+	
+	-- Create a fake baseplate info structure compatible with generateFormationPositions
+	local fakeBaseplateInfo = {
+		position = baseplateInfo.position,
+		size = baseplateInfo.size,
+		topY = baseplateInfo.topY,
+	}
+	
+	local startTime = tick()
+	
 	local LoadingService = nil
 	pcall(function()
 		LoadingService = Knit.GetService("LoadingService")
 	end)
 	
-	if LoadingService then
-		-- Wait for ReservedZoneService to complete before generating formations
-		print("[FormationService] Waiting for ReservedZoneService to complete...")
-		LoadingService:OnStepComplete("ReservedZoneService", function()
-			print("[FormationService] ReservedZoneService complete, generating formations...")
-			generateFormations(self)
-		end)
-	else
-		-- Fallback if LoadingService not available
-		warn("[FormationService] LoadingService not found, generating formations immediately")
-		generateFormations(self)
+	local function reportProgress(current, total, message)
+		if LoadingService then
+			LoadingService:ReportProgress("FormationService", current, total, message or "Creating formations")
+		end
 	end
+	
+	reportProgress(0, 100, "Preparing terrain")
+	
+	clearFormations()
+	local folder = getFormationFolder()
+	
+	reportProgress(5, 100, "Finding placement positions")
+	
+	local positions = generateFormationPositions(fakeBaseplateInfo, CONFIG.FormationCount)
+	
+	reportProgress(15, 100, "Generating formations")
+	
+	local totalFormations = #positions
+	local batchSize = 10
+	
+	for i, pos in ipairs(positions) do
+		local formation = createFormation(pos, folder)
+		table.insert(self.formations, formation)
+		
+		if i % batchSize == 0 then
+			local progress = 15 + (i / totalFormations) * 80
+			reportProgress(math.floor(progress), 100, string.format("Creating formations (%d/%d)", i, totalFormations))
+			task.wait()
+		end
+	end
+	
+	local elapsed = tick() - startTime
+	print(string.format("[FormationService] Generated %d formations in %.2fs", #positions, elapsed))
+	
+	-- Clean up formations near reserved cells
+	cleanupFormationsNearReservedCells(self)
+	
+	reportProgress(100, 100, "Terrain complete")
+	
+	print("[FormationService] Formation generation complete")
+	return true
 end
 
 -- === PUBLIC METHODS ===

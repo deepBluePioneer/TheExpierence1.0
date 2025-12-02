@@ -101,7 +101,20 @@ local function getGroundHeight(position)
 	if raycastResult then
 		return raycastResult.Position.Y
 	else
-		-- Fallback to baseplate height
+		-- Fallback to GridService/TerrainService height
+		local GridService = nil
+		pcall(function()
+			GridService = Knit.GetService("GridService")
+		end)
+		
+		if GridService then
+			local gridData = GridService:GetGridData()
+			if gridData and gridData.topY then
+				return gridData.topY
+			end
+		end
+		
+		-- Legacy fallback to baseplate height
 		local baseplate = Workspace:FindFirstChild("Baseplate")
 		if baseplate and baseplate:IsA("BasePart") then
 			return baseplate.Position.Y + baseplate.Size.Y / 2
