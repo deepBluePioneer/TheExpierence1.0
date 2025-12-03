@@ -654,6 +654,24 @@ local function getGroundHeight(x, z, fallbackY)
 		table.insert(excludeList, debugFolder)
 	end
 	
+	-- Exclude red zones
+	local redZonesFolder = Workspace:FindFirstChild("RedZones")
+	if redZonesFolder then
+		table.insert(excludeList, redZonesFolder)
+	end
+	
+	-- Exclude grid cubes by tag
+	local gridCubes = CollectionService:GetTagged("gridCube")
+	for _, cube in ipairs(gridCubes) do
+		table.insert(excludeList, cube)
+	end
+	
+	-- Exclude reserved zone cubes by tag
+	local zoneCubes = CollectionService:GetTagged("reservedZoneCube")
+	for _, cube in ipairs(zoneCubes) do
+		table.insert(excludeList, cube)
+	end
+	
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 	raycastParams.FilterDescendantsInstances = excludeList

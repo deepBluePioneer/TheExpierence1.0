@@ -343,10 +343,16 @@ function TeleporterController:UpdatePopupUI(zoneName)
 	local isCountingDown = queueData.IsCountingDown or false
 	local countdown = queueData.Countdown or 0
 	local playerNames = queueData.Players or {}
+	local isSinglePlayer = queueData.IsSinglePlayer or (maxPlayers == 1)
 	
 	print("[TeleporterController] UpdatePopupUI:", zoneName, "Players:", playerCount, "/", maxPlayers)
 	
-	self.QueueLabel.Text = string.format("Players: %d/%d", playerCount, maxPlayers)
+	-- Show different label for single-player mode
+	if isSinglePlayer then
+		self.QueueLabel.Text = "Solo Teleporter"
+	else
+		self.QueueLabel.Text = string.format("Players: %d/%d", playerCount, maxPlayers)
+	end
 	
 	if isCountingDown then
 		self.CountdownLabel.Text = string.format("Teleporting in %d...", countdown)
@@ -354,14 +360,22 @@ function TeleporterController:UpdatePopupUI(zoneName)
 			and Color3.fromRGB(255, 100, 100) 
 			or Color3.fromRGB(255, 200, 100)
 	else
-		self.CountdownLabel.Text = playerCount > 0 and "Waiting for more players..." or "Be the first to join!"
+		if isSinglePlayer then
+			self.CountdownLabel.Text = playerCount > 0 and "Preparing teleport..." or "Step in to teleport!"
+		else
+			self.CountdownLabel.Text = playerCount > 0 and "Waiting for more players..." or "Be the first to join!"
+		end
 		self.CountdownLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
 	end
 	
 	self:UpdatePlayerList(playerNames)
 	
 	local isInQueue = table.find(playerNames, LocalPlayer.Name) ~= nil
-	self.StatusLabel.Text = isInQueue and "You are in the queue!" or "Step on pad to join queue"
+	if isSinglePlayer then
+		self.StatusLabel.Text = isInQueue and "Ready to teleport!" or "Step on pad to teleport"
+	else
+		self.StatusLabel.Text = isInQueue and "You are in the queue!" or "Step on pad to join queue"
+	end
 	self.StatusLabel.TextColor3 = isInQueue and Color3.fromRGB(100, 200, 100) or Color3.fromRGB(120, 120, 120)
 end
 

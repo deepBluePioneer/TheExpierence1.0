@@ -18,6 +18,7 @@ local HumanEnemyService = Knit.CreateService {
 		EnemyCreated = Knit.CreateSignal(),  -- Signal fired when enemies are created
 	},
 	_enemies = {},  -- Track spawned enemies with data: { model, humanoid, humanoidRootPart, currentTarget, lastWanderTime }
+	_autoSpawn = false,  -- Set to false to let ReservedZoneService control spawning
 }
 
 -- === CONFIG ===
@@ -93,6 +94,22 @@ local function getGroundHeight(position)
 	
 	local spawnedEnemiesFolder = Workspace:FindFirstChild("SpawnedEnemies")
 	if spawnedEnemiesFolder then table.insert(excludeList, spawnedEnemiesFolder) end
+	
+	-- Exclude red zones
+	local redZonesFolder = Workspace:FindFirstChild("RedZones")
+	if redZonesFolder then table.insert(excludeList, redZonesFolder) end
+	
+	-- Exclude grid cubes by tag
+	local gridCubes = CollectionService:GetTagged("gridCube")
+	for _, cube in ipairs(gridCubes) do
+		table.insert(excludeList, cube)
+	end
+	
+	-- Exclude reserved zone cubes by tag
+	local zoneCubes = CollectionService:GetTagged("reservedZoneCube")
+	for _, cube in ipairs(zoneCubes) do
+		table.insert(excludeList, cube)
+	end
 	
 	raycastParams.FilterDescendantsInstances = excludeList
 	
@@ -296,6 +313,22 @@ local function findWanderDestination(spawnPosition)
 	local spawnedEnemiesFolder = Workspace:FindFirstChild("SpawnedEnemies")
 	if spawnedEnemiesFolder then table.insert(excludeList, spawnedEnemiesFolder) end
 	
+	-- Exclude red zones
+	local redZonesFolder = Workspace:FindFirstChild("RedZones")
+	if redZonesFolder then table.insert(excludeList, redZonesFolder) end
+	
+	-- Exclude grid cubes by tag
+	local gridCubes = CollectionService:GetTagged("gridCube")
+	for _, cube in ipairs(gridCubes) do
+		table.insert(excludeList, cube)
+	end
+	
+	-- Exclude reserved zone cubes by tag
+	local zoneCubes = CollectionService:GetTagged("reservedZoneCube")
+	for _, cube in ipairs(zoneCubes) do
+		table.insert(excludeList, cube)
+	end
+	
 	raycastParams.FilterDescendantsInstances = excludeList
 	
 	local raycastResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
@@ -385,18 +418,20 @@ function HumanEnemyService:KnitInit()
 end
 
 function HumanEnemyService:KnitStart()
-	-- Wait a bit for other services to initialize
-	task.wait(1)
-	
-	-- Spawn enemies
-	spawnEnemiesInCircle(self)
-	
-	-- Start wandering loop
+	-- Start wandering loop (runs even if enemies are spawned by ReservedZoneService)
 	local startTime = tick()
 	RunService.Heartbeat:Connect(function()
 		local currentTime = tick() - startTime
 		updateWandering(self, currentTime)
 	end)
+	
+	-- Only auto-spawn if _autoSpawn is true (legacy mode)
+	if self._autoSpawn then
+		task.wait(1)
+		spawnEnemiesInCircle(self)
+	else
+		print("[HumanEnemyService] Waiting for ReservedZoneService to spawn enemies...")
+	end
 	
 	print("[HumanEnemyService] Started!")
 end
@@ -420,6 +455,105 @@ function HumanEnemyService:GetEnemyModels()
 		end
 	end
 	return models
+end
+
+-- Spawn enemies at a specific location (called by ReservedZoneService)
+function HumanEnemyService:SpawnEnemiesAt(centerPosition, radius, count)
+	local entityModel = findEntityModel()
+	if not entityModel then
+		warn("[HumanEnemyService] No entity model found for SpawnEnemiesAt")
+		return {}
+	end
+	
+	-- Create folder for spawned enemies if it doesn't exist
+	local enemyFolder = Workspace:FindFirstChild("SpawnedEnemies")
+	if not enemyFolder then
+		enemyFolder = Instance.new("Folder")
+		enemyFolder.Name = "SpawnedEnemies"
+		enemyFolder.Parent = Workspace
+	end
+	
+	-- Calculate positions in a circle
+	local positions = calculateCirclePositions(centerPosition, radius, count)
+	local spawnedEnemies = {}
+	
+	for i, position in ipairs(positions) do
+		-- Clone the model
+		local clone = entityModel:Clone()
+		clone.Name = string.format("%s_Zone_%d", entityModel.Name, i)
+		
+		-- Get ground height
+		local groundY = getGroundHeight(position)
+		
+		-- Calculate bottom offset
+		local bottomOffset = getModelBottomOffset(clone)
+		
+		-- Calculate spawn position
+		local spawnY = groundY + ENEMY_CONFIG.GroundOffset + bottomOffset
+		local spawnPosition = Vector3.new(position.X, spawnY, position.Z)
+		
+		-- Position the enemy
+		if clone.PrimaryPart then
+			clone:SetPrimaryPartCFrame(CFrame.new(spawnPosition))
+		elseif clone:FindFirstChild("HumanoidRootPart") then
+			clone.HumanoidRootPart.Position = spawnPosition
+			local humanoid = clone:FindFirstChildOfClass("Humanoid")
+			if humanoid then
+				humanoid.PlatformStand = false
+			end
+		else
+			for _, part in ipairs(clone:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.Position = spawnPosition
+					break
+				end
+			end
+		end
+		
+		-- Parent to workspace
+		clone.Parent = enemyFolder
+		
+		-- Add tag
+		CollectionService:AddTag(clone, ENEMY_CONFIG.EntityTag)
+		
+		-- Get humanoid and setup
+		local humanoid = clone:FindFirstChildOfClass("Humanoid")
+		local humanoidRootPart = clone:FindFirstChild("HumanoidRootPart")
+		
+		if humanoid then
+			humanoid.WalkSpeed = ENEMY_CONFIG.WalkSpeed
+			humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+			humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+		end
+		
+		-- Store enemy data
+		local enemyData = {
+			model = clone,
+			humanoid = humanoid,
+			humanoidRootPart = humanoidRootPart,
+			spawnPosition = spawnPosition,
+			currentTarget = nil,
+			lastWanderTime = 0,
+			lastPosition = spawnPosition,
+			lastPositionTime = 0,
+		}
+		
+		table.insert(self._enemies, enemyData)
+		table.insert(spawnedEnemies, enemyData)
+		
+		print(string.format("[HumanEnemyService] Spawned zone enemy %d at (%.1f, %.1f, %.1f)", 
+			i, spawnPosition.X, spawnPosition.Y, spawnPosition.Z))
+	end
+	
+	print(string.format("[HumanEnemyService] Spawned %d enemies at zone center (%.1f, %.1f, %.1f)", 
+		#spawnedEnemies, centerPosition.X, centerPosition.Y, centerPosition.Z))
+	
+	-- Fire signal
+	task.delay(1, function()
+		self.Client.EnemyCreated:FireAll()
+	end)
+	
+	return spawnedEnemies
 end
 
 return HumanEnemyService

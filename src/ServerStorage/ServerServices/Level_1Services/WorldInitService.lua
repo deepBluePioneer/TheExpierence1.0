@@ -42,7 +42,7 @@ local WorldInitService = Knit.CreateService {
 -- === CONFIG ===
 local CONFIG = {
 	-- Baseplate grid settings
-	BaseplateGridSize = 3,       -- 3x3 grid = 9 baseplates
+	BaseplateGridSize = 5,       -- 3x3 grid = 9 baseplates
 	BaseplateSize = Vector3.new(128, 1, 128),
 	BaseplateThickness = 1,
 	BaseHeight = 0,

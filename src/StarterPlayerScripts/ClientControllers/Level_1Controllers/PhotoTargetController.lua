@@ -393,9 +393,15 @@ local function performRaycast()
 		end
 	end
 	
-	-- Exclude grid cubes
+	-- Exclude grid cubes by tag
 	local gridCubes = CollectionService:GetTagged(GRID_CUBE_TAG)
 	for _, cube in ipairs(gridCubes) do
+		table.insert(excludeList, cube)
+	end
+	
+	-- Exclude reserved zone cubes by tag
+	local zoneCubes = CollectionService:GetTagged("reservedZoneCube")
+	for _, cube in ipairs(zoneCubes) do
 		table.insert(excludeList, cube)
 	end
 	
@@ -409,6 +415,12 @@ local function performRaycast()
 	local debugFolder = workspace:FindFirstChild("ExclusionZoneDebug")
 	if debugFolder then
 		table.insert(excludeList, debugFolder)
+	end
+	
+	-- Exclude red zones
+	local redZonesFolder = workspace:FindFirstChild("RedZones")
+	if redZonesFolder then
+		table.insert(excludeList, redZonesFolder)
 	end
 	
 	raycastParams.FilterDescendantsInstances = excludeList

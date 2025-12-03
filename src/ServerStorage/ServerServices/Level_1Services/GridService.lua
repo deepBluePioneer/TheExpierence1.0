@@ -155,6 +155,7 @@ local cubeTemplate = Instance.new("Part")
 cubeTemplate.Name = "CubeTemplate"
 cubeTemplate.Anchored = true
 cubeTemplate.CanCollide = false
+cubeTemplate.CastShadow = false
 cubeTemplate.Transparency = 1  -- Fully transparent
 cubeTemplate.Material = Enum.Material.SmoothPlastic
 

@@ -164,10 +164,18 @@ local function spawnRaindrop(self)
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	
 	-- Exclude rain effects, player, grid cells, and particle groups from raycast
-	local gridFolder = Workspace:FindFirstChild("GridCubes")
 	local excludeList = {getRainFolder(), Player.Character}
-	if gridFolder then
-		table.insert(excludeList, gridFolder)
+	
+	-- Exclude grid cubes by tag
+	local gridCubes = CollectionService:GetTagged("gridCube")
+	for _, cube in ipairs(gridCubes) do
+		table.insert(excludeList, cube)
+	end
+	
+	-- Exclude reserved zone cubes by tag
+	local zoneCubes = CollectionService:GetTagged("reservedZoneCube")
+	for _, cube in ipairs(zoneCubes) do
+		table.insert(excludeList, cube)
 	end
 	
 	-- Exclude all particle group anchors
@@ -180,6 +188,12 @@ local function spawnRaindrop(self)
 	local debugFolder = Workspace:FindFirstChild("ExclusionZoneDebug")
 	if debugFolder then
 		table.insert(excludeList, debugFolder)
+	end
+	
+	-- Exclude red zones
+	local redZonesFolder = Workspace:FindFirstChild("RedZones")
+	if redZonesFolder then
+		table.insert(excludeList, redZonesFolder)
 	end
 	
 	rayParams.FilterDescendantsInstances = excludeList

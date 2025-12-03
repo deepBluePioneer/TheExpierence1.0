@@ -161,11 +161,11 @@ local BIOMES = {
 		baseHeight = 15,
 		
 		defaultMaterial = Enum.Material.Snow,
-		slopeMaterial = Enum.Material.Rock,
+		slopeMaterial = Enum.Material.Snow,  -- Changed from Rock to Snow
 		peakMaterial = Enum.Material.Snow,
-		slopeThreshold = 0.4,
+		slopeThreshold = 0.7,  -- Increased from 0.4 - rock only on very steep slopes
 		peakHeight = 30,
-		rockMinHeight = 5,
+		rockMinHeight = 25,  -- Increased - rock only at very high elevations
 	},
 	
 	-- === COOL BIOMES (Temperature 0.2 - 0.5) ===
@@ -184,11 +184,11 @@ local BIOMES = {
 		baseHeight = 3,
 		
 		defaultMaterial = Enum.Material.Grass,
-		slopeMaterial = Enum.Material.Rock,
+		slopeMaterial = Enum.Material.Grass,  -- Changed from Rock
 		peakMaterial = Enum.Material.Snow,
-		slopeThreshold = 0.55,
+		slopeThreshold = 0.75,  -- Increased from 0.55
 		peakHeight = 25,
-		rockMinHeight = 12,
+		rockMinHeight = 20,  -- Increased from 12
 	},
 	
 	Mountain = {
@@ -196,8 +196,8 @@ local BIOMES = {
 		temperatureMin = 0.2,
 		temperatureMax = 0.5,
 		moistureMin = 0.0,
-		moistureMax = 0.6,
-		priority = 2,
+		moistureMax = 0.4,  -- Narrowed range - less common
+		priority = 1,  -- Reduced priority
 		
 		noiseScale = 0.006,
 		noiseAmplitude = 22,
@@ -205,12 +205,12 @@ local BIOMES = {
 		noisePersistence = 0.38,
 		baseHeight = 10,
 		
-		defaultMaterial = Enum.Material.Rock,
+		defaultMaterial = Enum.Material.Grass,  -- Changed from Rock to Grass
 		slopeMaterial = Enum.Material.Rock,
 		peakMaterial = Enum.Material.Snow,
-		slopeThreshold = 0.4,
+		slopeThreshold = 0.65,  -- Increased from 0.4 - rock only on steep slopes
 		peakHeight = 35,
-		rockMinHeight = 0,
+		rockMinHeight = 15,  -- Increased from 0
 	},
 	
 	-- === TEMPERATE BIOMES (Temperature 0.4 - 0.7) ===
@@ -229,11 +229,11 @@ local BIOMES = {
 		baseHeight = 2,
 		
 		defaultMaterial = Enum.Material.Grass,
-		slopeMaterial = Enum.Material.Rock,
+		slopeMaterial = Enum.Material.Grass,  -- Changed from Rock
 		peakMaterial = Enum.Material.Grass,
-		slopeThreshold = 0.55,
+		slopeThreshold = 0.8,  -- Increased from 0.55
 		peakHeight = 999,
-		rockMinHeight = 14,
+		rockMinHeight = 999,  -- No rock in forests
 	},
 	
 	Plains = {
@@ -295,11 +295,11 @@ local BIOMES = {
 		baseHeight = 4,
 		
 		defaultMaterial = Enum.Material.Grass,
-		slopeMaterial = Enum.Material.Rock,
+		slopeMaterial = Enum.Material.Grass,  -- Changed from Rock
 		peakMaterial = Enum.Material.Grass,
-		slopeThreshold = 0.6,
+		slopeThreshold = 0.8,  -- Increased from 0.6
 		peakHeight = 999,
-		rockMinHeight = 12,
+		rockMinHeight = 999,  -- No rock in hills
 	},
 	
 	-- === WARM/DRY BIOMES (Temperature 0.6 - 0.85) ===
@@ -327,11 +327,11 @@ local BIOMES = {
 	
 	Rocky = {
 		name = "Rocky",
-		temperatureMin = 0.4,
-		temperatureMax = 0.7,
+		temperatureMin = 0.45,  -- Narrowed range
+		temperatureMax = 0.6,   -- Less common
 		moistureMin = 0.0,
-		moistureMax = 0.3,
-		priority = 1,
+		moistureMax = 0.15,     -- Only very dry areas
+		priority = 0,           -- Lowest priority - rarely appears
 		
 		noiseScale = 0.006,
 		noiseAmplitude = 14,
@@ -339,21 +339,21 @@ local BIOMES = {
 		noisePersistence = 0.3,
 		baseHeight = 4,
 		
-		defaultMaterial = Enum.Material.Rock,
-		slopeMaterial = Enum.Material.Rock,
+		defaultMaterial = Enum.Material.Slate,  -- Changed from Rock to Slate (less harsh)
+		slopeMaterial = Enum.Material.Slate,
 		peakMaterial = Enum.Material.Rock,
-		slopeThreshold = 0.45,
+		slopeThreshold = 0.7,   -- Increased - rock only on steep areas
 		peakHeight = 999,
-		rockMinHeight = 0,
+		rockMinHeight = 10,     -- Rock only at height
 	},
 	
 	Badlands = {
 		name = "Badlands",
-		temperatureMin = 0.5,
+		temperatureMin = 0.6,   -- Narrowed - hotter only
 		temperatureMax = 0.85,
 		moistureMin = 0.0,
-		moistureMax = 0.25,
-		priority = 2,
+		moistureMax = 0.15,     -- Very dry only
+		priority = 1,           -- Reduced priority
 		
 		noiseScale = 0.007,
 		noiseAmplitude = 16,
@@ -362,11 +362,11 @@ local BIOMES = {
 		baseHeight = 3,
 		
 		defaultMaterial = Enum.Material.Sandstone,
-		slopeMaterial = Enum.Material.Rock,
+		slopeMaterial = Enum.Material.Sandstone,  -- Changed from Rock
 		peakMaterial = Enum.Material.Sandstone,
-		slopeThreshold = 0.45,
+		slopeThreshold = 0.7,   -- Increased from 0.45
 		peakHeight = 999,
-		rockMinHeight = 8,
+		rockMinHeight = 15,     -- Increased from 8
 	},
 	
 	-- === HOT BIOMES (Temperature 0.7 - 1.0) ===
@@ -436,14 +436,14 @@ local BIOMES = {
 		rockMinHeight = 999,
 	},
 	
-	-- === VOLCANIC (Special - high temperature, any moisture) ===
+	-- === VOLCANIC (Special - very high temperature, dry) ===
 	Volcanic = {
 		name = "Volcanic",
-		temperatureMin = 0.85,
+		temperatureMin = 0.9,   -- Only extremely hot areas
 		temperatureMax = 1.0,
 		moistureMin = 0.0,
-		moistureMax = 0.4,
-		priority = 3,  -- High priority when conditions match
+		moistureMax = 0.2,      -- Narrowed - very dry only
+		priority = 2,           -- Reduced priority
 		
 		noiseScale = 0.007,
 		noiseAmplitude = 20,
@@ -454,9 +454,9 @@ local BIOMES = {
 		defaultMaterial = Enum.Material.Basalt,
 		slopeMaterial = Enum.Material.Basalt,
 		peakMaterial = Enum.Material.CrackedLava,
-		slopeThreshold = 0.45,
+		slopeThreshold = 0.6,   -- Increased from 0.45
 		peakHeight = 25,
-		rockMinHeight = 0,
+		rockMinHeight = 10,     -- Increased from 0
 	},
 }
 
@@ -1293,7 +1293,10 @@ function TerrainService:CreateCave(entrancePosition, radius, depth, entranceRadi
 	local rayDirection = Vector3.new(0, -200, 0)
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-	raycastParams.FilterDescendantsInstances = {}
+	local excludeList = {}
+	local redZonesFolder = Workspace:FindFirstChild("RedZones")
+	if redZonesFolder then table.insert(excludeList, redZonesFolder) end
+	raycastParams.FilterDescendantsInstances = excludeList
 	
 	local raycastResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
 	local surfaceY = raycastResult and raycastResult.Position.Y or entrancePosition.Y
@@ -1371,7 +1374,10 @@ function TerrainService:AddRandomHills(centerX, centerZ, width, depth, seed)
 		local rayDirection = Vector3.new(0, -200, 0)
 		local raycastParams = RaycastParams.new()
 		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-		raycastParams.FilterDescendantsInstances = {}
+		local excludeList = {}
+		local redZonesFolder = Workspace:FindFirstChild("RedZones")
+		if redZonesFolder then table.insert(excludeList, redZonesFolder) end
+		raycastParams.FilterDescendantsInstances = excludeList
 		
 		local raycastResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
 		local surfaceY = raycastResult and raycastResult.Position.Y or CONFIG.BaseHeight
@@ -1380,7 +1386,8 @@ function TerrainService:AddRandomHills(centerX, centerZ, width, depth, seed)
 		local height = math.random(CONFIG.HillMinHeight, CONFIG.HillMaxHeight)
 		local hillPos = Vector3.new(x, surfaceY, z)
 		
-		local material = surfaceY > CONFIG.BaseHeight + 15 and Enum.Material.Rock or Enum.Material.Grass
+		-- Hills are mostly grass - only very high peaks get rock
+		local material = surfaceY > CONFIG.BaseHeight + 40 and Enum.Material.Rock or Enum.Material.Grass
 		
 		self:CreateHill(hillPos, radius, height, material)
 		
@@ -1403,7 +1410,10 @@ function TerrainService:AddRandomCaves(centerX, centerZ, width, depth, seed)
 		local rayDirection = Vector3.new(0, -200, 0)
 		local raycastParams = RaycastParams.new()
 		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-		raycastParams.FilterDescendantsInstances = {}
+		local excludeList = {}
+		local redZonesFolder = Workspace:FindFirstChild("RedZones")
+		if redZonesFolder then table.insert(excludeList, redZonesFolder) end
+		raycastParams.FilterDescendantsInstances = excludeList
 		
 		local raycastResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
 		local surfaceY = raycastResult and raycastResult.Position.Y or CONFIG.BaseHeight
@@ -1754,7 +1764,10 @@ function TerrainService:RepairTerrainHoles(centerX, centerZ, width, depth)
 			
 			local raycastParams = RaycastParams.new()
 			raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-			raycastParams.FilterDescendantsInstances = {}
+			local excludeList = {}
+			local redZonesFolder = Workspace:FindFirstChild("RedZones")
+			if redZonesFolder then table.insert(excludeList, redZonesFolder) end
+			raycastParams.FilterDescendantsInstances = excludeList
 			
 			local raycastResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
 			

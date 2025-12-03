@@ -1,5 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local CollectionService = game:GetService("CollectionService")
 
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Knit = require(Packages.Knit)
@@ -802,14 +803,23 @@ local function updateTerrainRaycastFilter()
 	local baseplatesFolder = Workspace:FindFirstChild("WorldBaseplates")
 	if baseplatesFolder then table.insert(excludeList, baseplatesFolder) end
 	
-	local gridFolder = Workspace:FindFirstChild("GridCubes")
-	if gridFolder then table.insert(excludeList, gridFolder) end
-	
 	local redZonesFolder = Workspace:FindFirstChild("RedZones")
 	if redZonesFolder then table.insert(excludeList, redZonesFolder) end
 	
 	local spawnedEnemies = Workspace:FindFirstChild("SpawnedEnemies")
 	if spawnedEnemies then table.insert(excludeList, spawnedEnemies) end
+	
+	-- Exclude grid cubes by tag
+	local gridCubes = CollectionService:GetTagged("gridCube")
+	for _, cube in ipairs(gridCubes) do
+		table.insert(excludeList, cube)
+	end
+	
+	-- Exclude reserved zone cubes by tag
+	local zoneCubes = CollectionService:GetTagged("reservedZoneCube")
+	for _, cube in ipairs(zoneCubes) do
+		table.insert(excludeList, cube)
+	end
 	
 	terrainRaycastParams.FilterDescendantsInstances = excludeList
 end

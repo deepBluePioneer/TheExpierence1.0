@@ -18,7 +18,7 @@ local WeatherService = Knit.CreateService {
 	},
 	weatherReplica = nil,
 	_dayNightEnabled = true,
-	_currentTime = 6,  -- Start at 6 AM
+	_currentTime = 10,  -- Start at 6 AM
 	_isNight = false,
 }
 
@@ -90,19 +90,19 @@ local WEATHER_PRESETS = {
 	},
 	
 	StormyNight = {
-		Brightness = 10,
-		Ambient = Color3.fromRGB(25, 30, 45),
-		OutdoorAmbient = Color3.fromRGB(35, 40, 55),
-		FogStart = 30,
-		FogEnd = 300,
-		FogColor = Color3.fromRGB(40, 45, 60),
+		Brightness = 8,
+		Ambient = Color3.fromRGB(55, 60, 80),
+		OutdoorAmbient = Color3.fromRGB(70, 75, 95),
+		FogStart = 15,
+		FogEnd = 180,
+		FogColor = Color3.fromRGB(50, 55, 70),
 		ClockTime = 22,  -- 10 PM
-		AtmosphereDensity = 0.6,
-		AtmosphereOffset = 0.3,
-		AtmosphereColor = Color3.fromRGB(80, 85, 100),
-		AtmosphereDecay = Color3.fromRGB(30, 35, 50),
+		AtmosphereDensity = 0.8,
+		AtmosphereOffset = 0.35,
+		AtmosphereColor = Color3.fromRGB(90, 95, 115),
+		AtmosphereDecay = Color3.fromRGB(40, 45, 60),
 		AtmosphereGlare = 0,
-		AtmosphereHaze = 2.5,
+		AtmosphereHaze = 3.5,
 	},
 }
 

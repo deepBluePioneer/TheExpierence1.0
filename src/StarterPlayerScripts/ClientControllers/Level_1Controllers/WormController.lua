@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
+local CollectionService = game:GetService("CollectionService")
 
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Knit = require(Packages.Knit)
@@ -101,6 +102,23 @@ local function updateRaycastFilter()
     local dirtFolder = Workspace:FindFirstChild("WormDirt")
     if dirtFolder then
         table.insert(excludeList, dirtFolder)
+    end
+
+    local redZonesFolder = Workspace:FindFirstChild("RedZones")
+    if redZonesFolder then
+        table.insert(excludeList, redZonesFolder)
+    end
+
+    -- Exclude grid cubes by tag
+    local gridCubes = CollectionService:GetTagged("gridCube")
+    for _, cube in ipairs(gridCubes) do
+        table.insert(excludeList, cube)
+    end
+
+    -- Exclude reserved zone cubes by tag
+    local zoneCubes = CollectionService:GetTagged("reservedZoneCube")
+    for _, cube in ipairs(zoneCubes) do
+        table.insert(excludeList, cube)
     end
 
     raycastParams.FilterDescendantsInstances = excludeList

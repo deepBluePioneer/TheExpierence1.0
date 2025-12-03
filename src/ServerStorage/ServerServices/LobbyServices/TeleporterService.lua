@@ -1,6 +1,8 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
+local RunService = game:GetService("RunService")
+local TeleportService = game:GetService("TeleportService")
 
 local Packages = ReplicatedStorage.Packages
 local CustomPackages = ReplicatedStorage.CustomPackages
@@ -18,18 +20,42 @@ local ReplicaService = require(Replica.ReplicaService)
 -- TeleportQueue module
 local TeleportQueueModule = require(CustomPackages:WaitForChild("TeleportQueue").TeleportQueueService)
 
+-- Studio detection
+local IS_STUDIO = RunService:IsStudio()
+
+-- Place IDs
+local LOBBY_PLACE_ID = 116406282300852
+local MAIN_PLACE_ID = 93295390305658
+
 -- Configuration
 local CONFIG = {
 	QUEUE_COUNTDOWN = 30, -- Seconds before auto-flush
-	MIN_PLAYERS_TO_START = 2, -- Minimum players to start countdown
-	MAX_PLAYERS_PER_QUEUE = 2, -- Max players per teleporter queue
+	DEFAULT_MIN_PLAYERS = 2, -- Default minimum players to start countdown
+	DEFAULT_MAX_PLAYERS = 2, -- Default max players per queue
 	
-	-- Place IDs for each teleporter (customize these)
+	-- Place IDs for each teleporter
 	TELEPORTER_DESTINATIONS = {
-		Teleporter1 = 93295390305658, -- Level 1
-		Teleporter2 = 93295390305658, -- Level 1 (same for now)
-		Teleporter3 = 93295390305658, -- Level 1 (same for now)
+		Teleporter1 = MAIN_PLACE_ID,  -- Goes to main game (single-player test mode)
+		Teleporter2 = MAIN_PLACE_ID,  -- Goes to main game
+		Teleporter3 = LOBBY_PLACE_ID, -- Goes back to lobby
 	},
+	
+	-- Per-teleporter max player settings (overrides DEFAULT_MAX_PLAYERS)
+	TELEPORTER_MAX_PLAYERS = {
+		Teleporter1 = 1, -- Single player only (for testing)
+		Teleporter2 = 2, -- 2 players
+		Teleporter3 = 2, -- 2 players
+	},
+	
+	-- Per-teleporter min players to start countdown (overrides DEFAULT_MIN_PLAYERS)
+	TELEPORTER_MIN_PLAYERS = {
+		Teleporter1 = 1, -- Starts immediately with 1 player
+		Teleporter2 = 2, -- Needs 2 players
+		Teleporter3 = 2, -- Needs 2 players
+	},
+	
+	-- Studio testing: Teleporter1 allows single-player teleport for testing
+	STUDIO_TEST_TELEPORTER = "Teleporter1",
 }
 
 local TeleporterService = Knit.CreateService {
@@ -75,7 +101,8 @@ function TeleporterService:InitQueueReplica()
 end
 
 function TeleporterService:InitQueueData(zoneName, teleporterName)
-	local maxPlayers = CONFIG.MAX_PLAYERS_PER_QUEUE
+	-- Get per-teleporter max players (or use default)
+	local maxPlayers = CONFIG.TELEPORTER_MAX_PLAYERS[teleporterName] or CONFIG.DEFAULT_MAX_PLAYERS
 
 	-- 🔹 Store initial queue counts on the server
 	self.CurrentQueueCounts[zoneName] = 0
@@ -90,6 +117,7 @@ function TeleporterService:InitQueueData(zoneName, teleporterName)
 		IsCountingDown = false,
 		TeleporterName = teleporterName,
 		DestinationPlaceId = CONFIG.TELEPORTER_DESTINATIONS[teleporterName] or 0,
+		IsSinglePlayer = maxPlayers == 1, -- Flag for UI to show appropriate text
 	})
 
 	-- Initialize the billboard count replica
@@ -104,11 +132,12 @@ end
 
 function TeleporterService:CreateQueue(zoneName, teleporterName)
 	local placeId = CONFIG.TELEPORTER_DESTINATIONS[teleporterName] or 0
+	local maxPlayers = CONFIG.TELEPORTER_MAX_PLAYERS[teleporterName] or CONFIG.DEFAULT_MAX_PLAYERS
 	
 	local queue = TeleportQueueModule.new({
 		PlaceId = placeId,
 		Id = zoneName,
-		MaxPlayers = CONFIG.MAX_PLAYERS_PER_QUEUE,
+		MaxPlayers = maxPlayers,
 		
 		OnPlayerAdded = function(q, player)
 			print("[TeleporterService] Player added to queue (callback):", player.Name, zoneName)
@@ -144,11 +173,11 @@ function TeleporterService:UpdateQueueReplica(zoneName)
 		table.insert(playerNames, player.Name)
 	end
 
-	local maxCount = CONFIG.MAX_PLAYERS_PER_QUEUE
+	-- Get max from stored value (set during init)
+	local maxCount = self.MaxQueueCounts[zoneName] or CONFIG.DEFAULT_MAX_PLAYERS
 
 	-- 🔹 update tracked counts
 	self.CurrentQueueCounts[zoneName] = currentCount
-	self.MaxQueueCounts[zoneName] = maxCount
 
 	-- Update main Replica (for popup UI)
 	self.QueueReplica:SetValue({ "Queues", zoneName, "Players" }, playerNames)
@@ -186,6 +215,14 @@ function TeleporterService:CheckQueueCountdown(zoneName)
 	local queue = self.Queues[zoneName]
 	if not queue then return end
 	
+	-- Get teleporter name for this zone
+	local zoneData = self.Zones[zoneName]
+	local teleporterName = zoneData and zoneData.teleporterName or "Unknown"
+	
+	-- Get per-teleporter settings
+	local minPlayers = CONFIG.TELEPORTER_MIN_PLAYERS[teleporterName] or CONFIG.DEFAULT_MIN_PLAYERS
+	local maxPlayers = CONFIG.TELEPORTER_MAX_PLAYERS[teleporterName] or CONFIG.DEFAULT_MAX_PLAYERS
+	
 	local playersTable = queue:GetPlayers()
 	local playerCount = 0
 
@@ -194,15 +231,15 @@ function TeleporterService:CheckQueueCountdown(zoneName)
 	end
 
 	-- Start countdown if minimum players reached
-	if playerCount >= CONFIG.MIN_PLAYERS_TO_START and not self.QueueTimers[zoneName] then
+	if playerCount >= minPlayers and not self.QueueTimers[zoneName] then
 		self:StartQueueCountdown(zoneName)
 	-- Stop countdown if not enough players
-	elseif playerCount < CONFIG.MIN_PLAYERS_TO_START and self.QueueTimers[zoneName] then
+	elseif playerCount < minPlayers and self.QueueTimers[zoneName] then
 		self:StopQueueCountdown(zoneName)
 	end
 	
 	-- Auto-flush if queue is full
-	if playerCount >= CONFIG.MAX_PLAYERS_PER_QUEUE then
+	if playerCount >= maxPlayers then
 		self:FlushQueue(zoneName)
 	end
 end
@@ -260,6 +297,48 @@ function TeleporterService:FlushQueue(zoneName)
 	
 	-- Clear player zones for teleported players
 	-- (They'll be gone from the game soon anyway)
+end
+
+-- Studio testing: Teleport a single player directly (bypasses queue system)
+function TeleporterService:TeleportSinglePlayer(player, teleporterName)
+	local placeId = CONFIG.TELEPORTER_DESTINATIONS[teleporterName]
+	if not placeId then
+		warn("[TeleporterService] No destination for teleporter:", teleporterName)
+		return false
+	end
+	
+	if IS_STUDIO then
+		-- In Studio, teleports don't work to live games
+		-- Show a message instead and simulate the teleport
+		print("[TeleporterService] STUDIO MODE: Would teleport", player.Name, "to PlaceId:", placeId)
+		print("[TeleporterService] Teleporter:", teleporterName)
+		print("[TeleporterService] Destination:", placeId == MAIN_PLACE_ID and "Main Game" or "Lobby")
+		
+		-- You can still try the teleport - it will fail gracefully in Studio
+		-- but this lets you test the flow
+		local success, err = pcall(function()
+			TeleportService:Teleport(placeId, player)
+		end)
+		
+		if not success then
+			print("[TeleporterService] STUDIO: Teleport blocked (expected):", err)
+		end
+		
+		return true
+	else
+		-- Live game: Actually teleport
+		local success, err = pcall(function()
+			TeleportService:Teleport(placeId, player)
+		end)
+		
+		if success then
+			print("[TeleporterService] Teleported", player.Name, "to", placeId)
+		else
+			warn("[TeleporterService] Teleport failed:", err)
+		end
+		
+		return success
+	end
 end
 
 function TeleporterService:AddPlayerToQueue(player, zoneName)
@@ -328,6 +407,24 @@ function TeleporterService:SetupZone(zonePart)
 	-- Player entered zone -> Add to queue FIRST, then update player zone (triggers popup)
 	zone.playerEntered:Connect(function(player)
 		print("[TeleporterService]", player.Name, "entered", zoneName)
+		
+		-- STUDIO TEST MODE: If this is the test teleporter and we're in Studio,
+		-- allow immediate single-player teleport
+		if IS_STUDIO and teleporterName == CONFIG.STUDIO_TEST_TELEPORTER then
+			print("[TeleporterService] STUDIO TEST MODE: Single-player teleport enabled for", teleporterName)
+			self:UpdatePlayerZone(player, zoneName, teleporterName, zoneColor)
+			
+			-- Wait a moment then teleport (gives player time to see the zone)
+			task.delay(2, function()
+				-- Check if player is still in the zone
+				local userId = tostring(player.UserId)
+				local playerZoneData = self.QueueReplica.Data.PlayerZones[userId]
+				if playerZoneData and playerZoneData.ZoneName == zoneName then
+					self:TeleportSinglePlayer(player, teleporterName)
+				end
+			end)
+			return
+		end
 		
 		-- Add to queue first (updates count replica)
 		local success, result = self:AddPlayerToQueue(player, zoneName)

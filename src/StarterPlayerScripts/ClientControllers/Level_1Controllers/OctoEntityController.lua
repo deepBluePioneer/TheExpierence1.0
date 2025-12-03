@@ -182,10 +182,18 @@ local function performVisionDetection(entityData, playerDirection)
 		excludeSet[cube] = true
 	end
 	
+	-- Exclude red zones
+	for _, zone in ipairs(CollectionService:GetTagged("redZone")) do
+		excludeSet[zone] = true
+	end
+	local redZonesFolder = workspace:FindFirstChild("RedZones")
+	
 	-- Create overlap params
 	local overlapParams = OverlapParams.new()
 	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
-	overlapParams.FilterDescendantsInstances = {entityData.model, player and player.Character}
+	local filterList = {entityData.model, player and player.Character}
+	if redZonesFolder then table.insert(filterList, redZonesFolder) end
+	overlapParams.FilterDescendantsInstances = filterList
 	
 	-- Single sphere detection - find all parts within radius
 	local partsInSphere = workspace:GetPartBoundsInRadius(bodyPos, visionRadius, overlapParams)
