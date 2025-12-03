@@ -716,20 +716,28 @@ end
 
 local function createTree(position, folder)
 	local treeType = pickTreeType()
+	local tree
 	
 	if treeType == "Ancient" then
-		return createAncientTree(position, folder)
+		tree = createAncientTree(position, folder)
 	elseif treeType == "Fungal" then
-		return createFungalTree(position, folder)
+		tree = createFungalTree(position, folder)
 	elseif treeType == "Ossified" then
-		return createOssifiedTree(position, folder)
+		tree = createOssifiedTree(position, folder)
 	elseif treeType == "Veined" then
-		return createVeinedTree(position, folder)
+		tree = createVeinedTree(position, folder)
 	elseif treeType == "Spire" then
-		return createSpireTree(position, folder)
+		tree = createSpireTree(position, folder)
 	else
-		return createAncientTree(position, folder)
+		tree = createAncientTree(position, folder)
 	end
+	
+	-- Tag for fog-aligned streaming culling on client
+	if tree then
+		CollectionService:AddTag(tree, "proceduralTree")
+	end
+	
+	return tree
 end
 
 -- === PLACEMENT ===

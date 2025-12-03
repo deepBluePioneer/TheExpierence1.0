@@ -278,4 +278,7 @@ function SplinePathController:KnitStart()
 	end)
 end
 
+-- Expose config for external access (DebugVisualsController)
+SplinePathController.PATH_CONFIG = PATH_CONFIG
+
 return SplinePathController

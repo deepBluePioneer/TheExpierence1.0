@@ -809,26 +809,34 @@ end
 
 local function createFormation(position, folder)
 	local formationType = pickFormationType()
+	local formation
 	
 	if formationType == "CrystalCluster" then
-		return createCrystalCluster(position, folder)
+		formation = createCrystalCluster(position, folder)
 	elseif formationType == "OrganicSpire" then
-		return createOrganicSpire(position, folder)
+		formation = createOrganicSpire(position, folder)
 	elseif formationType == "Monolith" then
-		return createMonolith(position, folder)
+		formation = createMonolith(position, folder)
 	elseif formationType == "FungalColony" then
-		return createFungalColony(position, folder)
+		formation = createFungalColony(position, folder)
 	elseif formationType == "FossilFormation" then
-		return createFossilFormation(position, folder)
+		formation = createFossilFormation(position, folder)
 	elseif formationType == "FloatingRocks" then
-		return createFloatingRocks(position, folder)
+		formation = createFloatingRocks(position, folder)
 	elseif formationType == "PodCluster" then
-		return createPodCluster(position, folder)
+		formation = createPodCluster(position, folder)
 	elseif formationType == "AncientRuin" then
-		return createAncientRuin(position, folder)
+		formation = createAncientRuin(position, folder)
 	else
-		return createCrystalCluster(position, folder)
+		formation = createCrystalCluster(position, folder)
 	end
+	
+	-- Tag for fog-aligned streaming culling on client
+	if formation then
+		CollectionService:AddTag(formation, "alienFormation")
+	end
+	
+	return formation
 end
 
 -- === PLACEMENT ===

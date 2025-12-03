@@ -17,6 +17,7 @@ local Knit = require(Packages.Knit)
 local WormController = Knit.CreateController {
     Name = "WormController",
     _worms = {},
+    _streamingCullingController = nil, -- Reference to culling controller
 }
 
 -- === CONFIGURATION ===
@@ -628,6 +629,12 @@ function WormController:SpawnWorm(x, z, name)
         wormData.segments[i].Position = wormData.segmentPositions[i]
     end
 
+    -- Register with streaming culling controller for fog-aligned culling
+    if self._streamingCullingController and wormData.model then
+        self._streamingCullingController:RegisterEntity(wormData.model, "wormEntity")
+        CollectionService:AddTag(wormData.model, "clientEntity")  -- For auto-tracking
+    end
+
     print(string.format(
         "[WormController] Spawned '%s' at (%.0f, %.0f)",
         name or "SandWorm",
@@ -667,6 +674,17 @@ end
 
 function WormController:KnitInit()
     print("[WormController] Initializing (path-based, surface-aware FX + highlight)...")
+    
+    -- Get reference to streaming culling controller
+    task.spawn(function()
+        local success, controller = pcall(function()
+            return Knit.GetController("StreamingCullingController")
+        end)
+        if success and controller then
+            self._streamingCullingController = controller
+            print("[WormController] Connected to StreamingCullingController for fog-based culling")
+        end
+    end)
 end
 
 function WormController:KnitStart()
@@ -684,17 +702,17 @@ function WormController:KnitStart()
 
     print("[WormController] Started")
 
-    -- Test spawn
-    task.delay(5, function()
-        local baseplate = Workspace:FindFirstChild("Baseplate")
-        local cx = baseplate and baseplate.Position.X or 0
-        local cz = baseplate and baseplate.Position.Z or 0
-        self:SpawnWorm(
-            cx + (math.random() - 0.5) * 100,
-            cz + (math.random() - 0.5) * 100,
-            "SandWorm_1"
-        )
-    end)
+    -- Test spawn (DISABLED)
+    -- task.delay(5, function()
+    --     local baseplate = Workspace:FindFirstChild("Baseplate")
+    --     local cx = baseplate and baseplate.Position.X or 0
+    --     local cz = baseplate and baseplate.Position.Z or 0
+    --     self:SpawnWorm(
+    --         cx + (math.random() - 0.5) * 100,
+    --         cz + (math.random() - 0.5) * 100,
+    --         "SandWorm_1"
+    --     )
+    -- end)
 end
 
 return WormController

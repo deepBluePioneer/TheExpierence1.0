@@ -52,7 +52,11 @@
 
     "Workspace": {
       "$properties": {
-        "FilteringEnabled": true
+        "FilteringEnabled": true,
+        "StreamingEnabled": true,
+        "StreamingMinRadius": 128,
+        "StreamingTargetRadius": 400,
+        "StreamingIntegrityMode": "Default"
       },
       "Baseplate": {
         "$className": "Part",

@@ -1058,5 +1058,8 @@ function PhotoTargetController:CleanupWorldReticle()
 	cleanupWorldReticle()
 end
 
+-- Expose config for external access (DebugVisualsController)
+PhotoTargetController.TARGET_CONFIG = TARGET_CONFIG
+
 return PhotoTargetController
 

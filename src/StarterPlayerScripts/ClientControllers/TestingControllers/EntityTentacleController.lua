@@ -1,9 +1,9 @@
 --[[
 	EntityTentacleController (CLIENT-SIDE)
-	Finds entities with "entity" tag and adds animated tentacles to their heads
+	Finds entities with "entity" tag and adds procedurally animated tentacles to their heads
+	Uses pure CFrame animation - no physics constraints
 ]]
 
-local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
 
@@ -14,6 +14,7 @@ local EntityTentacleController = Knit.CreateController {
 	Name = "EntityTentacleController",
 	_processedEntities = {},  -- Track entities we've already processed
 	_entityData = {},  -- Store tentacle data for each entity
+	_streamingCullingController = nil, -- Reference to culling controller
 }
 
 -- === CONFIG ===
@@ -31,7 +32,7 @@ local TENTACLE_CONFIG = {
 	WiggleSpeed = 2.0,              -- How fast tentacles wiggle
 	WiggleAmplitude = 0.3,          -- How much they wiggle (radians)
 	WaveSpeed = 3.0,                -- Speed of wave propagation down tentacle
-	IdleSwaySpeed = 0.5,             -- Slow idle swaying
+	IdleSwaySpeed = 0.5,            -- Slow idle swaying
 	IdleSwayAmplitude = 0.1,        -- Idle sway amount
 }
 
@@ -63,23 +64,7 @@ local function fibonacciSphere(index, total)
 	).Unit
 end
 
--- Get attachment point for tentacles (use PrimaryPart or first BasePart)
-local function getAttachmentPoint(model)
-	if model.PrimaryPart and model.PrimaryPart:IsA("BasePart") then
-		return model.PrimaryPart
-	end
-	
-	-- Find first BasePart
-	for _, part in ipairs(model:GetDescendants()) do
-		if part:IsA("BasePart") then
-			return part
-		end
-	end
-	
-	return nil
-end
-
--- Create a tentacle segment
+-- Create a tentacle segment (anchored for procedural animation)
 local function createTentacleSegment(index, totalSegments, baseWidth, tipWidth, segmentLength, parent)
 	local t = index / totalSegments
 	local width = lerp(baseWidth, tipWidth, t)
@@ -87,9 +72,8 @@ local function createTentacleSegment(index, totalSegments, baseWidth, tipWidth, 
 	local segment = Instance.new("Part")
 	segment.Name = "TentacleSegment_" .. index
 	segment.Size = Vector3.new(width, segmentLength, width)
-	segment.Anchored = false  -- Unanchored to attach to head
+	segment.Anchored = true  -- Anchored for procedural CFrame animation
 	segment.CanCollide = false
-	segment.Massless = true  -- Don't add weight
 	segment.CanQuery = false
 	segment.CanTouch = false
 	segment.CastShadow = true
@@ -106,13 +90,9 @@ local function createTentacleSegment(index, totalSegments, baseWidth, tipWidth, 
 end
 
 -- Create tentacles for an entity
-local function createTentacles(entityModel, attachmentPart)
+local function createTentacles(tentacleFolder, head)
 	local tentacles = {}
 	local segmentLength = TENTACLE_CONFIG.TentacleLength / TENTACLE_CONFIG.TentacleSegments
-	
-	-- Get attachment part size for attachment point
-	local partSize = attachmentPart.Size
-	local partRadius = math.max(partSize.X, partSize.Z, partSize.Y) / 2
 	
 	for i = 1, TENTACLE_CONFIG.TentacleCount do
 		-- Get direction for this tentacle (fibonacci sphere distribution)
@@ -133,7 +113,7 @@ local function createTentacles(entityModel, attachmentPart)
 				TENTACLE_CONFIG.TentacleBaseWidth,
 				TENTACLE_CONFIG.TentacleTipWidth,
 				segmentLength,
-				entityModel
+				tentacleFolder
 			)
 			table.insert(tentacle.segments, segment)
 		end
@@ -144,190 +124,111 @@ local function createTentacles(entityModel, attachmentPart)
 	return tentacles
 end
 
--- Get or create attachment at specific position
-local function getOrCreateAttachment(part, attachmentName, worldPosition)
-	local attachment = part:FindFirstChild(attachmentName)
-	if not attachment then
-		attachment = Instance.new("Attachment")
-		attachment.Name = attachmentName
-		attachment.Parent = part
-		
-		-- Position attachment based on name or world position
-		if worldPosition then
-			-- Convert world position to local space
-			attachment.WorldPosition = worldPosition
-		elseif attachmentName == "BaseAttachment" then
-			-- At the base (center of part, offset by half length)
-			attachment.Position = Vector3.new(0, -part.Size.Y / 2, 0)
-		elseif attachmentName == "TipAttachment" then
-			-- At the tip (center of part, offset by half length)
-			attachment.Position = Vector3.new(0, part.Size.Y / 2, 0)
-		elseif attachmentName == "OrientationAttachment" then
-			-- At center for orientation
-			attachment.Position = Vector3.new(0, 0, 0)
-		end
+-- Find the Head MeshPart of a humanoid model
+local function findHead(model)
+	-- Look for Head MeshPart (recursive search)
+	local head = model:FindFirstChild("Head", true)
+	if head and (head:IsA("MeshPart") or head:IsA("BasePart")) then
+		return head
 	end
-	return attachment
+	
+	return nil
 end
 
--- Attach tentacles to attachment part using constraints
-local function attachTentaclesToPart(tentacles, attachmentPart, entityData)
-	for _, tentacle in ipairs(tentacles) do
-		if #tentacle.segments > 0 then
-			local baseDir = tentacle.direction
-			
-			-- Calculate attachment point on part surface
-			local partSize = attachmentPart.Size
-			local partRadius = math.max(partSize.X, partSize.Z, partSize.Y) / 2
-			local partCF = attachmentPart.CFrame
-			local rotatedBaseDir = partCF:VectorToWorldSpace(baseDir)
-			local attachmentWorldPos = attachmentPart.Position + rotatedBaseDir * partRadius
-			
-			-- First segment: use BallSocketConstraint to attachment part with AlignPosition for animation
-			local firstSegment = tentacle.segments[1]
-			if firstSegment and attachmentPart then
-				
-				-- BallSocketConstraint for flexible attachment
-				local ballSocket = Instance.new("BallSocketConstraint")
-				ballSocket.Attachment0 = getOrCreateAttachment(attachmentPart, "TentacleAttachment_" .. tentacle.index, attachmentWorldPos)
-				ballSocket.Attachment1 = getOrCreateAttachment(firstSegment, "BaseAttachment")
-				ballSocket.LimitsEnabled = true
-				ballSocket.UpperAngle = 45
-				ballSocket.Parent = firstSegment
-				
-				-- AlignPosition for animation control
-				local alignPos = Instance.new("AlignPosition")
-				alignPos.Attachment0 = ballSocket.Attachment0
-				alignPos.Attachment1 = ballSocket.Attachment1
-				alignPos.MaxForce = 10000
-				alignPos.MaxVelocity = 50
-				alignPos.Responsiveness = 50
-				alignPos.Parent = firstSegment
-				
-				-- Store for animation updates
-				tentacle.baseAlignPosition = alignPos
-				tentacle.attachmentPart = attachmentPart
-				tentacle.attachmentPoint = ballSocket.Attachment0
-			end
-			
-			-- Subsequent segments: BallSocketConstraint to previous segment
-			for i = 2, #tentacle.segments do
-				local prevSegment = tentacle.segments[i - 1]
-				local currSegment = tentacle.segments[i]
-				if prevSegment and currSegment then
-					-- BallSocketConstraint
-					local ballSocket = Instance.new("BallSocketConstraint")
-					ballSocket.Attachment0 = getOrCreateAttachment(prevSegment, "TipAttachment")
-					ballSocket.Attachment1 = getOrCreateAttachment(currSegment, "BaseAttachment")
-					ballSocket.LimitsEnabled = true
-					ballSocket.UpperAngle = 30
-					ballSocket.Parent = currSegment
-					
-					-- AlignPosition for animation
-					local alignPos = Instance.new("AlignPosition")
-					alignPos.Attachment0 = ballSocket.Attachment0
-					alignPos.Attachment1 = ballSocket.Attachment1
-					alignPos.MaxForce = 10000
-					alignPos.MaxVelocity = 50
-					alignPos.Responsiveness = 50
-					alignPos.Parent = currSegment
-					
-					-- Store for animation updates
-					if not tentacle.segmentAlignPositions then
-						tentacle.segmentAlignPositions = {}
-					end
-					tentacle.segmentAlignPositions[i] = alignPos
-				end
-			end
-		end
-	end
-end
-
--- Process an entity: create tentacles
+-- Process an entity: create tentacles on head
 local function processEntity(self, entity: Model)
+	task.wait(5)
+	
+	-- Skip if already processed
+	if self._processedEntities[entity] then
+		return
+	end
+	
 	-- Make sure it's a humanoid character
 	local humanoid = entity:FindFirstChildOfClass("Humanoid")
 	if not humanoid then
+		warn("[EntityTentacleController] Entity has no Humanoid:", entity.Name)
 		return
 	end
-
-	print("Coloring entity:", entity.Name)
-
-	-- Helper to color a single part
-	local function colorPart(part: BasePart)
-		part.BrickColor = BrickColor.new("Bright yellow")
-
-		-- Optional: strip decals/textures so the color shows
-		for _, child in ipairs(part:GetChildren()) do
-			if child:IsA("Decal") or child:IsA("Texture") then
-				child:Destroy()
+	
+	-- Find the head
+	local head = findHead(entity)
+	if not head then
+		warn("[EntityTentacleController] Entity has no Head:", entity.Name)
+		-- Watch for head being added later
+		entity.DescendantAdded:Connect(function(d)
+			if d:IsA("BasePart") and d.Name == "Head" and not self._processedEntities[entity] then
+				print("[EntityTentacleController] Head added later, processing:", entity.Name)
+				processEntity(self, entity)
 			end
-		end
+		end)
+		return
 	end
-
-	-- 1) Color any parts that already exist
-	local foundAny = false
-	for _, d in ipairs(entity:GetDescendants()) do
-		if d:IsA("BasePart") then
-			foundAny = true
-			colorPart(d)
-		end
+	
+	-- Mark as processed
+	self._processedEntities[entity] = true
+	
+	print("[EntityTentacleController] Adding tentacles to:", entity.Name, "on head:", head.Name)
+	
+	-- Create a folder to hold tentacle segments
+	local tentacleFolder = Instance.new("Folder")
+	tentacleFolder.Name = "Tentacles_" .. entity.Name
+	tentacleFolder.Parent = entity
+	
+	-- Create tentacles
+	local tentacles = createTentacles(tentacleFolder, head)
+	
+	-- Store entity data for animation updates
+	local entityData = {
+		model = entity,
+		head = head,
+		tentacles = tentacles,
+		tentacleFolder = tentacleFolder,
+	}
+	
+	self._entityData[entity] = entityData
+	
+	-- Register tentacle folder with streaming culling controller for fog-aligned culling
+	if self._streamingCullingController and tentacleFolder then
+		self._streamingCullingController:RegisterEntity(tentacleFolder, "entityTentacles")
+		CollectionService:AddTag(tentacleFolder, "clientEntity")  -- For auto-tracking
 	end
-
-	if not foundAny then
-		print("No BaseParts yet on", entity.Name, "- will watch for new ones.")
-	end
-
-	-- 2) Also color parts that get added later (when the rig actually spawns)
-	entity.DescendantAdded:Connect(function(d)
-		if d:IsA("BasePart") then
-			print("New part added to", entity.Name, "->", d.Name, "(", d.ClassName, ")")
-			colorPart(d)
+	
+	-- Cleanup when entity is removed
+	entity.AncestryChanged:Connect(function(_, parent)
+		if not parent then
+			self._processedEntities[entity] = nil
+			self._entityData[entity] = nil
 		end
 	end)
+	
+	print("[EntityTentacleController] Successfully added", #tentacles, "tentacles to", entity.Name)
 end
 
-
-
-
-
--- Update tentacle animation using AlignPosition constraints
-local function updateTentacleAnimation(entityData, deltaTime, currentTime)
-	if not entityData.model or not entityData.model.Parent then
+-- Update tentacle animation procedurally (pure CFrame manipulation)
+local function updateTentacleAnimation(entityData, currentTime)
+	local head = entityData.head
+	if not head or not head.Parent then
 		return
 	end
 	
-	local attachmentPart = entityData.attachmentPart
-	if not attachmentPart or not attachmentPart.Parent then
-		return
-	end
+	local headPos = head.Position
+	local headCF = head.CFrame
+	local headSize = head.Size
+	local headRadius = math.max(headSize.X, headSize.Z, headSize.Y) / 2
 	
-	local partPos = attachmentPart.Position
-	local partCF = attachmentPart.CFrame
-	local partSize = attachmentPart.Size
-	local partRadius = math.max(partSize.X, partSize.Z, partSize.Y) / 2
+	local segmentLength = TENTACLE_CONFIG.TentacleLength / TENTACLE_CONFIG.TentacleSegments
 	
 	for _, tentacle in ipairs(entityData.tentacles) do
 		local baseDir = tentacle.direction
 		local phaseOffset = tentacle.phaseOffset
-		local segmentLength = TENTACLE_CONFIG.TentacleLength / TENTACLE_CONFIG.TentacleSegments
 		
-		-- Transform base direction by attachment part rotation
-		local rotatedBaseDir = partCF:VectorToWorldSpace(baseDir)
+		-- Transform base direction by head rotation (tentacles follow head orientation)
+		local rotatedBaseDir = headCF:VectorToWorldSpace(baseDir)
 		
-		-- Starting position at attachment part surface
-		local currentPos = partPos + rotatedBaseDir * partRadius
+		-- Starting position at head surface
+		local currentPos = headPos + rotatedBaseDir * headRadius
 		local currentDir = rotatedBaseDir
-		
-		-- Update attachment point position (follows part movement)
-		if tentacle.attachmentPoint then
-			tentacle.attachmentPoint.WorldPosition = currentPos
-		end
-		
-		-- Update first segment's AlignPosition target
-		if tentacle.baseAlignPosition and tentacle.baseAlignPosition.Attachment0 then
-			tentacle.baseAlignPosition.Attachment0.WorldPosition = currentPos
-		end
 		
 		for i, segment in ipairs(tentacle.segments) do
 			if not segment or not segment.Parent then continue end
@@ -366,42 +267,22 @@ local function updateTentacleAnimation(entityData, deltaTime, currentTime)
 			local rotatedDir = CFrame.fromAxisAngle(right, totalRotX) * CFrame.fromAxisAngle(up, totalRotZ) * CFrame.new(currentDir)
 			currentDir = rotatedDir.Position.Unit
 			
-			-- Add slight gravity influence
+			-- Add slight gravity influence (tentacles droop slightly)
 			local gravityInfluence = t * 0.1 * math.max(0, -baseDir.Y + 0.5)
 			currentDir = (currentDir + Vector3.new(0, -gravityInfluence, 0)).Unit
 			
-			-- Calculate target position for this segment
+			-- Calculate segment center position
 			local segmentCenter = currentPos + currentDir * (segmentLength / 2)
 			
-			-- Update AlignPosition target for this segment
-			if i > 1 and tentacle.segmentAlignPositions and tentacle.segmentAlignPositions[i] then
-				local alignPos = tentacle.segmentAlignPositions[i]
-				if alignPos.Attachment0 then
-					alignPos.Attachment0.WorldPosition = segmentCenter
-				end
-			end
-			
-			-- Update orientation using AlignOrientation
+			-- Create CFrame: position at center, oriented along current direction
+			-- Cylinder mesh is oriented along X axis, so we need to rotate 90 degrees
 			local lookCF = CFrame.lookAt(segmentCenter, segmentCenter + currentDir)
-			local targetCFrame = lookCF * CFrame.Angles(0, 0, math.rad(90))
+			local finalCF = lookCF * CFrame.Angles(0, 0, math.rad(90))
 			
-			-- Get or create AlignOrientation for this segment
-			if not segment:FindFirstChild("AlignOrientation") then
-				local alignOri = Instance.new("AlignOrientation")
-				alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
-				alignOri.Attachment0 = getOrCreateAttachment(segment, "OrientationAttachment")
-				alignOri.MaxTorque = 10000
-				alignOri.MaxAngularVelocity = 50
-				alignOri.Responsiveness = 50
-				alignOri.Parent = segment
-			end
+			-- Set segment CFrame directly (procedural animation)
+			segment.CFrame = finalCF
 			
-			local alignOri = segment:FindFirstChild("AlignOrientation")
-			if alignOri and alignOri.Attachment0 then
-				alignOri.Attachment0.WorldCFrame = targetCFrame
-			end
-			
-			-- Move to next segment position
+			-- Move to next segment position (tip of current segment)
 			currentPos = currentPos + currentDir * segmentLength
 		end
 	end
@@ -411,6 +292,17 @@ end
 
 function EntityTentacleController:KnitInit()
 	warn("[EntityTentacleController] Initializing...")
+	
+	-- Get reference to streaming culling controller
+	task.spawn(function()
+		local success, controller = pcall(function()
+			return Knit.GetController("StreamingCullingController")
+		end)
+		if success and controller then
+			self._streamingCullingController = controller
+			print("[EntityTentacleController] Connected to StreamingCullingController for fog-based culling")
+		end
+	end)
 end
 
 function EntityTentacleController:KnitStart()
@@ -423,28 +315,28 @@ function EntityTentacleController:KnitStart()
 	
 	for _, entity in ipairs(entities) do
 		if entity and entity:IsA("Model") and entity.Parent then
-			processEntity(self, entity)
+			task.spawn(function()
+				processEntity(self, entity)
+			end)
 		end
 	end
 	
 	-- Listen for new entities being added with the tag
 	CollectionService:GetInstanceAddedSignal(TENTACLE_CONFIG.EntityTag):Connect(function(entity)
 		if entity:IsA("Model") then
-			processEntity(self, entity)
+			task.spawn(function()
+				processEntity(self, entity)
+			end)
 		end
 	end)
 	
-	-- Animation loop
+	-- Animation loop - runs every frame
 	local startTime = tick()
-	local lastTime = tick()
 	RunService.Heartbeat:Connect(function()
 		local currentTime = tick() - startTime
-		local now = tick()
-		local deltaTime = now - lastTime
-		lastTime = now
 		
 		for _, entityData in pairs(self._entityData) do
-			updateTentacleAnimation(entityData, deltaTime, currentTime)
+			updateTentacleAnimation(entityData, currentTime)
 		end
 	end)
 	
@@ -452,4 +344,3 @@ function EntityTentacleController:KnitStart()
 end
 
 return EntityTentacleController
-

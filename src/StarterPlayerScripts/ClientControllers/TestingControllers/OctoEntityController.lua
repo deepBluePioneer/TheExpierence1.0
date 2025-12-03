@@ -17,6 +17,7 @@ local OctoEntityController = Knit.CreateController {
 	Name = "OctoEntityController",
 	_entities = {}, -- Track all spawned octo entities
 	_entityFolder = nil, -- Container for all octo entities
+	_streamingCullingController = nil, -- Reference to culling controller
 }
 
 -- === CONFIGURATION ===
@@ -600,6 +601,13 @@ end
 function OctoEntityController:SpawnOcto(position)
 	local entityData = createOctoEntity(self, position)
 	table.insert(self._entities, entityData)
+	
+	-- Register with streaming culling controller for fog-aligned culling
+	if self._streamingCullingController and entityData.model then
+		self._streamingCullingController:RegisterEntity(entityData.model, "octoEntity")
+		CollectionService:AddTag(entityData.model, "clientEntity")  -- For auto-tracking
+	end
+	
 	print(string.format("[OctoEntityController] Spawned OctoEntity at %.1f, %.1f, %.1f", position.X, position.Y, position.Z))
 	return entityData
 end
@@ -728,6 +736,17 @@ function OctoEntityController:KnitInit()
 	self._entityFolder = Instance.new("Folder")
 	self._entityFolder.Name = "OctoEntities"
 	self._entityFolder.Parent = workspace
+	
+	-- Get reference to streaming culling controller
+	task.spawn(function()
+		local success, controller = pcall(function()
+			return Knit.GetController("StreamingCullingController")
+		end)
+		if success and controller then
+			self._streamingCullingController = controller
+			print("[OctoEntityController] Connected to StreamingCullingController for fog-based culling")
+		end
+	end)
 end
 
 function OctoEntityController:KnitStart()
@@ -752,6 +771,9 @@ function OctoEntityController:KnitStart()
 		self:SpawnOcto(spawnPos)
 	end)
 end
+
+-- Expose config for external access (DebugVisualsController)
+OctoEntityController.OCTO_CONFIG = OCTO_CONFIG
 
 return OctoEntityController
 
