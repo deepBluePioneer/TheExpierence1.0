@@ -9,10 +9,12 @@ local ServerServices = ServerStorage.Source.ServerServices
 -- Define the Place IDs for different game environments
 local Level_1PlaceID = 93295390305658
 local LobbyPlaceID = 116406282300852
+local TestingPlaceID = 111394067928168
 
 -- Define service directories based on game type
 local LobbyServices = ServerServices.LobbyServices
 local Level_1Services = ServerServices.Level_1Services
+local TestingServices = ServerServices.TestingServices
 
 -- Function to require services recursively
 local function requireServices(directory)
@@ -32,11 +34,14 @@ local function loadServicesForPlace(placeId)
         serviceDirectory = LobbyServices
     elseif placeId == Level_1PlaceID then
         serviceDirectory = Level_1Services
+    elseif placeId == TestingPlaceID then
+        serviceDirectory = TestingServices
     else
         warn("Unrecognized Place ID, no services loaded")
         return
     end
 
+    print("[KnitServer] Loading services from:", serviceDirectory.Name)
     requireServices(serviceDirectory)
 end
 

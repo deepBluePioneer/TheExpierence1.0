@@ -4,10 +4,13 @@ local StarterPlayerScripts = StarterPlayer.StarterPlayerScripts
 local Knit = require(ReplicatedStorage.Packages.Knit)
 local Level_1PlaceID = 93295390305658
 local LobbyPlaceID = 116406282300852
+local TestingPlaceID = 111394067928168
+
 -- References to controller directories
 local ClientControllers = StarterPlayerScripts.Source.ClientControllers
 local LobbyControllers = ClientControllers.LobbyControllers
 local Level_1Controllers = ClientControllers.Level_1Controllers
+local TestingControllers = ClientControllers.TestingControllers
 
 -- Function to require controllers recursively
 local function requireControllers(directory)
@@ -25,15 +28,16 @@ local function loadControllersForPlace(placeId)
     local controllerDirectory
     if placeId == LobbyPlaceID then
         controllerDirectory = LobbyControllers
-        print(controllerDirectory)
     elseif placeId == Level_1PlaceID then
         controllerDirectory = Level_1Controllers
-        print(controllerDirectory)
+    elseif placeId == TestingPlaceID then
+        controllerDirectory = TestingControllers
     else
         warn("Unrecognized Place ID, no controllers loaded")
         return
     end
 
+    print("[KnitClient] Loading controllers from:", controllerDirectory.Name)
     requireControllers(controllerDirectory)
 end
 
