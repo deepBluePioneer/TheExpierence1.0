@@ -76,68 +76,45 @@ local function calculateCirclePositions(center, radius, count)
 	return positions
 end
 
--- Raycast to find ground height
-local function getGroundHeight(position)
-	local rayOrigin = Vector3.new(position.X, 500, position.Z)
-	local rayDirection = Vector3.new(0, -1000, 0)
-	
-	local raycastParams = RaycastParams.new()
-	raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-	local excludeList = {}
-	
-	-- Exclude trees, formations, and spawned enemies
-	local treesFolder = Workspace:FindFirstChild("Trees")
-	if treesFolder then table.insert(excludeList, treesFolder) end
-	
-	local formationsFolder = Workspace:FindFirstChild("AlienFormations")
-	if formationsFolder then table.insert(excludeList, formationsFolder) end
-	
-	local spawnedEnemiesFolder = Workspace:FindFirstChild("SpawnedEnemies")
-	if spawnedEnemiesFolder then table.insert(excludeList, spawnedEnemiesFolder) end
-	
-	-- Exclude red zones
-	local redZonesFolder = Workspace:FindFirstChild("RedZones")
-	if redZonesFolder then table.insert(excludeList, redZonesFolder) end
-	
-	-- Exclude grid cubes by tag
-	local gridCubes = CollectionService:GetTagged("gridCube")
-	for _, cube in ipairs(gridCubes) do
-		table.insert(excludeList, cube)
-	end
-	
-	-- Exclude reserved zone cubes by tag
-	local zoneCubes = CollectionService:GetTagged("reservedZoneCube")
-	for _, cube in ipairs(zoneCubes) do
-		table.insert(excludeList, cube)
-	end
-	
-	raycastParams.FilterDescendantsInstances = excludeList
-	
-	local raycastResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-	
-	if raycastResult then
-		return raycastResult.Position.Y
-	else
-		-- Fallback to GridService/TerrainService height
-		local GridService = nil
+-- === TERRAIN HEIGHT LOOKUP (via CubeTerrainService - no raycasting) ===
+
+-- Cache for CubeTerrainService reference
+local _cubeTerrainService = nil
+
+local function getCubeTerrainService()
+	if not _cubeTerrainService then
 		pcall(function()
-			GridService = Knit.GetService("GridService")
+			_cubeTerrainService = Knit.GetService("CubeTerrainService")
 		end)
-		
-		if GridService then
-			local gridData = GridService:GetGridData()
-			if gridData and gridData.topY then
-				return gridData.topY
-			end
-		end
-		
-		-- Legacy fallback to baseplate height
-		local baseplate = Workspace:FindFirstChild("Baseplate")
-		if baseplate and baseplate:IsA("BasePart") then
-			return baseplate.Position.Y + baseplate.Size.Y / 2
-		end
-		return position.Y
 	end
+	return _cubeTerrainService
+end
+
+-- Get terrain surface height at position (uses CubeTerrainService direct lookup)
+local function getGroundHeight(position)
+	local terrainService = getCubeTerrainService()
+	if terrainService then
+		local height = terrainService:GetSurfaceHeightAt(position.X, position.Z)
+		if height and height > 0 then
+			return height
+		end
+	end
+	
+	-- Fallback to GridService height
+	local GridService = nil
+	pcall(function()
+		GridService = Knit.GetService("GridService")
+	end)
+	
+	if GridService then
+		local gridData = GridService:GetGridData()
+		if gridData and gridData.topY then
+			return gridData.topY
+		end
+	end
+	
+	-- Legacy fallback
+	return position.Y
 end
 
 -- Calculate the bottom offset of a model (for humanoid rigs)
@@ -296,49 +273,17 @@ local function findWanderDestination(spawnPosition)
 	local targetX = spawnPosition.X + math.cos(angle) * distance
 	local targetZ = spawnPosition.Z + math.sin(angle) * distance
 	
-	-- Raycast to find ground height at target
-	local rayOrigin = Vector3.new(targetX, 500, targetZ)
-	local rayDirection = Vector3.new(0, -1000, 0)
-	
-	local raycastParams = RaycastParams.new()
-	raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-	local excludeList = {}
-	
-	local treesFolder = Workspace:FindFirstChild("Trees")
-	if treesFolder then table.insert(excludeList, treesFolder) end
-	
-	local formationsFolder = Workspace:FindFirstChild("AlienFormations")
-	if formationsFolder then table.insert(excludeList, formationsFolder) end
-	
-	local spawnedEnemiesFolder = Workspace:FindFirstChild("SpawnedEnemies")
-	if spawnedEnemiesFolder then table.insert(excludeList, spawnedEnemiesFolder) end
-	
-	-- Exclude red zones
-	local redZonesFolder = Workspace:FindFirstChild("RedZones")
-	if redZonesFolder then table.insert(excludeList, redZonesFolder) end
-	
-	-- Exclude grid cubes by tag
-	local gridCubes = CollectionService:GetTagged("gridCube")
-	for _, cube in ipairs(gridCubes) do
-		table.insert(excludeList, cube)
+	-- Get terrain surface height at target (using CubeTerrainService - no raycast)
+	local terrainService = getCubeTerrainService()
+	if terrainService then
+		local terrainY = terrainService:GetSurfaceHeightAt(targetX, targetZ)
+		if terrainY and terrainY > 0 then
+			return Vector3.new(targetX, terrainY, targetZ)
+		end
 	end
 	
-	-- Exclude reserved zone cubes by tag
-	local zoneCubes = CollectionService:GetTagged("reservedZoneCube")
-	for _, cube in ipairs(zoneCubes) do
-		table.insert(excludeList, cube)
-	end
-	
-	raycastParams.FilterDescendantsInstances = excludeList
-	
-	local raycastResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-	
-	if raycastResult then
-		return raycastResult.Position
-	else
-		-- Fallback to spawn position height
-		return Vector3.new(targetX, spawnPosition.Y, targetZ)
-	end
+	-- Fallback to spawn position height
+	return Vector3.new(targetX, spawnPosition.Y, targetZ)
 end
 
 -- Update wandering for all enemies

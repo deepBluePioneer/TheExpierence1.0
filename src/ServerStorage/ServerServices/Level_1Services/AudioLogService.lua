@@ -620,69 +620,29 @@ end
 
 -- === GENERATION ===
 
--- Raycast to find ground height at a position
+-- === TERRAIN HEIGHT LOOKUP (via CubeTerrainService - no raycasting) ===
+
+-- Cache for CubeTerrainService reference
+local _cubeTerrainService = nil
+
+local function getCubeTerrainService()
+	if not _cubeTerrainService then
+		pcall(function()
+			_cubeTerrainService = Knit.GetService("CubeTerrainService")
+		end)
+	end
+	return _cubeTerrainService
+end
+
+-- Get terrain surface height at position (uses CubeTerrainService direct lookup)
 local function getGroundHeight(x, z, fallbackY)
-	local rayOrigin = Vector3.new(x, 500, z)  -- Start high above
-	local rayDirection = Vector3.new(0, -1000, 0)  -- Cast downward
-	
-	-- Build exclude list - ignore audio logs, trees, and formations so we hit actual ground
-	local excludeList = {}
-	
-	local audioLogFolder = Workspace:FindFirstChild("AudioLogs")
-	if audioLogFolder then
-		table.insert(excludeList, audioLogFolder)
+	local terrainService = getCubeTerrainService()
+	if terrainService then
+		local height = terrainService:GetSurfaceHeightAt(x, z)
+		if height and height > 0 then
+			return height
+		end
 	end
-	
-	local treesFolder = Workspace:FindFirstChild("Trees")
-	if treesFolder then
-		table.insert(excludeList, treesFolder)
-	end
-	
-	local formationsFolder = Workspace:FindFirstChild("AlienFormations")
-	if formationsFolder then
-		table.insert(excludeList, formationsFolder)
-	end
-	
-	local monolithFolder = Workspace:FindFirstChild("MonolithEntity")
-	if monolithFolder then
-		table.insert(excludeList, monolithFolder)
-	end
-	
-	-- Exclude debug visualization
-	local debugFolder = Workspace:FindFirstChild("ExclusionZoneDebug")
-	if debugFolder then
-		table.insert(excludeList, debugFolder)
-	end
-	
-	-- Exclude red zones
-	local redZonesFolder = Workspace:FindFirstChild("RedZones")
-	if redZonesFolder then
-		table.insert(excludeList, redZonesFolder)
-	end
-	
-	-- Exclude grid cubes by tag
-	local gridCubes = CollectionService:GetTagged("gridCube")
-	for _, cube in ipairs(gridCubes) do
-		table.insert(excludeList, cube)
-	end
-	
-	-- Exclude reserved zone cubes by tag
-	local zoneCubes = CollectionService:GetTagged("reservedZoneCube")
-	for _, cube in ipairs(zoneCubes) do
-		table.insert(excludeList, cube)
-	end
-	
-	local raycastParams = RaycastParams.new()
-	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-	raycastParams.FilterDescendantsInstances = excludeList
-	raycastParams.IgnoreWater = true
-	
-	local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-	
-	if result then
-		return result.Position.Y
-	end
-	
 	return fallbackY or 0
 end
 
@@ -815,7 +775,7 @@ function AudioLogService:KnitStart()
 		print("[AudioLogService] Waiting for terrain generation via signals...")
 		
 		-- Wait for terrain-related services to complete via signals
-		local stepsToWait = {"TerrainService", "TreeService", "FormationService"}
+		local stepsToWait = {"CubeTerrainService", "TreeService", "FormationService"}
 		
 		LoadingService:OnStepsComplete(stepsToWait, function()
 			print("[AudioLogService] Terrain generation complete, placing audio logs...")

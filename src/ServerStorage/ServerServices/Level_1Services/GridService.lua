@@ -46,6 +46,9 @@ local GridService = Knit.CreateService {
 	_isGridReady = false,
 	_baseplateInfo = nil,
 	_autoStart = false,  -- Set to false to let WorldInitService control initialization
+	
+	-- Service references
+	_cubeTerrainService = nil,
 }
 
 -- === CONFIG ===
@@ -156,7 +159,7 @@ cubeTemplate.Name = "CubeTemplate"
 cubeTemplate.Anchored = true
 cubeTemplate.CanCollide = false
 cubeTemplate.CastShadow = false
-cubeTemplate.Transparency = 1  -- Fully transparent
+cubeTemplate.Transparency = 1  -- Fully transparent (for zone detection cubes)
 cubeTemplate.Material = Enum.Material.SmoothPlastic
 
 local function getCellKey(x, z)
@@ -179,7 +182,7 @@ local function createCubeFast(x, z, folder, gridData)
 		BASEPLATE_CENTER.Z + offsetZ
 	)
 	
-	-- Color based on position (checkerboard pattern)
+	-- Color based on position (checkerboard pattern) - for debug if visible
 	if (x + z) % 2 == 0 then
 		cube.Color = Color3.fromRGB(66, 135, 245)  -- Blue
 	else
@@ -294,9 +297,9 @@ local function generateGrid(self)
 	self.zones = {}
 	
 	clearGrid()
-	local folder = getGridFolder()
+	local gridFolder = getGridFolder()
 	
-	-- PHASE 1: Batch create all parts first (fast)
+	-- PHASE 1: Batch create all zone detection cubes
 	local allCubes = {}
 	local batchCount = 0
 	local totalCells = GRID_WIDTH * GRID_DEPTH
@@ -306,26 +309,25 @@ local function generateGrid(self)
 	
 	for x = 1, GRID_WIDTH do
 		for z = 1, GRID_DEPTH do
-			local cube = createCubeFast(x, z, folder, self._gridData)
+			local cube = createCubeFast(x, z, gridFolder, self._gridData)
 			table.insert(allCubes, {cube = cube, x = x, z = z})
 			
 			cellsCreated += 1
 			batchCount += 1
 			if batchCount >= BATCH_SIZE then
 				batchCount = 0
-				-- Report progress (10-60% range for cell creation)
 				local cellProgress = 10 + (cellsCreated / totalCells) * 50
 				reportProgress("Creating grid cells", math.floor(cellProgress), 100)
-				task.wait()  -- Yield to prevent lag spikes
+				task.wait()
 			end
 		end
 	end
 	
 	local partTime = tick()
-	print(string.format("[GridService] Created %d parts in %.2fs", #allCubes, partTime - startTime))
+	print(string.format("[GridService] Created %d zone cubes in %.2fs", #allCubes, partTime - startTime))
 	reportProgress("Grid cells created", 60, 100)
 	
-	-- PHASE 2: Attach zones in batches (slower, do after parts visible)
+	-- PHASE 2: Attach zones in batches
 	reportProgress("Attaching zones", 65, 100)
 	
 	task.spawn(function()
@@ -336,10 +338,9 @@ local function generateGrid(self)
 			
 			zoneCount += 1
 			if zoneCount % BATCH_SIZE == 0 then
-				-- Report progress (65-95% range for zone attachment)
 				local zoneProgress = 65 + (zoneCount / totalZones) * 30
 				reportProgress("Attaching zones", math.floor(zoneProgress), 100)
-				task.wait()  -- Yield periodically
+				task.wait()
 			end
 		end
 		
@@ -531,9 +532,9 @@ function GridService:GenerateGridNow()
 	self.zones = {}
 	
 	clearGrid()
-	local folder = getGridFolder()
+	local gridFolder = getGridFolder()
 	
-	-- Create all cubes
+	-- Create zone detection cubes
 	local allCubes = {}
 	local batchCount = 0
 	local totalCells = GRID_WIDTH * GRID_DEPTH
@@ -543,14 +544,14 @@ function GridService:GenerateGridNow()
 	
 	for x = 1, GRID_WIDTH do
 		for z = 1, GRID_DEPTH do
-			local cube = createCubeFast(x, z, folder, self._gridData)
+			local cube = createCubeFast(x, z, gridFolder, self._gridData)
 			table.insert(allCubes, {cube = cube, x = x, z = z})
 			
 			cellsCreated += 1
 			batchCount += 1
 			if batchCount >= BATCH_SIZE then
 				batchCount = 0
-				local cellProgress = 10 + (cellsCreated / totalCells) * 50
+				local cellProgress = 10 + (cellsCreated / totalCells) * 40
 				reportProgress("Creating grid cells", math.floor(cellProgress), 100)
 				task.wait()
 			end
@@ -558,11 +559,11 @@ function GridService:GenerateGridNow()
 	end
 	
 	local partTime = tick()
-	print(string.format("[GridService] Created %d parts in %.2fs", #allCubes, partTime - startTime))
-	reportProgress("Grid cells created", 60, 100)
+	print(string.format("[GridService] Created %d zone cubes in %.2fs", #allCubes, partTime - startTime))
+	reportProgress("Grid cells created", 55, 100)
 	
 	-- Attach zones in background
-	reportProgress("Attaching zones", 65, 100)
+	reportProgress("Attaching zones", 60, 100)
 	
 	task.spawn(function()
 		local zoneCount = 0
@@ -572,7 +573,7 @@ function GridService:GenerateGridNow()
 			
 			zoneCount += 1
 			if zoneCount % BATCH_SIZE == 0 then
-				local zoneProgress = 65 + (zoneCount / totalZones) * 30
+				local zoneProgress = 60 + (zoneCount / totalZones) * 35
 				reportProgress("Attaching zones", math.floor(zoneProgress), 100)
 				task.wait()
 			end
@@ -614,6 +615,11 @@ function GridService:ClearGrid()
 	self.zones = {}
 	
 	clearGrid()
+	
+	-- Also clear terrain via CubeTerrainService if available
+	if self._cubeTerrainService then
+		self._cubeTerrainService:ClearTerrain()
+	end
 end
 
 function GridService:StartTimer()
@@ -825,6 +831,56 @@ function GridService:IsValidSpawnPosition(position, minSpacing, existingPosition
 	end
 	
 	return true, nil
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║                    CUBE TERRAIN SERVICE INTEGRATION                        ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- Get reference to CubeTerrainService (lazy loading)
+function GridService:GetCubeTerrainService()
+	if not self._cubeTerrainService then
+		pcall(function()
+			self._cubeTerrainService = Knit.GetService("CubeTerrainService")
+		end)
+	end
+	return self._cubeTerrainService
+end
+
+-- Generate terrain using CubeTerrainService
+function GridService:GenerateTerrain()
+	local terrainService = self:GetCubeTerrainService()
+	if terrainService then
+		return terrainService:GenerateTerrain(
+			GRID_WIDTH,
+			GRID_DEPTH,
+			CUBE_SIZE,
+			BASEPLATE_CENTER.X,
+			BASEPLATE_CENTER.Z,
+			BASEPLATE_TOP_Y
+		)
+	else
+		warn("[GridService] CubeTerrainService not available!")
+		return 0
+	end
+end
+
+-- Get terrain height at grid position (delegates to CubeTerrainService)
+function GridService:GetTerrainHeightAtCell(x, z)
+	local terrainService = self:GetCubeTerrainService()
+	if terrainService then
+		return self._gridData.topY + terrainService:GetHeightAtCell(x, z)
+	end
+	return self._gridData.topY
+end
+
+-- Get terrain height at world position (delegates to CubeTerrainService)
+function GridService:GetTerrainHeightAtPosition(worldPos)
+	local terrainService = self:GetCubeTerrainService()
+	if terrainService then
+		return terrainService:GetHeightAtPosition(worldPos)
+	end
+	return self._gridData.topY
 end
 
 return GridService

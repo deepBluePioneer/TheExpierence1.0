@@ -16,7 +16,7 @@ local FormationService = Knit.CreateService {
 -- === CONFIG ===
 local CONFIG = {
 	-- Spawning
-	FormationCount = 80,
+	FormationCount = 100,
 	MinSpacing = 25,
 	EdgePadding = 15,
 	TreeAvoidDistance = 12, -- Avoid spawning too close to trees
@@ -899,56 +899,30 @@ local function getTreePositions()
 	return positions
 end
 
--- Create raycast params (cached for performance)
-local terrainRaycastParams = RaycastParams.new()
-terrainRaycastParams.FilterType = Enum.RaycastFilterType.Exclude
+-- === TERRAIN HEIGHT LOOKUP (via CubeTerrainService - no raycasting) ===
 
-local function updateTerrainRaycastFilter()
-	local excludeList = {}
-	
-	-- Exclude non-terrain objects
-	local treesFolder = Workspace:FindFirstChild("ProceduralTrees")
-	if treesFolder then table.insert(excludeList, treesFolder) end
-	
-	local formationsFolder = Workspace:FindFirstChild("AlienFormations")
-	if formationsFolder then table.insert(excludeList, formationsFolder) end
-	
-	local baseplatesFolder = Workspace:FindFirstChild("WorldBaseplates")
-	if baseplatesFolder then table.insert(excludeList, baseplatesFolder) end
-	
-	local redZonesFolder = Workspace:FindFirstChild("RedZones")
-	if redZonesFolder then table.insert(excludeList, redZonesFolder) end
-	
-	local spawnedEnemies = Workspace:FindFirstChild("SpawnedEnemies")
-	if spawnedEnemies then table.insert(excludeList, spawnedEnemies) end
-	
-	-- Exclude grid cubes by tag
-	local gridCubes = CollectionService:GetTagged("gridCube")
-	for _, cube in ipairs(gridCubes) do
-		table.insert(excludeList, cube)
+-- Cache for CubeTerrainService reference
+local _cubeTerrainService = nil
+
+local function getCubeTerrainService()
+	if not _cubeTerrainService then
+		pcall(function()
+			_cubeTerrainService = Knit.GetService("CubeTerrainService")
+		end)
 	end
-	
-	-- Exclude reserved zone cubes by tag
-	local zoneCubes = CollectionService:GetTagged("reservedZoneCube")
-	for _, cube in ipairs(zoneCubes) do
-		table.insert(excludeList, cube)
-	end
-	
-	terrainRaycastParams.FilterDescendantsInstances = excludeList
+	return _cubeTerrainService
 end
 
--- Single raycast to find terrain height
-local function raycastTerrainHeight(x, z, fallbackY)
-	local rayOrigin = Vector3.new(x, 500, z)
-	local rayDirection = Vector3.new(0, -1000, 0)
-	
-	local raycastResult = Workspace:Raycast(rayOrigin, rayDirection, terrainRaycastParams)
-	
-	if raycastResult then
-		return raycastResult.Position.Y
-	else
-		return fallbackY or 0
+-- Get terrain surface height at position (uses CubeTerrainService direct lookup)
+local function getTerrainHeight(x, z, fallbackY)
+	local terrainService = getCubeTerrainService()
+	if terrainService then
+		local height = terrainService:GetSurfaceHeightAt(x, z)
+		if height and height > 0 then
+			return height
+		end
 	end
+	return fallbackY or 0
 end
 
 -- ROBUST terrain height sampling: samples multiple points and returns the LOWEST
@@ -956,10 +930,16 @@ end
 local function getTerrainHeightRobust(x, z, fallbackY, footprintRadius)
 	footprintRadius = footprintRadius or CONFIG.FootprintRadius or 8
 	
-	updateTerrainRaycastFilter()
+	local terrainService = getCubeTerrainService()
+	if not terrainService then
+		return fallbackY or 0
+	end
 	
 	-- Sample center point
-	local centerY = raycastTerrainHeight(x, z, fallbackY)
+	local centerY = terrainService:GetSurfaceHeightAt(x, z)
+	if not centerY or centerY <= 0 then
+		centerY = fallbackY or 0
+	end
 	local lowestY = centerY
 	
 	-- Sample 8 points around the footprint (like a compass rose)
@@ -977,20 +957,14 @@ local function getTerrainHeightRobust(x, z, fallbackY, footprintRadius)
 	for _, offset in ipairs(sampleOffsets) do
 		local sampleX = x + offset[1] * footprintRadius
 		local sampleZ = z + offset[2] * footprintRadius
-		local sampleY = raycastTerrainHeight(sampleX, sampleZ, fallbackY)
+		local sampleY = terrainService:GetSurfaceHeightAt(sampleX, sampleZ)
 		
-		if sampleY < lowestY then
+		if sampleY and sampleY > 0 and sampleY < lowestY then
 			lowestY = sampleY
 		end
 	end
 	
 	return lowestY
-end
-
--- Legacy single-point function (kept for compatibility)
-local function getTerrainHeight(x, z, fallbackY)
-	updateTerrainRaycastFilter()
-	return raycastTerrainHeight(x, z, fallbackY)
 end
 
 local function generateFormationPositions(baseplateInfo, count)

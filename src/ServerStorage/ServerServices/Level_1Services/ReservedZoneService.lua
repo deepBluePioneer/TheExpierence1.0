@@ -21,7 +21,7 @@ local ReservedZoneService = Knit.CreateService {
 	Name = "ReservedZoneService",
 	Client = {},
 	_gridService = nil,
-	_terrainService = nil,
+	_cubeTerrainService = nil,
 	_zones = {},  -- Track all zones by type: { [zoneType] = { cells = {}, zoneCube = Part, zone = Zone } }
 	_autoStart = false,  -- Set to false to let WorldInitService control initialization
 	_isInitialized = false,
@@ -84,7 +84,7 @@ local ZONE_CUBE_TAG = "reservedZoneCube"
 
 -- === TERRAIN FLATTENING ===
 
--- Flatten terrain under the reserved area using TerrainService
+-- Flatten terrain under the reserved area using CubeTerrainService
 local function flattenTerrainUnderReservedArea(self, cellPositions, zoneType)
 	if not ZONE_TYPES[zoneType] or not ZONE_TYPES[zoneType].flattenTerrain then
 		return  -- Don't flatten if zone type doesn't require it
@@ -93,9 +93,9 @@ local function flattenTerrainUnderReservedArea(self, cellPositions, zoneType)
 		return
 	end
 	
-	local TerrainService = self._terrainService
-	if not TerrainService then
-		warn("[ReservedZoneService] TerrainService not found, cannot flatten terrain")
+	local CubeTerrainService = self._cubeTerrainService
+	if not CubeTerrainService then
+		warn("[ReservedZoneService] CubeTerrainService not found, cannot flatten terrain")
 		return
 	end
 	
@@ -104,79 +104,41 @@ local function flattenTerrainUnderReservedArea(self, cellPositions, zoneType)
 		return
 	end
 	
-	-- Calculate the bounds of the reserved area
-	local minX, maxX = math.huge, -math.huge
-	local minZ, maxZ = math.huge, -math.huge
+	-- Calculate the center cell position
+	local totalX, totalZ = 0, 0
+	local minGridX, maxGridX = math.huge, -math.huge
+	local minGridZ, maxGridZ = math.huge, -math.huge
 	
 	for _, pos in ipairs(cellPositions) do
-		minX = math.min(minX, pos.X)
-		maxX = math.max(maxX, pos.X)
-		minZ = math.min(minZ, pos.Z)
-		maxZ = math.max(maxZ, pos.Z)
+		-- Convert world position to grid position
+		local gridX, gridZ = self._gridService:WorldToGrid(pos)
+		minGridX = math.min(minGridX, gridX)
+		maxGridX = math.max(maxGridX, gridX)
+		minGridZ = math.min(minGridZ, gridZ)
+		maxGridZ = math.max(maxGridZ, gridZ)
+		totalX = totalX + gridX
+		totalZ = totalZ + gridZ
 	end
 	
-	-- Calculate center and size of the reserved area
-	local centerX = (minX + maxX) / 2
-	local centerZ = (minZ + maxZ) / 2
-	local cellSize = self._gridService:GetCellSize()
-	local sizeX = maxX - minX + cellSize
-	local sizeZ = maxZ - minZ + cellSize
+	-- Calculate center grid position
+	local centerGridX = math.floor((minGridX + maxGridX) / 2)
+	local centerGridZ = math.floor((minGridZ + maxGridZ) / 2)
+	local radiusX = math.ceil((maxGridX - minGridX) / 2) + 1
+	local radiusZ = math.ceil((maxGridZ - minGridZ) / 2) + 1
+	local radius = math.max(radiusX, radiusZ)
 	
 	-- Get the flat height from GridService topY (the ground level)
 	local flatHeight = self._gridService:GetTopY()
-	if not flatHeight or flatHeight == 0 then
-		-- Fallback: raycast to find terrain height at center
-		local Terrain = Workspace.Terrain
-		local rayOrigin = Vector3.new(centerX, 500, centerZ)
-		local rayDirection = Vector3.new(0, -1000, 0)
-		local rayParams = RaycastParams.new()
-		rayParams.FilterType = Enum.RaycastFilterType.Include
-		rayParams.FilterDescendantsInstances = {Terrain}
-		
-		local rayResult = Workspace:Raycast(rayOrigin, rayDirection, rayParams)
-		if rayResult then
-			flatHeight = rayResult.Position.Y
-		else
-			flatHeight = 0  -- Default to 0 if all else fails
-		end
-	end
 	
-	local centerPos = Vector3.new(centerX, flatHeight, centerZ)
-	local areaSize = Vector3.new(sizeX + 4, 50, sizeZ + 4)  -- Extra padding and height to clear terrain
-	
-	-- Flatten the terrain via TerrainService
 	print(string.format(
-		"[ReservedZoneService] Flattening terrain at (%.1f, %.1f, %.1f) size (%.1f, %.1f, %.1f)", 
-		centerPos.X, centerPos.Y, centerPos.Z, areaSize.X, areaSize.Y, areaSize.Z
+		"[ReservedZoneService] Flattening terrain at grid (%d, %d) radius %d", 
+		centerGridX, centerGridZ, radius
 	))
 	
-	TerrainService:CreateFlatArea(centerPos, areaSize, flatHeight)
+	-- Flatten the terrain via CubeTerrainService
+	CubeTerrainService:FlattenArea(centerGridX, centerGridZ, radius, flatHeight)
 	
-	-- Remove grass by replacing it with a non-grass material (Concrete) via TerrainService helper
-	-- Use a larger vertical range to catch all terrain
-	TerrainService:ReplaceMaterialRegion(
-		centerPos,
-		Vector3.new(sizeX + 4, 30, sizeZ + 4),
-		Enum.Material.Grass,
-		Enum.Material.Concrete
-	)
-	
-	-- Also replace other common materials to ensure flat concrete surface
-	TerrainService:ReplaceMaterialRegion(
-		centerPos,
-		Vector3.new(sizeX + 4, 30, sizeZ + 4),
-		Enum.Material.Sand,
-		Enum.Material.Concrete
-	)
-	
-	TerrainService:ReplaceMaterialRegion(
-		centerPos,
-		Vector3.new(sizeX + 4, 30, sizeZ + 4),
-		Enum.Material.Rock,
-		Enum.Material.Concrete
-	)
-	
-	print("[ReservedZoneService] Terrain flattened and converted to concrete under Building zone")
+	print("[ReservedZoneService] Terrain cubes flattened under Building zone")
 end
 
 -- Create a zone for a specific zone type
@@ -717,9 +679,9 @@ function ReservedZoneService:KnitInit()
 		self._gridService = Knit.GetService("GridService")
 	end)
 
-	-- Get TerrainService reference
+	-- Get CubeTerrainService reference
 	pcall(function()
-		self._terrainService = Knit.GetService("TerrainService")
+		self._cubeTerrainService = Knit.GetService("CubeTerrainService")
 	end)
 end
 
@@ -744,11 +706,11 @@ function ReservedZoneService:KnitStart()
 			return
 		end
 		
-		-- Wait for TerrainService to complete before flattening
+		-- Wait for CubeTerrainService to complete before flattening
 		if LoadingService then
-			print("[ReservedZoneService] Waiting for TerrainService to complete...")
-			LoadingService:OnStepComplete("TerrainService", function()
-				print("[ReservedZoneService] TerrainService complete, proceeding with reservation...")
+			print("[ReservedZoneService] Waiting for CubeTerrainService to complete...")
+			LoadingService:OnStepComplete("CubeTerrainService", function()
+				print("[ReservedZoneService] CubeTerrainService complete, proceeding with reservation...")
 				proceedWithReservation(self, LoadingService, reportProgress)
 			end)
 		else

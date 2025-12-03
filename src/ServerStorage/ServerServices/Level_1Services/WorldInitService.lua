@@ -31,7 +31,7 @@ local WorldInitService = Knit.CreateService {
 	
 	-- Service references
 	_loadingService = nil,
-	_terrainService = nil,
+	_cubeTerrainService = nil,
 	_gridService = nil,
 	_reservedZoneService = nil,
 	_redZoneService = nil,
@@ -42,7 +42,7 @@ local WorldInitService = Knit.CreateService {
 -- === CONFIG ===
 local CONFIG = {
 	-- Baseplate grid settings
-	BaseplateGridSize = 5,       -- 3x3 grid = 9 baseplates
+	BaseplateGridSize = 3,       -- 5x5 grid of baseplates
 	BaseplateSize = Vector3.new(128, 1, 128),
 	BaseplateThickness = 1,
 	BaseHeight = 0,
@@ -162,24 +162,40 @@ end
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
 local function generateTerrain(self)
-	print("[WorldInitService] Phase 3: Generating terrain...")
+	print("[WorldInitService] Phase 3: Generating cube terrain...")
 	self._initPhase = "generating_terrain"
-	
-	if not self._terrainService then
-		warn("[WorldInitService] TerrainService not available!")
-		return false
-	end
 	
 	if not self._baseplateInfo then
 		warn("[WorldInitService] No baseplate info available!")
 		return false
 	end
 	
-	-- Generate terrain using baseplate info
-	self._terrainService:GenerateTerrainWithBaseplates(self._baseplateInfo)
-	
-	print("[WorldInitService] Terrain generation complete")
-	return true
+	-- Generate cube-based terrain using CubeTerrainService
+	if self._cubeTerrainService then
+		print("[WorldInitService] Generating cube terrain via CubeTerrainService")
+		local width, depth = 20, 20
+		local cellSize = 8
+		
+		if self._gridService then
+			width, depth = self._gridService:GetGridDimensions()
+			cellSize = self._gridService:GetCellSize()
+		end
+		
+		self._cubeTerrainService:GenerateTerrain(
+			width,
+			depth,
+			cellSize,
+			self._baseplateInfo.position.X,
+			self._baseplateInfo.position.Z,
+			self._baseplateInfo.topY
+		)
+		
+		print("[WorldInitService] Cube terrain generation complete")
+		return true
+	else
+		warn("[WorldInitService] CubeTerrainService not available!")
+		return false
+	end
 end
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -320,13 +336,13 @@ local function runInitializationSequence(self)
 		self._loadingService:MarkStepComplete("GridService")
 	end
 	
-	-- ===== PHASE 3: Generate Terrain FIRST =====
-	reportProgress("Phase 3", 0.25, "Generating terrain...")
+	-- ===== PHASE 3: Generate Cube Terrain =====
+	reportProgress("Phase 3", 0.25, "Generating cube terrain...")
 	generateTerrain(self)
 	task.wait(CONFIG.PhaseDelayMs / 1000)
 	
 	if self._loadingService then
-		self._loadingService:MarkStepComplete("TerrainService")
+		self._loadingService:MarkStepComplete("CubeTerrainService")
 	end
 	
 	-- ===== PHASE 4: Reserve Cells (AFTER terrain so flattening works) =====
@@ -373,7 +389,7 @@ function WorldInitService:KnitInit()
 	
 	-- Get service references (they may not all be available yet)
 	pcall(function() self._loadingService = Knit.GetService("LoadingService") end)
-	pcall(function() self._terrainService = Knit.GetService("TerrainService") end)
+	pcall(function() self._cubeTerrainService = Knit.GetService("CubeTerrainService") end)
 	pcall(function() self._gridService = Knit.GetService("GridService") end)
 	pcall(function() self._reservedZoneService = Knit.GetService("ReservedZoneService") end)
 	pcall(function() self._redZoneService = Knit.GetService("RedZoneService") end)
@@ -407,6 +423,47 @@ function WorldInitService:GetBaseplateInfo()
 	return self._baseplateInfo
 end
 
+-- Get individual baseplate positions (for RedZoneService, etc.)
+function WorldInitService:GetBaseplatePositions()
+	local positions = {}
+	
+	if not self._baseplateInfo then
+		return positions
+	end
+	
+	local gridSize = self._baseplateInfo.gridSize or CONFIG.BaseplateGridSize
+	local baseplateSize = self._baseplateInfo.baseplateSize or CONFIG.BaseplateSize
+	local spacing = baseplateSize.X
+	
+	local totalWidth = gridSize * spacing
+	local totalDepth = gridSize * spacing
+	local centerX = self._baseplateInfo.position.X
+	local centerZ = self._baseplateInfo.position.Z
+	local topY = self._baseplateInfo.topY or CONFIG.BaseHeight
+	
+	local startX = centerX - (totalWidth / 2) + (spacing / 2)
+	local startZ = centerZ - (totalDepth / 2) + (spacing / 2)
+	
+	-- Generate position info for each baseplate in the grid
+	for x = 1, gridSize do
+		for z = 1, gridSize do
+			local positionX = startX + (x - 1) * spacing
+			local positionZ = startZ + (z - 1) * spacing
+			
+			table.insert(positions, {
+				centerX = positionX,
+				centerZ = positionZ,
+				centerY = topY,
+				size = baseplateSize,
+				gridX = x,
+				gridZ = z,
+			})
+		end
+	end
+	
+	return positions
+end
+
 function WorldInitService:GetInitPhase()
 	return self._initPhase
 end
@@ -431,8 +488,8 @@ function WorldInitService:RegenerateWorld()
 	print("[WorldInitService] Regenerating world...")
 	
 	-- Clear existing world
-	if self._terrainService then
-		self._terrainService:ClearTerrain()
+	if self._cubeTerrainService then
+		self._cubeTerrainService:ClearTerrain()
 	end
 	if self._gridService then
 		self._gridService:ClearGrid()

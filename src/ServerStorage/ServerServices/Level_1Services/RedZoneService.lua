@@ -29,7 +29,7 @@ local CONFIG = {
 	Enabled = true,
 	ZoneTag = "redZone",
 	ZoneColor = Color3.fromRGB(255, 50, 50),  -- Red (slightly brighter)
-	ZoneTransparency = 0.85,  -- Very transparent (0.85 = 85% transparent, barely visible)
+	ZoneTransparency = 1,  -- Very transparent (0.85 = 85% transparent, barely visible)
 	CreateZonesAfterTerrain = true,  -- Wait for terrain generation
 	WaitForTerrainDelay = 1,  -- Seconds to wait after terrain completes
 	ZoneHeight = 50,  -- Height of the red zone (tall enough to cover terrain)
@@ -106,20 +106,26 @@ local function createRedZone(baseplateInfo, cellHeight)
 	return zoneData
 end
 
--- Create red zones for all baseplates
+-- Create red zones for all baseplates in the grid
 local function createAllRedZones()
-	local TerrainService = Knit.GetService("TerrainService")
 	local GridService = Knit.GetService("GridService")
+	local WorldInitService = nil
+	pcall(function()
+		WorldInitService = Knit.GetService("WorldInitService")
+	end)
 	
-	-- Get baseplate positions
-	local baseplatePositions = TerrainService:GetBaseplatePositions()
+	-- Get baseplate positions from WorldInitService
+	local baseplatePositions = {}
+	if WorldInitService then
+		baseplatePositions = WorldInitService:GetBaseplatePositions()
+	end
 	
 	if #baseplatePositions == 0 then
-		warn("[RedZoneService] No baseplates found. Make sure TerrainService has created baseplates.")
+		warn("[RedZoneService] No baseplates found. Make sure WorldInitService has created the baseplate grid.")
 		return
 	end
 	
-	-- Get cell size from GridService
+	-- Get cell size from GridService for zone height
 	local cellSize = GridService:GetCellSize()
 	if not cellSize or cellSize <= 0 then
 		warn("[RedZoneService] Could not get cell size from GridService. Using default height of 8.")
@@ -172,19 +178,17 @@ function RedZoneService:KnitStart()
 	-- Only auto-create if _autoStart is true (legacy mode)
 	-- WorldInitService will call InitializeZones() instead
 	if self._autoStart then
-		-- Wait for terrain to be generated
+		-- Wait for grid/terrain to be generated
 		if CONFIG.CreateZonesAfterTerrain then
-			-- Wait for TerrainService to complete
-			local TerrainService = Knit.GetService("TerrainService")
 			local LoadingService = nil
 			pcall(function()
 				LoadingService = Knit.GetService("LoadingService")
 			end)
 			
-			-- Wait for TerrainService step to complete
+			-- Wait for GridService step to complete
 			if LoadingService then
-				LoadingService:OnStepComplete("TerrainService", function()
-					print("[RedZoneService] TerrainService complete, waiting before creating red zones...")
+				LoadingService:OnStepComplete("GridService", function()
+					print("[RedZoneService] GridService complete, waiting before creating red zones...")
 					task.wait(CONFIG.WaitForTerrainDelay)
 					createAllRedZones()
 					
