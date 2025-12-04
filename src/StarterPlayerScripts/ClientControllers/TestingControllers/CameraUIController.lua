@@ -1,10 +1,13 @@
 --[[
-	CameraUIController
-	Handles all camera overlay UI elements: vignette, scan lines, REC indicator, battery, etc.
+	HelmetHUDController (formerly CameraUIController)
+	Sci-Fi helmet visor HUD overlay - symmetrical design with animated meters
+	Includes parallax effect based on camera movement
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
@@ -25,284 +28,592 @@ local CameraUIController = Knit.CreateController {
 }
 
 -- === CONFIG ===
-local UI_CONFIG = {
+local HUD_CONFIG = {
 	-- Vignette
 	VignetteEnabled = false,
-	VignetteIntensity = 0.7,
-	
-	-- Recording indicator
-	RecIndicatorEnabled = true,
-	RecBlinkSpeed = 1,
-	
-	-- Timestamp
-	TimestampEnabled = true,
-	TimestampFormat = "%m/%d/%Y  %H:%M:%S",
+	VignetteIntensity = 0.3,
 	
 	-- Scan lines
 	ScanLinesEnabled = true,
-	ScanLineOpacity = 0.06,
-	ScanLineSpacing = 4,
+	ScanLineOpacity = 0.035,
 	
-	-- Film grain
-	FilmGrainEnabled = true,
-	FilmGrainOpacity = 0.04,
+	-- Holographic noise
+	HoloNoiseEnabled = true,
+	HoloNoiseOpacity = 0.02,
 	
-	-- Battery indicator
-	BatteryEnabled = true,
-	BatteryLevel = 87,
+	-- Parallax/Camera shift effect
+	ParallaxEnabled = true,
+	ParallaxIntensity = 25,
+	ParallaxSmoothing = 8,
+	ParallaxLayerMultipliers = {
+		Background = 0.3,
+		Frame = 0.5,
+		Panels = 0.8,
+	},
 	
-	-- Audio levels
-	AudioLevelsEnabled = true,
+	-- Layout margins
+	MarginX = 0.08,
+	MarginY = 0.055,
 	
-	-- Memory card
-	MemoryCardEnabled = true,
-	MemoryUsed = 64,
-	MemoryTotal = 128,
+	-- Colors - Sci-Fi Cyan/Teal theme
+	PrimaryColor = Color3.fromRGB(0, 235, 235),
+	SecondaryColor = Color3.fromRGB(0, 190, 210),
+	AccentColor = Color3.fromRGB(120, 255, 255),
+	DimColor = Color3.fromRGB(0, 130, 150),
+	WarningColor = Color3.fromRGB(255, 190, 0),
+	CriticalColor = Color3.fromRGB(255, 70, 70),
+	SafeColor = Color3.fromRGB(70, 255, 130),
+	HazardTintColor = Color3.fromRGB(0, 50, 65),
 	
-	-- Camera settings
-	CameraSettingsEnabled = true,
-	Aperture = "f/2.8",
-	ISO = "3200",
-	ShutterSpeed = "1/60",
-	FocalLength = "24mm",
-	
-	-- Zoom indicator
-	ZoomEnabled = true,
-	ZoomLevel = 1.0,
-	
-	-- Film border (letterbox)
-	FilmBorderEnabled = false,
-	
-	-- Corner brackets
-	CornerBracketsEnabled = true,
-	
-	-- Layout margins (distance from screen edge to content)
-	MarginX = 0.14,           -- Horizontal margin
-	MarginY = 0.055,          -- Vertical margin
-	ElementSpacing = 0.008,   -- Spacing between elements
-	
-	-- Colors
-	OverlayColor = Color3.fromRGB(255, 255, 255),
-	AccentColor = Color3.fromRGB(200, 200, 200),
-	RecColor = Color3.fromRGB(255, 50, 50),
-	WarningColor = Color3.fromRGB(255, 200, 50),
-	
-	-- Night Vision
-	NightVisionTint = Color3.fromRGB(0, 255, 0),
-	NightVisionAccent = Color3.fromRGB(150, 255, 150),
+	-- Initial values
+	SuitPower = 94,
+	OxygenLevel = 87,
+	HeartRate = 72,
+	RadiationLevel = 0.28,
+	AtmoPressure = 0.12,
+	Temperature = -43,
+	Toxicity = 0.64,
+	SignalStrength = 0.85,
+	SuitIntegrity = 96,
 }
 
--- === STATE ===
-local isEffectVisible = Value(true)
-local currentTime = Value(os.date(UI_CONFIG.TimestampFormat))
-local recBlinkState = Value(true)
-local batteryLevel = Value(UI_CONFIG.BatteryLevel)
-local audioLevelL = Value(0.6)
-local audioLevelR = Value(0.5)
-local zoomLevel = Value(UI_CONFIG.ZoomLevel)
-local memoryUsed = Value(UI_CONFIG.MemoryUsed)
-local isNightVisionEnabled = Value(false)
+-- === STATE VALUES ===
+local isEffectVisible = Value(false)
+local hudOpacity = Value(0)
+local missionTime = Value("00:00:00")
+local linkBlinkState = Value(true)
+local scanPulseAlpha = Value(0)
 
--- Target info (set by PhotoTargetController)
-local currentTargetInfo = Value("---")
+-- Left side stats
+local suitPower = Value(HUD_CONFIG.SuitPower)
+local oxygenLevel = Value(HUD_CONFIG.OxygenLevel)
+local heartRate = Value(HUD_CONFIG.HeartRate)
+local suitIntegrity = Value(HUD_CONFIG.SuitIntegrity)
 
--- === UI CREATION FUNCTIONS ===
+-- Right side stats  
+local radiationLevel = Value(HUD_CONFIG.RadiationLevel)
+local atmoPressure = Value(HUD_CONFIG.AtmoPressure)
+local temperature = Value(HUD_CONFIG.Temperature)
+local toxicity = Value(HUD_CONFIG.Toxicity)
+local signalStrength = Value(HUD_CONFIG.SignalStrength)
 
-local function createVignette(parent)
-	return New "ImageLabel" {
-		Name = "Vignette",
-		Size = UDim2.new(1, 0, 1, 0),
-		BackgroundTransparency = 1,
-		Image = "rbxassetid://1049719798",
-		ImageColor3 = Color3.fromRGB(0, 0, 0),
-		ImageTransparency = 1 - UI_CONFIG.VignetteIntensity,
-		ScaleType = Enum.ScaleType.Stretch,
-		Parent = parent,
-	}
+-- Animated meter values
+local heartBeatPhase = Value(0)
+local scanWavePhase = Value(0)
+local meterPulse = Value(0)
+
+-- Threat/waypoint
+local threatLevel = Value("NOMINAL")
+local visorMode = Value("STANDARD")
+local currentWaypoint = Value("BASE CAMP")
+local waypointDistance = Value(1247)
+
+local missionStartTime = os.time()
+
+-- Parallax state
+local parallaxOffsetX = Value(0)
+local parallaxOffsetY = Value(0)
+local lastCameraLookVector = nil
+local parallaxConnection = nil
+
+-- === HELPER FUNCTIONS ===
+
+local function formatMissionTime(seconds)
+	local hours = math.floor(seconds / 3600)
+	local mins = math.floor((seconds % 3600) / 60)
+	local secs = seconds % 60
+	return string.format("%02d:%02d:%02d", hours, mins, secs)
 end
 
-local function createNightVisionOverlay(parent)
-	return New "Frame" {
-		Name = "NightVisionOverlay",
-		Size = UDim2.new(1, 0, 1, 0),
-		BackgroundColor3 = UI_CONFIG.NightVisionTint,
-		BackgroundTransparency = Computed(function()
-			return isNightVisionEnabled:get() and 0.7 or 1
-		end),
-		Parent = parent,
-	}
+local function getStatusColor(value, warningThreshold, criticalThreshold, inverted)
+	if inverted then
+		if value >= criticalThreshold then return HUD_CONFIG.CriticalColor
+		elseif value >= warningThreshold then return HUD_CONFIG.WarningColor
+		else return HUD_CONFIG.PrimaryColor end
+	else
+		if value <= criticalThreshold then return HUD_CONFIG.CriticalColor
+		elseif value <= warningThreshold then return HUD_CONFIG.WarningColor
+		else return HUD_CONFIG.PrimaryColor end
+	end
 end
 
-local function createFilmBorderAndCorners(parent, animatedTransparency)
-	local borderThicknessScale = UI_CONFIG.FilmBorderEnabled and 0.083 or 0
-	local cornerSizeX = 0.025
-	local cornerSizeY = 0.045
-	local marginX = UI_CONFIG.MarginX - 0.015
-	local marginY = UI_CONFIG.MarginY - 0.01
-	local lineThicknessX = 0.002
-	local lineThicknessY = 0.0035
-	
-	local children = {}
-	
-	if UI_CONFIG.FilmBorderEnabled then
-		table.insert(children, New "Frame" {
-			Name = "TopBorder",
-			Size = UDim2.new(1, 0, borderThicknessScale, 0),
-			Position = UDim2.new(0, 0, 0, 0),
-			BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-			BackgroundTransparency = 0.3,
-			BorderSizePixel = 0,
-		})
-		table.insert(children, New "Frame" {
-			Name = "BottomBorder",
-			Size = UDim2.new(1, 0, borderThicknessScale, 0),
-			Position = UDim2.new(0, 0, 1 - borderThicknessScale, 0),
-			BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-			BackgroundTransparency = 0.3,
-			BorderSizePixel = 0,
-		})
-	end
-	
-	if UI_CONFIG.CornerBracketsEnabled then
-		-- Top-left bracket
-		table.insert(children, New "Frame" {
-			Size = UDim2.new(cornerSizeX, 0, lineThicknessY, 0),
-			Position = UDim2.new(marginX, 0, marginY, 0),
-			BackgroundColor3 = UI_CONFIG.OverlayColor,
-			BackgroundTransparency = animatedTransparency,
-			BorderSizePixel = 0,
-		})
-		table.insert(children, New "Frame" {
-			Size = UDim2.new(lineThicknessX, 0, cornerSizeY, 0),
-			Position = UDim2.new(marginX, 0, marginY, 0),
-			BackgroundColor3 = UI_CONFIG.OverlayColor,
-			BackgroundTransparency = animatedTransparency,
-			BorderSizePixel = 0,
-		})
-		-- Top-right bracket
-		table.insert(children, New "Frame" {
-			Size = UDim2.new(cornerSizeX, 0, lineThicknessY, 0),
-			Position = UDim2.new(1 - marginX - cornerSizeX, 0, marginY, 0),
-			BackgroundColor3 = UI_CONFIG.OverlayColor,
-			BackgroundTransparency = animatedTransparency,
-			BorderSizePixel = 0,
-		})
-		table.insert(children, New "Frame" {
-			Size = UDim2.new(lineThicknessX, 0, cornerSizeY, 0),
-			Position = UDim2.new(1 - marginX - lineThicknessX, 0, marginY, 0),
-			BackgroundColor3 = UI_CONFIG.OverlayColor,
-			BackgroundTransparency = animatedTransparency,
-			BorderSizePixel = 0,
-		})
-		-- Bottom-left bracket
-		table.insert(children, New "Frame" {
-			Size = UDim2.new(cornerSizeX, 0, lineThicknessY, 0),
-			Position = UDim2.new(marginX, 0, 1 - marginY - lineThicknessY, 0),
-			BackgroundColor3 = UI_CONFIG.OverlayColor,
-			BackgroundTransparency = animatedTransparency,
-			BorderSizePixel = 0,
-		})
-		table.insert(children, New "Frame" {
-			Size = UDim2.new(lineThicknessX, 0, cornerSizeY, 0),
-			Position = UDim2.new(marginX, 0, 1 - marginY - cornerSizeY, 0),
-			BackgroundColor3 = UI_CONFIG.OverlayColor,
-			BackgroundTransparency = animatedTransparency,
-			BorderSizePixel = 0,
-		})
-		-- Bottom-right bracket
-		table.insert(children, New "Frame" {
-			Size = UDim2.new(cornerSizeX, 0, lineThicknessY, 0),
-			Position = UDim2.new(1 - marginX - cornerSizeX, 0, 1 - marginY - lineThicknessY, 0),
-			BackgroundColor3 = UI_CONFIG.OverlayColor,
-			BackgroundTransparency = animatedTransparency,
-			BorderSizePixel = 0,
-		})
-		table.insert(children, New "Frame" {
-			Size = UDim2.new(lineThicknessX, 0, cornerSizeY, 0),
-			Position = UDim2.new(1 - marginX - lineThicknessX, 0, 1 - marginY - cornerSizeY, 0),
-			BackgroundColor3 = UI_CONFIG.OverlayColor,
-			BackgroundTransparency = animatedTransparency,
-			BorderSizePixel = 0,
-		})
-	end
-	
-	if #children == 0 then return nil end
-	
+-- === UI COMPONENTS ===
+
+local function createHazardTint(parent)
 	return New "Frame" {
-		Name = "FilmBorderAndCorners",
+		Name = "HazardTint",
 		Size = UDim2.new(1, 0, 1, 0),
-		BackgroundTransparency = 1,
+		BackgroundColor3 = HUD_CONFIG.HazardTintColor,
+		BackgroundTransparency = 0.94,
 		Parent = parent,
-		[Children] = children,
 	}
 end
 
 local function createScanLines(parent, animatedTransparency)
 	local lines = {}
-	local lineCount = math.min(math.floor(1 / (UI_CONFIG.ScanLineSpacing / 1080)), 200)
+	local lineCount = 180
 	
 	for i = 1, lineCount do
 		local yPosScale = (i - 1) / lineCount
 		table.insert(lines, New "Frame" {
-			Size = UDim2.new(1, 0, 0.001, 0),
+			Size = UDim2.new(1, 0, 0.0006, 0),
 			Position = UDim2.new(0, 0, yPosScale, 0),
 			BackgroundColor3 = Color3.fromRGB(0, 0, 0),
 			BackgroundTransparency = Computed(function()
-				return 1 - UI_CONFIG.ScanLineOpacity + animatedTransparency:get() * UI_CONFIG.ScanLineOpacity
+				return 1 - HUD_CONFIG.ScanLineOpacity + animatedTransparency:get() * HUD_CONFIG.ScanLineOpacity
 			end),
 			BorderSizePixel = 0,
 		})
 	end
 	
 	return New "Frame" {
-		Name = "ScanLines",
+		Name = "VisorScanLines",
 		Size = UDim2.new(1, 0, 1, 0),
 		BackgroundTransparency = 1,
-		ClipsDescendants = true,
 		Parent = parent,
 		[Children] = lines,
 	}
 end
 
-local function createFilmGrain(parent, animatedTransparency)
+local function createHoloNoise(parent, animatedTransparency)
 	return New "ImageLabel" {
-		Name = "FilmGrain",
+		Name = "HoloNoise",
 		Size = UDim2.new(1, 0, 1, 0),
 		BackgroundTransparency = 1,
 		Image = "rbxassetid://2833078857",
+		ImageColor3 = HUD_CONFIG.PrimaryColor,
 		ImageTransparency = Computed(function()
-			return 1 - UI_CONFIG.FilmGrainOpacity + animatedTransparency:get() * UI_CONFIG.FilmGrainOpacity
+			return 1 - HUD_CONFIG.HoloNoiseOpacity + animatedTransparency:get() * HUD_CONFIG.HoloNoiseOpacity
 		end),
 		ScaleType = Enum.ScaleType.Tile,
-		TileSize = UDim2.new(0, 256, 0, 256),
+		TileSize = UDim2.new(0, 100, 0, 100),
 		Parent = parent,
 	}
 end
 
-local function createTopLeftInfo(parent, animatedTransparency)
+local function createCornerBrackets(parent, animatedTransparency)
+	local cornerSizeX = 0.04
+	local cornerSizeY = 0.07
+	local marginX = HUD_CONFIG.MarginX - 0.025
+	local marginY = HUD_CONFIG.MarginY - 0.018
+	local lineThicknessX = 0.003
+	local lineThicknessY = 0.005
+	
+	local brackets = {}
+	
+	local corners = {
+		{x = marginX, y = marginY, ax = 0, ay = 0},
+		{x = 1 - marginX, y = marginY, ax = 1, ay = 0},
+		{x = marginX, y = 1 - marginY, ax = 0, ay = 1},
+		{x = 1 - marginX, y = 1 - marginY, ax = 1, ay = 1},
+	}
+	
+	for _, c in ipairs(corners) do
+		table.insert(brackets, New "Frame" {
+			Size = UDim2.new(cornerSizeX, 0, lineThicknessY, 0),
+			Position = UDim2.new(c.x, 0, c.y, 0),
+			AnchorPoint = Vector2.new(c.ax, c.ay),
+			BackgroundColor3 = HUD_CONFIG.PrimaryColor,
+			BackgroundTransparency = animatedTransparency,
+			BorderSizePixel = 0,
+		})
+		table.insert(brackets, New "Frame" {
+			Size = UDim2.new(lineThicknessX, 0, cornerSizeY, 0),
+			Position = UDim2.new(c.x, 0, c.y, 0),
+			AnchorPoint = Vector2.new(c.ax, c.ay),
+			BackgroundColor3 = HUD_CONFIG.PrimaryColor,
+			BackgroundTransparency = animatedTransparency,
+			BorderSizePixel = 0,
+		})
+		
+		local tickOffsetX = c.ax == 0 and 0.015 or -0.015
+		local tickOffsetY = c.ay == 0 and 0.025 or -0.025
+		table.insert(brackets, New "Frame" {
+			Size = UDim2.new(0.015, 0, lineThicknessY * 0.6, 0),
+			Position = UDim2.new(c.x + tickOffsetX, 0, c.y + tickOffsetY, 0),
+			AnchorPoint = Vector2.new(c.ax, c.ay),
+			BackgroundColor3 = HUD_CONFIG.AccentColor,
+			BackgroundTransparency = Computed(function() return 0.4 + animatedTransparency:get() * 0.6 end),
+			BorderSizePixel = 0,
+		})
+	end
+	
 	return New "Frame" {
-		Name = "TopLeftInfo",
-		Size = UDim2.new(0.1, 0, 0.08, 0),
-		Position = UDim2.new(UI_CONFIG.MarginX, 0, UI_CONFIG.MarginY, 0),
+		Name = "CornerBrackets",
+		Size = UDim2.new(1, 0, 1, 0),
+		BackgroundTransparency = 1,
+		Parent = parent,
+		[Children] = brackets,
+	}
+end
+
+local function createCenterReticle(parent, animatedTransparency)
+	return New "Frame" {
+		Name = "CenterReticle",
+		Size = UDim2.new(0.055, 0, 0.055, 0),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		AnchorPoint = Vector2.new(0.5, 0.5),
 		BackgroundTransparency = 1,
 		Parent = parent,
 		
 		[Children] = {
-			-- REC indicator with dot
 			New "Frame" {
-				Name = "RecIndicator",
-				Size = UDim2.new(1, 0, 0.3, 0),
+				Size = UDim2.new(1, 0, 1, 0),
+				Position = UDim2.new(0.5, 0, 0.5, 0),
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				[Children] = {
+					New "UICorner" { CornerRadius = UDim.new(1, 0) },
+					New "UIStroke" {
+						Color = HUD_CONFIG.PrimaryColor,
+						Thickness = 1.5,
+						Transparency = Computed(function()
+							return 0.5 + animatedTransparency:get() * 0.5 + math.sin(scanWavePhase:get()) * 0.15
+						end),
+					},
+				},
+			},
+			New "Frame" {
+				Size = UDim2.new(0.35, 0, 0.025, 0),
+				Position = UDim2.new(0.5, 0, 0, 0),
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				BackgroundColor3 = HUD_CONFIG.PrimaryColor,
+				BackgroundTransparency = Computed(function() return 0.45 + animatedTransparency:get() * 0.55 end),
+				BorderSizePixel = 0,
+			},
+			New "Frame" {
+				Size = UDim2.new(0.35, 0, 0.025, 0),
+				Position = UDim2.new(0.5, 0, 1, 0),
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				BackgroundColor3 = HUD_CONFIG.PrimaryColor,
+				BackgroundTransparency = Computed(function() return 0.45 + animatedTransparency:get() * 0.55 end),
+				BorderSizePixel = 0,
+			},
+			New "Frame" {
+				Size = UDim2.new(0.025, 0, 0.35, 0),
+				Position = UDim2.new(0, 0, 0.5, 0),
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				BackgroundColor3 = HUD_CONFIG.PrimaryColor,
+				BackgroundTransparency = Computed(function() return 0.45 + animatedTransparency:get() * 0.55 end),
+				BorderSizePixel = 0,
+			},
+			New "Frame" {
+				Size = UDim2.new(0.025, 0, 0.35, 0),
+				Position = UDim2.new(1, 0, 0.5, 0),
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				BackgroundColor3 = HUD_CONFIG.PrimaryColor,
+				BackgroundTransparency = Computed(function() return 0.45 + animatedTransparency:get() * 0.55 end),
+				BorderSizePixel = 0,
+			},
+			New "Frame" {
+				Size = UDim2.new(0.1, 0, 0.1, 0),
+				Position = UDim2.new(0.5, 0, 0.5, 0),
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				BackgroundColor3 = HUD_CONFIG.AccentColor,
+				BackgroundTransparency = Computed(function() return 0.3 + animatedTransparency:get() * 0.7 end),
+				BorderSizePixel = 0,
+				[Children] = { New "UICorner" { CornerRadius = UDim.new(1, 0) } },
+			},
+		},
+	}
+end
+
+local function createVerticalMeter(name, valueState, maxVal, colorFunc, labelText, unitText)
+	return New "Frame" {
+		Name = name,
+		Size = UDim2.new(1, 0, 1, 0),
+		BackgroundTransparency = 1,
+		
+		[Children] = {
+			New "TextLabel" {
+				Size = UDim2.new(1, 0, 0.15, 0),
+				Position = UDim2.new(0.5, 0, 0, 0),
+				AnchorPoint = Vector2.new(0.5, 0),
+				BackgroundTransparency = 1,
+				Font = Enum.Font.SciFi,
+				TextScaled = true,
+				TextColor3 = HUD_CONFIG.DimColor,
+				Text = labelText,
+			},
+			New "Frame" {
+				Name = "MeterBG",
+				Size = UDim2.new(0.45, 0, 0.65, 0),
+				Position = UDim2.new(0.5, 0, 0.17, 0),
+				AnchorPoint = Vector2.new(0.5, 0),
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				[Children] = {
+					New "UIStroke" {
+						Color = HUD_CONFIG.DimColor,
+						Thickness = 1,
+						Transparency = 0.7,
+					},
+					New "Frame" {
+						Name = "Fill",
+						Size = Computed(function()
+							local pct = math.clamp(valueState:get() / maxVal, 0, 1)
+							return UDim2.new(0.8, 0, pct * 0.9, 0)
+						end),
+						Position = UDim2.new(0.5, 0, 0.95, 0),
+						AnchorPoint = Vector2.new(0.5, 1),
+						BackgroundColor3 = Computed(function()
+							return colorFunc(valueState:get())
+						end),
+						BackgroundTransparency = Computed(function()
+							return 0.35 + math.sin(meterPulse:get() + math.random() * 0.5) * 0.1
+						end),
+						BorderSizePixel = 0,
+						[Children] = { New "UICorner" { CornerRadius = UDim.new(0.15, 0) } },
+					},
+				},
+			},
+			New "TextLabel" {
+				Size = UDim2.new(1, 0, 0.15, 0),
+				Position = UDim2.new(0.5, 0, 0.85, 0),
+				AnchorPoint = Vector2.new(0.5, 0),
+				BackgroundTransparency = 1,
+				Font = Enum.Font.RobotoMono,
+				TextScaled = true,
+				TextColor3 = Computed(function()
+					return colorFunc(valueState:get())
+				end),
+				Text = Computed(function()
+					return string.format("%.0f%s", valueState:get(), unitText)
+				end),
+			},
+		},
+	}
+end
+
+local function createTopCenterPanel(parent, animatedTransparency)
+	return New "Frame" {
+		Name = "TopCenterPanel",
+		Size = UDim2.new(0.28, 0, 0.055, 0),
+		Position = UDim2.new(0.5, 0, HUD_CONFIG.MarginY, 0),
+		AnchorPoint = Vector2.new(0.5, 0),
+		BackgroundTransparency = 1,
+		Parent = parent,
+		
+		[Children] = {
+			New "Frame" {
+				Size = UDim2.new(0.6, 0, 0.02, 0),
+				Position = UDim2.new(0.5, 0, 0, 0),
+				AnchorPoint = Vector2.new(0.5, 0),
+				BackgroundColor3 = HUD_CONFIG.PrimaryColor,
+				BackgroundTransparency = Computed(function() return 0.5 + animatedTransparency:get() * 0.5 end),
+				BorderSizePixel = 0,
+			},
+			New "TextLabel" {
+				Size = UDim2.new(1, 0, 0.45, 0),
+				Position = UDim2.new(0.5, 0, 0.12, 0),
+				AnchorPoint = Vector2.new(0.5, 0),
+				BackgroundTransparency = 1,
+				Font = Enum.Font.SciFi,
+				TextScaled = true,
+				TextColor3 = HUD_CONFIG.PrimaryColor,
+				TextTransparency = animatedTransparency,
+				Text = "◈  KEPLER-442b  SURVEY  ◈",
+			},
+			New "TextLabel" {
+				Size = UDim2.new(0.5, 0, 0.35, 0),
+				Position = UDim2.new(0.5, 0, 0.6, 0),
+				AnchorPoint = Vector2.new(0.5, 0),
+				BackgroundTransparency = 1,
+				Font = Enum.Font.RobotoMono,
+				TextScaled = true,
+				TextColor3 = HUD_CONFIG.SecondaryColor,
+				TextTransparency = Computed(function() return 0.2 + animatedTransparency:get() * 0.8 end),
+				Text = Computed(function()
+					return "MET " .. missionTime:get()
+				end),
+			},
+		},
+	}
+end
+
+local function createLeftPanel(parent, animatedTransparency)
+	return New "Frame" {
+		Name = "LeftPanel",
+		Size = UDim2.new(0.09, 0, 0.5, 0),
+		Position = UDim2.new(HUD_CONFIG.MarginX, 0, 0.5, 0),
+		AnchorPoint = Vector2.new(0, 0.5),
+		BackgroundTransparency = 1,
+		Parent = parent,
+		
+		[Children] = {
+			New "TextLabel" {
+				Size = UDim2.new(1, 0, 0.06, 0),
+				Position = UDim2.new(0.5, 0, 0, 0),
+				AnchorPoint = Vector2.new(0.5, 0),
+				BackgroundTransparency = 1,
+				Font = Enum.Font.SciFi,
+				TextScaled = true,
+				TextColor3 = HUD_CONFIG.PrimaryColor,
+				TextTransparency = animatedTransparency,
+				Text = "◀ SUIT",
+			},
+			New "Frame" {
+				Size = UDim2.new(0.8, 0, 0.003, 0),
+				Position = UDim2.new(0.5, 0, 0.07, 0),
+				AnchorPoint = Vector2.new(0.5, 0),
+				BackgroundColor3 = HUD_CONFIG.DimColor,
+				BackgroundTransparency = 0.5,
+				BorderSizePixel = 0,
+			},
+			New "Frame" {
+				Size = UDim2.new(0.24, 0, 0.85, 0),
+				Position = UDim2.new(0, 0, 0.1, 0),
+				BackgroundTransparency = 1,
+				[Children] = {
+					createVerticalMeter("Power", suitPower, 100, function(v)
+						return getStatusColor(v, 25, 10, false)
+					end, "PWR", "%"),
+				},
+			},
+			New "Frame" {
+				Size = UDim2.new(0.24, 0, 0.85, 0),
+				Position = UDim2.new(0.25, 0, 0.1, 0),
+				BackgroundTransparency = 1,
+				[Children] = {
+					createVerticalMeter("Oxygen", oxygenLevel, 100, function(v)
+						return getStatusColor(v, 30, 15, false)
+					end, "O₂", "%"),
+				},
+			},
+			New "Frame" {
+				Size = UDim2.new(0.24, 0, 0.85, 0),
+				Position = UDim2.new(0.5, 0, 0.1, 0),
+				BackgroundTransparency = 1,
+				[Children] = {
+					createVerticalMeter("Integrity", suitIntegrity, 100, function(v)
+						return getStatusColor(v, 50, 25, false)
+					end, "INT", "%"),
+				},
+			},
+			New "Frame" {
+				Size = UDim2.new(0.24, 0, 0.85, 0),
+				Position = UDim2.new(0.75, 0, 0.1, 0),
+				BackgroundTransparency = 1,
+				[Children] = {
+					createVerticalMeter("HeartRate", heartRate, 160, function(v)
+						if v > 120 or v < 50 then return HUD_CONFIG.CriticalColor
+						elseif v > 100 or v < 60 then return HUD_CONFIG.WarningColor
+						else return HUD_CONFIG.SafeColor end
+					end, "♥", ""),
+				},
+			},
+		},
+	}
+end
+
+local function createRightPanel(parent, animatedTransparency)
+	return New "Frame" {
+		Name = "RightPanel",
+		Size = UDim2.new(0.09, 0, 0.5, 0),
+		Position = UDim2.new(1 - HUD_CONFIG.MarginX, 0, 0.5, 0),
+		AnchorPoint = Vector2.new(1, 0.5),
+		BackgroundTransparency = 1,
+		Parent = parent,
+		
+		[Children] = {
+			New "TextLabel" {
+				Size = UDim2.new(1, 0, 0.06, 0),
+				Position = UDim2.new(0.5, 0, 0, 0),
+				AnchorPoint = Vector2.new(0.5, 0),
+				BackgroundTransparency = 1,
+				Font = Enum.Font.SciFi,
+				TextScaled = true,
+				TextColor3 = HUD_CONFIG.PrimaryColor,
+				TextTransparency = animatedTransparency,
+				Text = "ENV ▶",
+			},
+			New "Frame" {
+				Size = UDim2.new(0.8, 0, 0.003, 0),
+				Position = UDim2.new(0.5, 0, 0.07, 0),
+				AnchorPoint = Vector2.new(0.5, 0),
+				BackgroundColor3 = HUD_CONFIG.DimColor,
+				BackgroundTransparency = 0.5,
+				BorderSizePixel = 0,
+			},
+			New "Frame" {
+				Size = UDim2.new(0.24, 0, 0.85, 0),
+				Position = UDim2.new(0, 0, 0.1, 0),
+				BackgroundTransparency = 1,
+				[Children] = {
+					createVerticalMeter("Radiation", Computed(function()
+						return radiationLevel:get() * 100
+					end), 100, function(v)
+						return getStatusColor(v, 50, 80, true)
+					end, "RAD", "%"),
+				},
+			},
+			New "Frame" {
+				Size = UDim2.new(0.24, 0, 0.85, 0),
+				Position = UDim2.new(0.25, 0, 0.1, 0),
+				BackgroundTransparency = 1,
+				[Children] = {
+					createVerticalMeter("Atmosphere", Computed(function()
+						return atmoPressure:get() * 100
+					end), 100, function(v)
+						return getStatusColor(v, 30, 10, false)
+					end, "ATM", "%"),
+				},
+			},
+			New "Frame" {
+				Size = UDim2.new(0.24, 0, 0.85, 0),
+				Position = UDim2.new(0.5, 0, 0.1, 0),
+				BackgroundTransparency = 1,
+				[Children] = {
+					createVerticalMeter("Temperature", Computed(function()
+						return (temperature:get() + 100) / 2
+					end), 100, function(v)
+						local temp = (v * 2) - 100
+						if temp < -60 or temp > 50 then return HUD_CONFIG.CriticalColor
+						elseif temp < -30 or temp > 35 then return HUD_CONFIG.WarningColor
+						else return HUD_CONFIG.PrimaryColor end
+					end, "TMP", ""),
+				},
+			},
+			New "Frame" {
+				Size = UDim2.new(0.24, 0, 0.85, 0),
+				Position = UDim2.new(0.75, 0, 0.1, 0),
+				BackgroundTransparency = 1,
+				[Children] = {
+					createVerticalMeter("Toxicity", Computed(function()
+						return toxicity:get() * 100
+					end), 100, function(v)
+						return getStatusColor(v, 40, 70, true)
+					end, "TOX", "%"),
+				},
+			},
+		},
+	}
+end
+
+local function createBottomLeftPanel(parent, animatedTransparency)
+	return New "Frame" {
+		Name = "BottomLeftPanel",
+		Size = UDim2.new(0.15, 0, 0.08, 0),
+		Position = UDim2.new(HUD_CONFIG.MarginX, 0, 1 - HUD_CONFIG.MarginY, 0),
+		AnchorPoint = Vector2.new(0, 1),
+		BackgroundTransparency = 1,
+		Parent = parent,
+		
+		[Children] = {
+			New "Frame" {
+				Size = UDim2.new(1, 0, 0.35, 0),
 				Position = UDim2.new(0, 0, 0, 0),
 				BackgroundTransparency = 1,
 				[Children] = {
 					New "Frame" {
-						Name = "RecDot",
-						Size = UDim2.new(0.08, 0, 0.7, 0),
+						Name = "LinkDot",
+						Size = UDim2.new(0.04, 0, 0.7, 0),
 						Position = UDim2.new(0, 0, 0.5, 0),
 						AnchorPoint = Vector2.new(0, 0.5),
-						BackgroundColor3 = UI_CONFIG.RecColor,
+						BackgroundColor3 = HUD_CONFIG.SafeColor,
 						BackgroundTransparency = Computed(function()
-							return recBlinkState:get() and animatedTransparency:get() or 1
+							return linkBlinkState:get() and 0.1 or 0.6
 						end),
 						BorderSizePixel = 0,
 						[Children] = {
@@ -311,392 +622,290 @@ local function createTopLeftInfo(parent, animatedTransparency)
 						},
 					},
 					New "TextLabel" {
-						Name = "RecText",
-						Size = UDim2.new(0.5, 0, 1, 0),
-						Position = UDim2.new(0.12, 0, 0, 0),
+						Size = UDim2.new(0.85, 0, 1, 0),
+						Position = UDim2.new(0.06, 0, 0, 0),
 						BackgroundTransparency = 1,
-						Font = Enum.Font.RobotoMono,
+						Font = Enum.Font.SciFi,
 						TextScaled = true,
-						TextColor3 = UI_CONFIG.RecColor,
+						TextColor3 = HUD_CONFIG.SafeColor,
 						TextTransparency = Computed(function()
-							return recBlinkState:get() and animatedTransparency:get() or 0.5
+							return linkBlinkState:get() and animatedTransparency:get() or 0.4
 						end),
 						TextXAlignment = Enum.TextXAlignment.Left,
-						Text = "REC",
-					},
-					-- Timecode
-					New "TextLabel" {
-						Name = "Timecode",
-						Size = UDim2.new(0.5, 0, 0.85, 0),
-						Position = UDim2.new(0.45, 0, 0.08, 0),
-						BackgroundTransparency = 1,
-						Font = Enum.Font.RobotoMono,
-						TextScaled = true,
-						TextColor3 = UI_CONFIG.OverlayColor,
-						TextTransparency = animatedTransparency,
-						TextXAlignment = Enum.TextXAlignment.Left,
-						Text = Computed(function()
-							return os.date("%H:%M:%S")
-						end),
+						Text = "LINK ACTIVE",
 					},
 				},
 			},
-			-- Camera model
 			New "TextLabel" {
-				Name = "CameraModel",
-				Size = UDim2.new(1, 0, 0.28, 0),
-				Position = UDim2.new(0, 0, 0.35, 0),
+				Size = UDim2.new(1, 0, 0.3, 0),
+				Position = UDim2.new(0, 0, 0.38, 0),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
 				TextScaled = true,
-				TextColor3 = UI_CONFIG.OverlayColor,
+				TextColor3 = HUD_CONFIG.SecondaryColor,
+				TextTransparency = Computed(function() return 0.2 + animatedTransparency:get() * 0.8 end),
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Text = Computed(function()
+					return "◇ VISOR: " .. visorMode:get()
+				end),
+			},
+			New "TextLabel" {
+				Size = UDim2.new(1, 0, 0.28, 0),
+				Position = UDim2.new(0, 0, 0.7, 0),
+				BackgroundTransparency = 1,
+				Font = Enum.Font.RobotoMono,
+				TextScaled = true,
+				TextColor3 = Computed(function()
+					local t = threatLevel:get()
+					if t == "HOSTILE" then return HUD_CONFIG.CriticalColor
+					elseif t == "CAUTION" then return HUD_CONFIG.WarningColor
+					else return HUD_CONFIG.SafeColor end
+				end),
 				TextTransparency = animatedTransparency,
 				TextXAlignment = Enum.TextXAlignment.Left,
-				Text = "SONY FX6-K",
-			},
-			-- Recording format
-			New "TextLabel" {
-				Name = "RecFormat",
-				Size = UDim2.new(1, 0, 0.25, 0),
-				Position = UDim2.new(0, 0, 0.66, 0),
-				BackgroundTransparency = 1,
-				Font = Enum.Font.RobotoMono,
-				TextScaled = true,
-				TextColor3 = UI_CONFIG.AccentColor,
-				TextTransparency = Computed(function() return 0.25 + animatedTransparency:get() * 0.75 end),
-				TextXAlignment = Enum.TextXAlignment.Left,
-				Text = "XAVC-I  4K  23.976p",
+				Text = Computed(function()
+					return "THREAT: " .. threatLevel:get()
+				end),
 			},
 		},
 	}
 end
 
-local function createTimestamp(parent, animatedTransparency)
-	return New "TextLabel" {
-		Name = "Timestamp",
-		Size = UDim2.new(0.16, 0, 0.022, 0),
-		Position = UDim2.new(1 - UI_CONFIG.MarginX, 0, UI_CONFIG.MarginY, 0),
-		AnchorPoint = Vector2.new(1, 0),
-		BackgroundTransparency = 1,
-		Font = Enum.Font.RobotoMono,
-		TextScaled = true,
-		TextColor3 = UI_CONFIG.OverlayColor,
-		TextTransparency = animatedTransparency,
-		TextXAlignment = Enum.TextXAlignment.Right,
-		Text = Computed(function()
-			return currentTime:get()
-		end),
-		Parent = parent,
-	}
-end
-
-local function createCameraSettings(parent, animatedTransparency)
-	local topY = UI_CONFIG.MarginY + 0.026
+local function createBottomRightPanel(parent, animatedTransparency)
 	return New "Frame" {
-		Name = "CameraSettings",
-		Size = UDim2.new(0.14, 0, 0.05, 0),
-		Position = UDim2.new(1 - UI_CONFIG.MarginX, 0, topY, 0),
-		AnchorPoint = Vector2.new(1, 0),
+		Name = "BottomRightPanel",
+		Size = UDim2.new(0.15, 0, 0.08, 0),
+		Position = UDim2.new(1 - HUD_CONFIG.MarginX, 0, 1 - HUD_CONFIG.MarginY, 0),
+		AnchorPoint = Vector2.new(1, 1),
 		BackgroundTransparency = 1,
 		Parent = parent,
 		
 		[Children] = {
-			New "TextLabel" {
-				Size = UDim2.new(1, 0, 0.45, 0),
+			New "Frame" {
+				Size = UDim2.new(1, 0, 0.35, 0),
 				Position = UDim2.new(0, 0, 0, 0),
 				BackgroundTransparency = 1,
-				Font = Enum.Font.RobotoMono,
-				TextScaled = true,
-				TextColor3 = UI_CONFIG.OverlayColor,
-				TextTransparency = animatedTransparency,
-				TextXAlignment = Enum.TextXAlignment.Right,
-				Text = UI_CONFIG.Aperture .. "  ISO " .. UI_CONFIG.ISO,
+				[Children] = {
+					New "Frame" {
+						Size = UDim2.new(0.12, 0, 0.7, 0),
+						Position = UDim2.new(1, 0, 0.5, 0),
+						AnchorPoint = Vector2.new(1, 0.5),
+						BackgroundTransparency = 1,
+						[Children] = {
+							New "Frame" {
+								Size = UDim2.new(0.2, 0, 0.3, 0),
+								Position = UDim2.new(0, 0, 1, 0),
+								AnchorPoint = Vector2.new(0, 1),
+								BackgroundColor3 = Computed(function()
+									return signalStrength:get() > 0.2 and HUD_CONFIG.PrimaryColor or HUD_CONFIG.DimColor
+								end),
+								BackgroundTransparency = 0.2,
+								BorderSizePixel = 0,
+							},
+							New "Frame" {
+								Size = UDim2.new(0.2, 0, 0.5, 0),
+								Position = UDim2.new(0.27, 0, 1, 0),
+								AnchorPoint = Vector2.new(0, 1),
+								BackgroundColor3 = Computed(function()
+									return signalStrength:get() > 0.4 and HUD_CONFIG.PrimaryColor or HUD_CONFIG.DimColor
+								end),
+								BackgroundTransparency = 0.2,
+								BorderSizePixel = 0,
+							},
+							New "Frame" {
+								Size = UDim2.new(0.2, 0, 0.7, 0),
+								Position = UDim2.new(0.54, 0, 1, 0),
+								AnchorPoint = Vector2.new(0, 1),
+								BackgroundColor3 = Computed(function()
+									return signalStrength:get() > 0.6 and HUD_CONFIG.PrimaryColor or HUD_CONFIG.DimColor
+								end),
+								BackgroundTransparency = 0.2,
+								BorderSizePixel = 0,
+							},
+							New "Frame" {
+								Size = UDim2.new(0.2, 0, 1, 0),
+								Position = UDim2.new(0.8, 0, 1, 0),
+								AnchorPoint = Vector2.new(0, 1),
+								BackgroundColor3 = Computed(function()
+									return signalStrength:get() > 0.8 and HUD_CONFIG.PrimaryColor or HUD_CONFIG.DimColor
+								end),
+								BackgroundTransparency = 0.2,
+								BorderSizePixel = 0,
+							},
+						},
+					},
+					New "TextLabel" {
+						Size = UDim2.new(0.82, 0, 1, 0),
+						Position = UDim2.new(0, 0, 0, 0),
+						BackgroundTransparency = 1,
+						Font = Enum.Font.SciFi,
+						TextScaled = true,
+						TextColor3 = HUD_CONFIG.PrimaryColor,
+						TextTransparency = animatedTransparency,
+						TextXAlignment = Enum.TextXAlignment.Right,
+						Text = "SIGNAL",
+					},
+				},
 			},
 			New "TextLabel" {
-				Size = UDim2.new(1, 0, 0.45, 0),
-				Position = UDim2.new(0, 0, 0.5, 0),
+				Size = UDim2.new(1, 0, 0.3, 0),
+				Position = UDim2.new(0, 0, 0.38, 0),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
 				TextScaled = true,
-				TextColor3 = UI_CONFIG.AccentColor,
+				TextColor3 = HUD_CONFIG.SecondaryColor,
 				TextTransparency = Computed(function() return 0.2 + animatedTransparency:get() * 0.8 end),
 				TextXAlignment = Enum.TextXAlignment.Right,
-				Text = UI_CONFIG.ShutterSpeed .. "  " .. UI_CONFIG.FocalLength,
-			},
-		},
-	}
-end
-
-local function createZoomIndicator(parent, animatedTransparency)
-	local topY = UI_CONFIG.MarginY + 0.08
-	return New "TextLabel" {
-		Name = "ZoomIndicator",
-		Size = UDim2.new(0.055, 0, 0.02, 0),
-		Position = UDim2.new(1 - UI_CONFIG.MarginX, 0, topY, 0),
-		AnchorPoint = Vector2.new(1, 0),
-		BackgroundTransparency = 1,
-		Font = Enum.Font.RobotoMono,
-		TextScaled = true,
-		TextColor3 = UI_CONFIG.OverlayColor,
-		TextTransparency = animatedTransparency,
-		TextXAlignment = Enum.TextXAlignment.Right,
-		Text = Computed(function()
-			return string.format("ZOOM %.1fx", zoomLevel:get())
-		end),
-		Parent = parent,
-	}
-end
-
-local function createBatteryIndicator(parent, animatedTransparency)
-	local bottomY = 1 - UI_CONFIG.MarginY
-	return New "Frame" {
-		Name = "BatteryIndicator",
-		Size = UDim2.new(0.065, 0, 0.022, 0),
-		Position = UDim2.new(1 - UI_CONFIG.MarginX, 0, bottomY, 0),
-		AnchorPoint = Vector2.new(1, 1),
-		BackgroundTransparency = 1,
-		Parent = parent,
-		
-		[Children] = {
-			New "Frame" {
-				Name = "BatteryOutline",
-				Size = UDim2.new(0.32, 0, 0.85, 0),
-				Position = UDim2.new(0, 0, 0.5, 0),
-				AnchorPoint = Vector2.new(0, 0.5),
-				BackgroundTransparency = 1,
-				BorderSizePixel = 0,
-				[Children] = {
-					New "UIStroke" {
-						Color = UI_CONFIG.OverlayColor,
-						Thickness = 1.5,
-						Transparency = animatedTransparency,
-					},
-					New "UICorner" { CornerRadius = UDim.new(0.15, 0) },
-					New "Frame" {
-						Name = "BatteryFill",
-						Size = Computed(function()
-							return UDim2.new(batteryLevel:get() / 100 * 0.85, 0, 0.7, 0)
-						end),
-						Position = UDim2.new(0.075, 0, 0.15, 0),
-						BackgroundColor3 = Computed(function()
-							local level = batteryLevel:get()
-							if level <= 20 then return UI_CONFIG.RecColor
-							elseif level <= 40 then return UI_CONFIG.WarningColor
-							else return UI_CONFIG.OverlayColor end
-						end),
-						BackgroundTransparency = animatedTransparency,
-						BorderSizePixel = 0,
-						[Children] = { New "UICorner" { CornerRadius = UDim.new(0.1, 0) } },
-					},
-				},
-			},
-			New "Frame" {
-				Name = "BatteryTip",
-				Size = UDim2.new(0.035, 0, 0.4, 0),
-				Position = UDim2.new(0.34, 0, 0.5, 0),
-				AnchorPoint = Vector2.new(0, 0.5),
-				BackgroundColor3 = UI_CONFIG.OverlayColor,
-				BackgroundTransparency = animatedTransparency,
-				BorderSizePixel = 0,
-				[Children] = { New "UICorner" { CornerRadius = UDim.new(0.3, 0) } },
+				Text = "NEXUS-7  EXOSUIT",
 			},
 			New "TextLabel" {
-				Name = "BatteryText",
-				Size = UDim2.new(0.55, 0, 1, 0),
-				Position = UDim2.new(0.42, 0, 0, 0),
+				Size = UDim2.new(1, 0, 0.28, 0),
+				Position = UDim2.new(0, 0, 0.7, 0),
 				BackgroundTransparency = 1,
 				Font = Enum.Font.RobotoMono,
 				TextScaled = true,
-				TextColor3 = UI_CONFIG.OverlayColor,
-				TextTransparency = animatedTransparency,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				Text = Computed(function() return batteryLevel:get() .. "%" end),
-			},
-		},
-	}
-end
-
-local function createMemoryCard(parent, animatedTransparency)
-	local bottomY = 1 - UI_CONFIG.MarginY - 0.028
-	return New "Frame" {
-		Name = "MemoryCard",
-		Size = UDim2.new(0.1, 0, 0.04, 0),
-		Position = UDim2.new(1 - UI_CONFIG.MarginX, 0, bottomY, 0),
-		AnchorPoint = Vector2.new(1, 1),
-		BackgroundTransparency = 1,
-		Parent = parent,
-		
-		[Children] = {
-			New "Frame" {
-				Name = "SDIcon",
-				Size = UDim2.new(0.12, 0, 0.55, 0),
-				Position = UDim2.new(0, 0, 0.22, 0),
-				BackgroundColor3 = UI_CONFIG.OverlayColor,
-				BackgroundTransparency = animatedTransparency,
-				BorderSizePixel = 0,
-				[Children] = {
-					New "UICorner" { CornerRadius = UDim.new(0.08, 0) },
-					New "UIAspectRatioConstraint" { AspectRatio = 0.8 },
-					New "Frame" {
-						Size = UDim2.new(0.35, 0, 0.25, 0),
-						Position = UDim2.new(0.65, 0, 0, 0),
-						BackgroundColor3 = Color3.fromRGB(30, 30, 30),
-						BorderSizePixel = 0,
-					},
-				},
-			},
-			New "TextLabel" {
-				Size = UDim2.new(0.82, 0, 0.5, 0),
-				Position = UDim2.new(0.18, 0, 0, 0),
-				BackgroundTransparency = 1,
-				Font = Enum.Font.RobotoMono,
-				TextScaled = true,
-				TextColor3 = UI_CONFIG.OverlayColor,
-				TextTransparency = animatedTransparency,
-				TextXAlignment = Enum.TextXAlignment.Left,
+				TextColor3 = HUD_CONFIG.DimColor,
+				TextTransparency = Computed(function() return 0.15 + animatedTransparency:get() * 0.85 end),
+				TextXAlignment = Enum.TextXAlignment.Right,
 				Text = Computed(function()
-					return string.format("%dGB / %dGB", memoryUsed:get(), UI_CONFIG.MemoryTotal)
-				end),
-			},
-			New "TextLabel" {
-				Size = UDim2.new(0.82, 0, 0.4, 0),
-				Position = UDim2.new(0.18, 0, 0.55, 0),
-				BackgroundTransparency = 1,
-				Font = Enum.Font.RobotoMono,
-				TextScaled = true,
-				TextColor3 = UI_CONFIG.AccentColor,
-				TextTransparency = Computed(function() return 0.3 + animatedTransparency:get() * 0.7 end),
-				TextXAlignment = Enum.TextXAlignment.Left,
-				Text = Computed(function()
-					local remaining = UI_CONFIG.MemoryTotal - memoryUsed:get()
-					local minutes = math.floor(remaining * 2)
-					return string.format("%02d:%02d REMAINING", math.floor(minutes / 60), minutes % 60)
+					return string.format("%s  %dm ◀", currentWaypoint:get(), waypointDistance:get())
 				end),
 			},
 		},
 	}
 end
 
-local function createAudioLevelMeter(parent, animatedTransparency, side, levelValue)
-	local bottomY = 1 - UI_CONFIG.MarginY
-	local xOffset = side == "L" and 0 or 0.018
-	
+local function createBottomCenterPanel(parent, animatedTransparency)
 	return New "Frame" {
-		Name = "AudioLevel" .. side,
-		Size = UDim2.new(0.015, 0, 0.1, 0),
-		Position = UDim2.new(UI_CONFIG.MarginX + xOffset, 0, bottomY, 0),
-		AnchorPoint = Vector2.new(0, 1),
+		Name = "BottomCenterPanel",
+		Size = UDim2.new(0.2, 0, 0.04, 0),
+		Position = UDim2.new(0.5, 0, 1 - HUD_CONFIG.MarginY, 0),
+		AnchorPoint = Vector2.new(0.5, 1),
 		BackgroundTransparency = 1,
 		Parent = parent,
 		
 		[Children] = {
-			New "TextLabel" {
-				Size = UDim2.new(1, 0, 0.12, 0),
+			New "Frame" {
+				Size = UDim2.new(1, 0, 0.6, 0),
 				Position = UDim2.new(0.5, 0, 0, 0),
 				AnchorPoint = Vector2.new(0.5, 0),
 				BackgroundTransparency = 1,
-				Font = Enum.Font.RobotoMono,
-				TextScaled = true,
-				TextColor3 = UI_CONFIG.OverlayColor,
-				TextTransparency = animatedTransparency,
-				Text = side,
-			},
-			New "Frame" {
-				Name = "MeterBG",
-				Size = UDim2.new(0.6, 0, 0.82, 0),
-				Position = UDim2.new(0.5, 0, 0.15, 0),
-				AnchorPoint = Vector2.new(0.5, 0),
-				BackgroundColor3 = Color3.fromRGB(30, 30, 30),
-				BackgroundTransparency = Computed(function() return 0.4 + animatedTransparency:get() * 0.6 end),
+				ClipsDescendants = true,
 				BorderSizePixel = 0,
 				[Children] = {
-					New "UICorner" { CornerRadius = UDim.new(0.15, 0) },
+					New "UIStroke" {
+						Color = HUD_CONFIG.DimColor,
+						Thickness = 1,
+						Transparency = 0.75,
+					},
 					New "Frame" {
-						Name = "MeterFill",
-						Size = Computed(function()
-							return UDim2.new(1, 0, math.clamp(levelValue:get(), 0, 1), 0)
+						Name = "ScanLine",
+						Size = UDim2.new(0.004, 0, 0.9, 0),
+						Position = Computed(function()
+							local phase = scanWavePhase:get() % (math.pi * 2)
+							local x = (math.sin(phase) + 1) / 2
+							return UDim2.new(x * 0.98 + 0.01, 0, 0.5, 0)
 						end),
-						Position = UDim2.new(0, 0, 1, 0),
-						AnchorPoint = Vector2.new(0, 1),
-						BackgroundColor3 = Computed(function()
-							local level = levelValue:get()
-							if level > 0.9 then return UI_CONFIG.RecColor
-							elseif level > 0.7 then return UI_CONFIG.WarningColor
-							else return Color3.fromRGB(50, 200, 50) end
-						end),
-						BackgroundTransparency = animatedTransparency,
+						AnchorPoint = Vector2.new(0.5, 0.5),
+						BackgroundColor3 = HUD_CONFIG.AccentColor,
+						BackgroundTransparency = 0.2,
 						BorderSizePixel = 0,
-						[Children] = { New "UICorner" { CornerRadius = UDim.new(0.15, 0) } },
+					},
+					New "Frame" {
+						Size = UDim2.new(0.08, 0, 0.5, 0),
+						Position = UDim2.new(0.15, 0, 0.5, 0),
+						AnchorPoint = Vector2.new(0.5, 0.5),
+						BackgroundColor3 = HUD_CONFIG.PrimaryColor,
+						BackgroundTransparency = Computed(function()
+							return 0.5 + math.sin(scanWavePhase:get() * 2) * 0.25
+						end),
+						BorderSizePixel = 0,
+					},
+					New "Frame" {
+						Size = UDim2.new(0.08, 0, 0.7, 0),
+						Position = UDim2.new(0.32, 0, 0.5, 0),
+						AnchorPoint = Vector2.new(0.5, 0.5),
+						BackgroundColor3 = HUD_CONFIG.PrimaryColor,
+						BackgroundTransparency = Computed(function()
+							return 0.45 + math.sin(scanWavePhase:get() * 2 + 1) * 0.25
+						end),
+						BorderSizePixel = 0,
+					},
+					New "Frame" {
+						Size = UDim2.new(0.08, 0, 0.9, 0),
+						Position = UDim2.new(0.5, 0, 0.5, 0),
+						AnchorPoint = Vector2.new(0.5, 0.5),
+						BackgroundColor3 = HUD_CONFIG.AccentColor,
+						BackgroundTransparency = Computed(function()
+							return 0.4 + math.sin(scanWavePhase:get() * 2 + 2) * 0.2
+						end),
+						BorderSizePixel = 0,
+					},
+					New "Frame" {
+						Size = UDim2.new(0.08, 0, 0.65, 0),
+						Position = UDim2.new(0.68, 0, 0.5, 0),
+						AnchorPoint = Vector2.new(0.5, 0.5),
+						BackgroundColor3 = HUD_CONFIG.PrimaryColor,
+						BackgroundTransparency = Computed(function()
+							return 0.45 + math.sin(scanWavePhase:get() * 2 + 3) * 0.25
+						end),
+						BorderSizePixel = 0,
+					},
+					New "Frame" {
+						Size = UDim2.new(0.08, 0, 0.45, 0),
+						Position = UDim2.new(0.85, 0, 0.5, 0),
+						AnchorPoint = Vector2.new(0.5, 0.5),
+						BackgroundColor3 = HUD_CONFIG.PrimaryColor,
+						BackgroundTransparency = Computed(function()
+							return 0.5 + math.sin(scanWavePhase:get() * 2 + 4) * 0.25
+						end),
+						BorderSizePixel = 0,
 					},
 				},
 			},
+			New "TextLabel" {
+				Size = UDim2.new(1, 0, 0.35, 0),
+				Position = UDim2.new(0.5, 0, 0.68, 0),
+				AnchorPoint = Vector2.new(0.5, 0),
+				BackgroundTransparency = 1,
+				Font = Enum.Font.RobotoMono,
+				TextScaled = true,
+				TextColor3 = HUD_CONFIG.DimColor,
+				Text = "▼ BIOMETRIC SCANNER ▼",
+			},
 		},
 	}
 end
 
-local function createCameraInfo(parent, animatedTransparency)
-	local bottomY = 1 - UI_CONFIG.MarginY - 0.008
+-- Parallax container
+local function createParallaxContainer(name, layerMultiplier, children)
+	local mult = layerMultiplier or 1
+	
 	return New "Frame" {
-		Name = "CameraInfo",
-		Size = UDim2.new(0.12, 0, 0.065, 0),
-		Position = UDim2.new(UI_CONFIG.MarginX + 0.04, 0, bottomY, 0),
-		AnchorPoint = Vector2.new(0, 1),
+		Name = name,
+		Size = UDim2.new(1, 0, 1, 0),
+		Position = Computed(function()
+			if not HUD_CONFIG.ParallaxEnabled then
+				return UDim2.new(0, 0, 0, 0)
+			end
+			local offsetX = parallaxOffsetX:get() * mult
+			local offsetY = parallaxOffsetY:get() * mult
+			return UDim2.new(0, offsetX, 0, offsetY)
+		end),
 		BackgroundTransparency = 1,
-		Parent = parent,
-		
-		[Children] = {
-			New "TextLabel" {
-				Size = UDim2.new(1, 0, 0.32, 0),
-				Position = UDim2.new(0, 0, 0, 0),
-				BackgroundTransparency = 1,
-				Font = Enum.Font.RobotoMono,
-				TextScaled = true,
-				TextColor3 = UI_CONFIG.OverlayColor,
-				TextTransparency = animatedTransparency,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				Text = "CAM-01  STAB:ON",
-			},
-			New "TextLabel" {
-				Name = "TargetInfo",
-				Size = UDim2.new(1, 0, 0.32, 0),
-				Position = UDim2.new(0, 0, 0.36, 0),
-				BackgroundTransparency = 1,
-				Font = Enum.Font.RobotoMono,
-				TextScaled = true,
-				TextColor3 = UI_CONFIG.AccentColor,
-				TextTransparency = Computed(function() return 0.2 + animatedTransparency:get() * 0.8 end),
-				TextXAlignment = Enum.TextXAlignment.Left,
-				Text = Computed(function()
-					return "TGT: " .. currentTargetInfo:get()
-				end),
-			},
-			New "TextLabel" {
-				Name = "FrameRate",
-				Size = UDim2.new(1, 0, 0.28, 0),
-				Position = UDim2.new(0, 0, 0.72, 0),
-				BackgroundTransparency = 1,
-				Font = Enum.Font.RobotoMono,
-				TextScaled = true,
-				TextColor3 = UI_CONFIG.AccentColor,
-				TextTransparency = Computed(function() return 0.3 + animatedTransparency:get() * 0.7 end),
-				TextXAlignment = Enum.TextXAlignment.Left,
-				Text = "24p  4K  S-LOG3",
-			},
-		},
+		[Children] = children,
 	}
 end
 
--- === MAIN UI CREATION ===
-
-local function createCameraUI(self)
+local function createHelmetHUD(self)
 	local player = Players.LocalPlayer
 	local playerGui = player:WaitForChild("PlayerGui")
 	
 	self.effectTransparency = Value(0)
-	local animatedTransparency = Spring(self.effectTransparency, 20, 1)
+	local animatedTransparency = Spring(self.effectTransparency, 18, 1)
 	
 	local screenGui = New "ScreenGui" {
-		Name = "CameraUI",
+		Name = "HelmetHUD",
 		ResetOnSpawn = false,
 		IgnoreGuiInset = true,
 		DisplayOrder = 50,
@@ -704,37 +913,32 @@ local function createCameraUI(self)
 		
 		[Children] = {
 			New "Frame" {
-				Name = "CameraOverlay",
+				Name = "HUDOverlay",
 				Size = UDim2.new(1, 0, 1, 0),
 				BackgroundTransparency = 1,
+				ClipsDescendants = true,
 				Visible = Computed(function()
 					return isEffectVisible:get()
 				end),
 				
 				[Children] = {
-					-- Effects layers
-					createNightVisionOverlay(nil),
-					(UI_CONFIG.FilmBorderEnabled or UI_CONFIG.CornerBracketsEnabled) and createFilmBorderAndCorners(nil, animatedTransparency) or nil,
-					UI_CONFIG.VignetteEnabled and createVignette(nil) or nil,
-					UI_CONFIG.ScanLinesEnabled and createScanLines(nil, animatedTransparency) or nil,
-					UI_CONFIG.FilmGrainEnabled and createFilmGrain(nil, animatedTransparency) or nil,
-					
-					-- TOP-LEFT: Recording info, camera model
-					UI_CONFIG.RecIndicatorEnabled and createTopLeftInfo(nil, animatedTransparency) or nil,
-					
-					-- TOP-RIGHT: Timestamp, camera settings, zoom
-					UI_CONFIG.TimestampEnabled and createTimestamp(nil, animatedTransparency) or nil,
-					UI_CONFIG.CameraSettingsEnabled and createCameraSettings(nil, animatedTransparency) or nil,
-					UI_CONFIG.ZoomEnabled and createZoomIndicator(nil, animatedTransparency) or nil,
-					
-					-- BOTTOM-LEFT: Audio meters, camera info
-					UI_CONFIG.AudioLevelsEnabled and createAudioLevelMeter(nil, animatedTransparency, "L", audioLevelL) or nil,
-					UI_CONFIG.AudioLevelsEnabled and createAudioLevelMeter(nil, animatedTransparency, "R", audioLevelR) or nil,
-					createCameraInfo(nil, animatedTransparency),
-					
-					-- BOTTOM-RIGHT: Memory card, battery
-					UI_CONFIG.MemoryCardEnabled and createMemoryCard(nil, animatedTransparency) or nil,
-					UI_CONFIG.BatteryEnabled and createBatteryIndicator(nil, animatedTransparency) or nil,
+					createParallaxContainer("BackgroundLayer", HUD_CONFIG.ParallaxLayerMultipliers.Background, {
+						createHazardTint(nil),
+						HUD_CONFIG.ScanLinesEnabled and createScanLines(nil, animatedTransparency) or nil,
+						HUD_CONFIG.HoloNoiseEnabled and createHoloNoise(nil, animatedTransparency) or nil,
+					}),
+					createParallaxContainer("FrameLayer", HUD_CONFIG.ParallaxLayerMultipliers.Frame, {
+						createCornerBrackets(nil, animatedTransparency),
+						createCenterReticle(nil, animatedTransparency),
+					}),
+					createParallaxContainer("PanelsLayer", HUD_CONFIG.ParallaxLayerMultipliers.Panels, {
+						createTopCenterPanel(nil, animatedTransparency),
+						createLeftPanel(nil, animatedTransparency),
+						createRightPanel(nil, animatedTransparency),
+						createBottomLeftPanel(nil, animatedTransparency),
+						createBottomRightPanel(nil, animatedTransparency),
+						createBottomCenterPanel(nil, animatedTransparency),
+					}),
 				},
 			},
 		},
@@ -747,50 +951,126 @@ end
 -- === UPDATE LOOPS ===
 
 local function startUpdateLoops()
-	-- Timestamp
+	-- Camera parallax
+	if HUD_CONFIG.ParallaxEnabled then
+		local camera = workspace.CurrentCamera
+		local currentOffsetX = 0
+		local currentOffsetY = 0
+		local targetOffsetX = 0
+		local targetOffsetY = 0
+		
+		if parallaxConnection then
+			parallaxConnection:Disconnect()
+		end
+		
+		parallaxConnection = RunService.RenderStepped:Connect(function(deltaTime)
+			if not camera then
+				camera = workspace.CurrentCamera
+				return
+			end
+			
+			local lookVector = camera.CFrame.LookVector
+			
+			if lastCameraLookVector then
+				local deltaX = lookVector.X - lastCameraLookVector.X
+				local deltaY = lookVector.Y - lastCameraLookVector.Y
+				
+				targetOffsetX = targetOffsetX - deltaX * HUD_CONFIG.ParallaxIntensity * 50
+				targetOffsetY = targetOffsetY + deltaY * HUD_CONFIG.ParallaxIntensity * 30
+				
+				local maxOffset = HUD_CONFIG.ParallaxIntensity
+				targetOffsetX = math.clamp(targetOffsetX, -maxOffset, maxOffset)
+				targetOffsetY = math.clamp(targetOffsetY, -maxOffset * 0.6, maxOffset * 0.6)
+				
+				targetOffsetX = targetOffsetX * 0.95
+				targetOffsetY = targetOffsetY * 0.95
+			end
+			
+			lastCameraLookVector = lookVector
+			
+			local smoothing = HUD_CONFIG.ParallaxSmoothing * deltaTime
+			currentOffsetX = currentOffsetX + (targetOffsetX - currentOffsetX) * math.min(smoothing, 1)
+			currentOffsetY = currentOffsetY + (targetOffsetY - currentOffsetY) * math.min(smoothing, 1)
+			
+			parallaxOffsetX:set(currentOffsetX)
+			parallaxOffsetY:set(currentOffsetY)
+		end)
+	end
+	
+	-- Mission time
 	task.spawn(function()
 		while true do
-			currentTime:set(os.date(UI_CONFIG.TimestampFormat))
+			local elapsed = os.time() - missionStartTime
+			missionTime:set(formatMissionTime(elapsed))
 			task.wait(1)
 		end
 	end)
 	
-	-- REC blink
+	-- Link blink
 	task.spawn(function()
 		while true do
-			recBlinkState:set(not recBlinkState:get())
-			task.wait(1 / UI_CONFIG.RecBlinkSpeed)
+			linkBlinkState:set(not linkBlinkState:get())
+			task.wait(0.8)
 		end
 	end)
 	
-	-- Audio levels
+	-- Scan wave
 	task.spawn(function()
 		while true do
-			audioLevelL:set(math.clamp(audioLevelL:get() + (math.random() - 0.5) * 0.2, 0.1, 0.95))
-			audioLevelR:set(math.clamp(audioLevelR:get() + (math.random() - 0.5) * 0.2, 0.1, 0.95))
+			scanWavePhase:set(scanWavePhase:get() + 0.08)
+			task.wait(0.016)
+		end
+	end)
+	
+	-- Meter pulse
+	task.spawn(function()
+		while true do
+			meterPulse:set(meterPulse:get() + 0.15)
 			task.wait(0.05)
 		end
 	end)
 	
-	-- Memory usage
+	-- Environmental fluctuations
 	task.spawn(function()
 		while true do
-			task.wait(30)
-			local current = memoryUsed:get()
-			if current < UI_CONFIG.MemoryTotal - 1 then
-				memoryUsed:set(current + 1)
-			end
+			radiationLevel:set(math.clamp(HUD_CONFIG.RadiationLevel + (math.random() - 0.5) * 0.08, 0.05, 0.95))
+			temperature:set(HUD_CONFIG.Temperature + math.random(-3, 3))
+			atmoPressure:set(math.clamp(HUD_CONFIG.AtmoPressure + (math.random() - 0.5) * 0.02, 0.05, 0.5))
+			toxicity:set(math.clamp(HUD_CONFIG.Toxicity + (math.random() - 0.5) * 0.06, 0.1, 0.9))
+			task.wait(1.5)
 		end
 	end)
 	
-	-- Battery drain
+	-- Suit fluctuations
+	task.spawn(function()
+		while true do
+			heartRate:set(math.clamp(HUD_CONFIG.HeartRate + math.random(-4, 6), 55, 135))
+			suitIntegrity:set(math.clamp(suitIntegrity:get() + math.random(-1, 1) * 0.5, 80, 100))
+			signalStrength:set(math.clamp(HUD_CONFIG.SignalStrength + (math.random() - 0.5) * 0.15, 0.3, 1))
+			task.wait(1.2)
+		end
+	end)
+	
+	-- Resource drain
+	task.spawn(function()
+		while true do
+			task.wait(45)
+			oxygenLevel:set(math.max(5, oxygenLevel:get() - 1))
+		end
+	end)
+	
 	task.spawn(function()
 		while true do
 			task.wait(120)
-			local current = batteryLevel:get()
-			if current > 5 then
-				batteryLevel:set(current - 1)
-			end
+			suitPower:set(math.max(5, suitPower:get() - 1))
+		end
+	end)
+	
+	-- Waypoint
+	task.spawn(function()
+		while true do
+			waypointDistance:set(math.max(10, waypointDistance:get() + math.random(-20, 15)))
+			task.wait(0.4)
 		end
 	end)
 end
@@ -798,16 +1078,72 @@ end
 -- === KNIT LIFECYCLE ===
 
 function CameraUIController:KnitInit()
-	-- Nothing to init
+	print("[HelmetHUD] Initializing...")
 end
 
 function CameraUIController:KnitStart()
-	createCameraUI(self)
-	startUpdateLoops()
-	print("[CameraUIController] Initialized")
+	createHelmetHUD(self)
+	print("[HelmetHUD] Initialized - Awaiting boot sequence completion")
 end
 
 -- === PUBLIC METHODS ===
+
+function CameraUIController:FadeIn(duration)
+	duration = duration or 1.5
+	
+	print("[HelmetHUD] Initiating HUD fade-in sequence...")
+	
+	isEffectVisible:set(true)
+	
+	if self.effectTransparency then
+		self.effectTransparency:set(1)
+	end
+	
+	if self.screenGui then
+		local hudOverlay = self.screenGui:FindFirstChild("HUDOverlay")
+		if hudOverlay then
+			for _, child in ipairs(hudOverlay:GetDescendants()) do
+				if child:IsA("Frame") then
+					child.BackgroundTransparency = 1
+					TweenService:Create(child, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+						BackgroundTransparency = child:GetAttribute("TargetTransparency") or child.BackgroundTransparency
+					}):Play()
+				elseif child:IsA("TextLabel") then
+					child.TextTransparency = 1
+					TweenService:Create(child, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+						TextTransparency = 0
+					}):Play()
+				elseif child:IsA("UIStroke") then
+					local originalTransparency = child.Transparency
+					child.Transparency = 1
+					TweenService:Create(child, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+						Transparency = originalTransparency
+					}):Play()
+				end
+			end
+		end
+	end
+	
+	task.spawn(function()
+		local startTime = tick()
+		while tick() - startTime < duration do
+			local alpha = (tick() - startTime) / duration
+			if self.effectTransparency then
+				self.effectTransparency:set(1 - alpha)
+			end
+			task.wait()
+		end
+		if self.effectTransparency then
+			self.effectTransparency:set(0)
+		end
+	end)
+	
+	startUpdateLoops()
+	
+	task.delay(duration, function()
+		print("[HelmetHUD] All systems online - Welcome to Kepler-442b")
+	end)
+end
 
 function CameraUIController:Show()
 	isEffectVisible:set(true)
@@ -838,37 +1174,105 @@ function CameraUIController:IsVisible()
 end
 
 function CameraUIController:SetBatteryLevel(level)
-	batteryLevel:set(math.clamp(level, 0, 100))
+	suitPower:set(math.clamp(level, 0, 100))
 end
 
 function CameraUIController:SetZoomLevel(zoom)
-	zoomLevel:set(math.clamp(zoom, 1, 4))
+	if zoom > 2 then
+		visorMode:set("XENO-SCAN")
+	elseif zoom > 1.5 then
+		visorMode:set("THERMAL")
+	else
+		visorMode:set("STANDARD")
+	end
 end
 
 function CameraUIController:SetMemoryUsed(gb)
-	memoryUsed:set(math.clamp(gb, 0, UI_CONFIG.MemoryTotal))
+	oxygenLevel:set(math.clamp(100 - gb, 0, 100))
 end
 
 function CameraUIController:SetTargetInfo(info)
-	currentTargetInfo:set(info)
+	currentWaypoint:set(info)
 end
 
 function CameraUIController:ToggleNightVision()
-	isNightVisionEnabled:set(not isNightVisionEnabled:get())
-	return isNightVisionEnabled:get()
+	local current = visorMode:get()
+	visorMode:set(current == "THERMAL" and "STANDARD" or "THERMAL")
+	return visorMode:get() == "THERMAL"
 end
 
 function CameraUIController:EnableNightVision()
-	isNightVisionEnabled:set(true)
+	visorMode:set("THERMAL")
 end
 
 function CameraUIController:DisableNightVision()
-	isNightVisionEnabled:set(false)
+	visorMode:set("STANDARD")
 end
 
 function CameraUIController:IsNightVisionEnabled()
-	return isNightVisionEnabled:get()
+	return visorMode:get() == "THERMAL"
+end
+
+function CameraUIController:SetOxygenLevel(level)
+	oxygenLevel:set(math.clamp(level, 0, 100))
+end
+
+function CameraUIController:SetSuitPower(level)
+	suitPower:set(math.clamp(level, 0, 100))
+end
+
+function CameraUIController:SetThreatLevel(level)
+	threatLevel:set(level)
+end
+
+function CameraUIController:SetVisorMode(mode)
+	visorMode:set(mode)
+end
+
+function CameraUIController:SetRadiation(level)
+	radiationLevel:set(math.clamp(level, 0, 1))
+end
+
+function CameraUIController:SetTemperature(temp)
+	temperature:set(temp)
+end
+
+function CameraUIController:SetWaypoint(name, distance)
+	currentWaypoint:set(name)
+	if distance then
+		waypointDistance:set(distance)
+	end
+end
+
+function CameraUIController:SetHeartRate(bpm)
+	heartRate:set(math.clamp(bpm, 40, 200))
+end
+
+function CameraUIController:SetSuitIntegrity(level)
+	suitIntegrity:set(math.clamp(level, 0, 100))
+end
+
+function CameraUIController:SetParallaxEnabled(enabled)
+	HUD_CONFIG.ParallaxEnabled = enabled
+	if not enabled then
+		parallaxOffsetX:set(0)
+		parallaxOffsetY:set(0)
+	end
+end
+
+function CameraUIController:IsParallaxEnabled()
+	return HUD_CONFIG.ParallaxEnabled
+end
+
+function CameraUIController:SetParallaxIntensity(intensity)
+	HUD_CONFIG.ParallaxIntensity = math.clamp(intensity, 0, 100)
+end
+
+function CameraUIController:Cleanup()
+	if parallaxConnection then
+		parallaxConnection:Disconnect()
+		parallaxConnection = nil
+	end
 end
 
 return CameraUIController
-
