@@ -1,6 +1,7 @@
 --[[
 	HumanEnemyService
 	Spawns humanoid enemies from ReplicatedStorage.Prefab in a circle formation
+	Uses physics constraints (LinearVelocity, AlignOrientation) for movement instead of MoveTo
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -17,7 +18,7 @@ local HumanEnemyService = Knit.CreateService {
 	Client = {
 		EnemyCreated = Knit.CreateSignal(),  -- Signal fired when enemies are created
 	},
-	_enemies = {},  -- Track spawned enemies with data: { model, humanoid, humanoidRootPart, currentTarget, lastWanderTime }
+	_enemies = {},  -- Track spawned enemies with data: { model, humanoid, humanoidRootPart, currentTarget, lastWanderTime, constraints }
 	_autoSpawn = false,  -- Set to false to let ReservedZoneService control spawning
 }
 
@@ -32,10 +33,18 @@ local ENEMY_CONFIG = {
 	GroundOffset = 0.5,             -- Offset above ground to prevent clipping
 	-- Wandering config
 	WanderRadius = 50,              -- Maximum distance from spawn to wander
-	WanderInterval = 2,             -- Time between choosing new destinations (seconds)
+	WanderInterval = 4,             -- Time between choosing new destinations (seconds)
 	WanderMinDistance = 10,         -- Minimum distance for new destination
-	WanderMaxStuckTime = 3,         -- Max time stuck before choosing new destination (seconds)
+	WanderMaxStuckTime = 5,         -- Max time stuck before choosing new destination (seconds)
 	WalkSpeed = 8,                  -- Walking speed for humanoids
+	-- Physics constraint config
+	MaxForce = 50000,               -- Max force for LinearVelocity constraint
+	MaxTorque = 100000,             -- Max torque for AlignOrientation constraint
+	TurnResponsiveness = 15,        -- How fast to rotate towards target
+	AccelerationTime = 0.3,         -- How fast to accelerate to target speed
+	StopDistance = 3,               -- Distance at which to start slowing down
+	IdleChance = 0.2,               -- Chance to idle instead of moving to new target
+	IdleDuration = 2,               -- How long to idle (seconds)
 }
 
 -- === SPAWNING ===
@@ -154,6 +163,124 @@ local function getModelBottomOffset(model)
 	return 0
 end
 
+-- === PHYSICS CONSTRAINTS ===
+
+-- Create physics constraints for an enemy (LinearVelocity + AlignOrientation)
+local function createMovementConstraints(humanoidRootPart)
+	-- Create attachment for constraints
+	local attachment = Instance.new("Attachment")
+	attachment.Name = "MovementAttachment"
+	attachment.Parent = humanoidRootPart
+	
+	-- LinearVelocity for movement (horizontal only)
+	local linearVelocity = Instance.new("LinearVelocity")
+	linearVelocity.Name = "WanderLinearVelocity"
+	linearVelocity.Attachment0 = attachment
+	linearVelocity.MaxForce = ENEMY_CONFIG.MaxForce
+	linearVelocity.VelocityConstraintMode = Enum.VelocityConstraintMode.Plane
+	linearVelocity.PrimaryTangentAxis = Vector3.new(1, 0, 0)
+	linearVelocity.SecondaryTangentAxis = Vector3.new(0, 0, 1)
+	linearVelocity.PlaneVelocity = Vector2.new(0, 0)  -- Start stationary
+	linearVelocity.Parent = humanoidRootPart
+	
+	-- AlignOrientation to face movement direction
+	local alignOrientation = Instance.new("AlignOrientation")
+	alignOrientation.Name = "WanderAlignOrientation"
+	alignOrientation.Attachment0 = attachment
+	alignOrientation.Mode = Enum.OrientationAlignmentMode.OneAttachment
+	alignOrientation.MaxTorque = ENEMY_CONFIG.MaxTorque
+	alignOrientation.Responsiveness = ENEMY_CONFIG.TurnResponsiveness
+	alignOrientation.CFrame = humanoidRootPart.CFrame  -- Start facing current direction
+	alignOrientation.Parent = humanoidRootPart
+	
+	return {
+		attachment = attachment,
+		linearVelocity = linearVelocity,
+		alignOrientation = alignOrientation,
+	}
+end
+
+-- Update constraint to move towards target position
+local function updateMovementConstraint(enemyData, deltaTime)
+	local constraints = enemyData.constraints
+	if not constraints then return end
+	
+	local linearVelocity = constraints.linearVelocity
+	local alignOrientation = constraints.alignOrientation
+	local humanoidRootPart = enemyData.humanoidRootPart
+	
+	if not linearVelocity or not alignOrientation or not humanoidRootPart then return end
+	if not humanoidRootPart.Parent then return end
+	
+	-- Check if idling
+	if enemyData.isIdling then
+		-- Gradually slow down
+		local currentVel = linearVelocity.PlaneVelocity
+		local damping = 1 - (deltaTime * 5)
+		linearVelocity.PlaneVelocity = currentVel * damping
+		return
+	end
+	
+	local target = enemyData.currentTarget
+	if not target then
+		-- No target, slow down
+		local currentVel = linearVelocity.PlaneVelocity
+		local damping = 1 - (deltaTime * 5)
+		linearVelocity.PlaneVelocity = currentVel * damping
+		return
+	end
+	
+	local currentPos = humanoidRootPart.Position
+	local toTarget = target - currentPos
+	local horizontalDir = Vector3.new(toTarget.X, 0, toTarget.Z)
+	local distance = horizontalDir.Magnitude
+	
+	if distance < 0.1 then
+		-- At target
+		linearVelocity.PlaneVelocity = Vector2.new(0, 0)
+		return
+	end
+	
+	local direction = horizontalDir.Unit
+	
+	-- Calculate target speed based on distance (slow down when close)
+	local targetSpeed = ENEMY_CONFIG.WalkSpeed
+	if distance < ENEMY_CONFIG.StopDistance then
+		targetSpeed = targetSpeed * (distance / ENEMY_CONFIG.StopDistance)
+	end
+	
+	-- Current velocity
+	local currentVel = linearVelocity.PlaneVelocity
+	local targetVel = Vector2.new(direction.X * targetSpeed, direction.Z * targetSpeed)
+	
+	-- Smooth acceleration
+	local lerpFactor = math.min(1, deltaTime / ENEMY_CONFIG.AccelerationTime)
+	local newVel = currentVel:Lerp(targetVel, lerpFactor)
+	linearVelocity.PlaneVelocity = newVel
+	
+	-- Update facing direction (only if moving)
+	if newVel.Magnitude > 0.5 then
+		local facingDir = Vector3.new(newVel.X, 0, newVel.Y).Unit
+		local lookAt = currentPos + facingDir
+		alignOrientation.CFrame = CFrame.lookAt(currentPos, lookAt)
+	end
+end
+
+-- Clean up constraints for an enemy
+local function cleanupConstraints(constraints)
+	if not constraints then return end
+	
+	if constraints.linearVelocity then
+		constraints.linearVelocity:Destroy()
+	end
+	if constraints.alignOrientation then
+		constraints.alignOrientation:Destroy()
+	end
+	if constraints.attachment then
+		constraints.attachment:Destroy()
+	end
+end
+
 -- Spawn enemies in a circle
 local function spawnEnemiesInCircle(self)
 	local entityModel = findEntityModel()
@@ -226,12 +353,18 @@ local function spawnEnemiesInCircle(self)
 		local humanoid = clone:FindFirstChildOfClass("Humanoid")
 		local humanoidRootPart = clone:FindFirstChild("HumanoidRootPart")
 		
+		-- Create physics constraints for movement
+		local constraints = nil
+		if humanoidRootPart then
+			constraints = createMovementConstraints(humanoidRootPart)
+		end
+		
 		if humanoid then
-			-- Set walk speed
-			humanoid.WalkSpeed = ENEMY_CONFIG.WalkSpeed
-			-- Enable pathfinding
+			-- Disable humanoid auto-movement (we use constraints instead)
+			humanoid.WalkSpeed = 0  -- Disable built-in walking
 			humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
 			humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+			-- Keep the humanoid for animations but movement is via constraints
 		end
 		
 		-- Store enemy data
@@ -239,17 +372,20 @@ local function spawnEnemiesInCircle(self)
 			model = clone,
 			humanoid = humanoid,
 			humanoidRootPart = humanoidRootPart,
+			constraints = constraints,
 			spawnPosition = spawnPosition,
 			currentTarget = nil,
 			lastWanderTime = 0,
 			lastPosition = spawnPosition,
 			lastPositionTime = 0,
+			isIdling = false,
+			idleEndTime = 0,
 		}
 		
 		table.insert(self._enemies, enemyData)
 		
-		print(string.format("[HumanEnemyService] Spawned enemy %d at (%.1f, %.1f, %.1f) (ground: %.1f, offset: %.1f)", 
-			i, spawnPosition.X, spawnPosition.Y, spawnPosition.Z, groundY, bottomOffset))
+		print(string.format("[HumanEnemyService] Spawned enemy %d at (%.1f, %.1f, %.1f) with physics constraints", 
+			i, spawnPosition.X, spawnPosition.Y, spawnPosition.Z))
 	end
 	
 	print(string.format("[HumanEnemyService] Spawned %d enemies in a circle", #self._enemies))
@@ -263,15 +399,26 @@ local function spawnEnemiesInCircle(self)
 	print("[HumanEnemyService] Fired EnemyCreated signal")
 end
 
--- === WANDERING ===
+-- === WANDERING (PHYSICS-BASED) ===
 
 -- Find a random wander destination
-local function findWanderDestination(spawnPosition)
+local function findWanderDestination(spawnPosition, currentPosition)
+	-- Sometimes wander relative to current position, sometimes back towards spawn
+	local basePos = math.random() < 0.3 and spawnPosition or currentPosition
+	
 	local angle = math.random() * math.pi * 2
 	local distance = math.random(ENEMY_CONFIG.WanderMinDistance, ENEMY_CONFIG.WanderRadius)
 	
-	local targetX = spawnPosition.X + math.cos(angle) * distance
-	local targetZ = spawnPosition.Z + math.sin(angle) * distance
+	local targetX = basePos.X + math.cos(angle) * distance
+	local targetZ = basePos.Z + math.sin(angle) * distance
+	
+	-- Clamp to wander radius from spawn
+	local offsetFromSpawn = Vector3.new(targetX - spawnPosition.X, 0, targetZ - spawnPosition.Z)
+	if offsetFromSpawn.Magnitude > ENEMY_CONFIG.WanderRadius then
+		offsetFromSpawn = offsetFromSpawn.Unit * ENEMY_CONFIG.WanderRadius
+		targetX = spawnPosition.X + offsetFromSpawn.X
+		targetZ = spawnPosition.Z + offsetFromSpawn.Z
+	end
 	
 	-- Get terrain surface height at target (using CubeTerrainService - no raycast)
 	local terrainService = getCubeTerrainService()
@@ -286,25 +433,45 @@ local function findWanderDestination(spawnPosition)
 	return Vector3.new(targetX, spawnPosition.Y, targetZ)
 end
 
--- Update wandering for all enemies
+-- Store deltaTime for constraint updates
+local _lastUpdateTime = 0
+
+-- Update wandering for all enemies using physics constraints
 local function updateWandering(self, currentTime)
+	local deltaTime = currentTime - _lastUpdateTime
+	_lastUpdateTime = currentTime
+	
+	-- Clamp deltaTime to avoid huge jumps
+	deltaTime = math.min(deltaTime, 0.1)
+	
 	for _, enemyData in ipairs(self._enemies) do
 		if not enemyData.model or not enemyData.model.Parent then
 			continue
 		end
 		
-		local humanoid = enemyData.humanoid
 		local humanoidRootPart = enemyData.humanoidRootPart
 		
-		if not humanoid or not humanoidRootPart then
+		if not humanoidRootPart or not humanoidRootPart.Parent then
 			continue
+		end
+		
+		-- Check if currently idling
+		if enemyData.isIdling then
+			if currentTime >= enemyData.idleEndTime then
+				-- Done idling
+				enemyData.isIdling = false
+			else
+				-- Continue idling, just update constraints to slow down
+				updateMovementConstraint(enemyData, deltaTime)
+				continue
+			end
 		end
 		
 		-- Check if enemy is stuck (not moving)
 		local currentPos = humanoidRootPart.Position
 		local distanceMoved = (currentPos - enemyData.lastPosition).Magnitude
 		
-		if distanceMoved < 1 then  -- Moved less than 1 stud
+		if distanceMoved < 0.5 then  -- Moved less than 0.5 studs
 			if enemyData.lastPositionTime == 0 then
 				enemyData.lastPositionTime = currentTime
 			elseif currentTime - enemyData.lastPositionTime >= ENEMY_CONFIG.WanderMaxStuckTime then
@@ -322,37 +489,38 @@ local function updateWandering(self, currentTime)
 		local shouldChooseNew = false
 		if not enemyData.currentTarget then
 			shouldChooseNew = true
-		elseif (humanoidRootPart.Position - enemyData.currentTarget).Magnitude < 5 then
-			-- Reached target
-			shouldChooseNew = true
-		elseif currentTime - enemyData.lastWanderTime >= ENEMY_CONFIG.WanderInterval then
-			-- Time interval passed, choose new destination even if not reached
-			shouldChooseNew = true
+		else
+			local toTarget = enemyData.currentTarget - currentPos
+			local horizontalDist = Vector3.new(toTarget.X, 0, toTarget.Z).Magnitude
+			
+			if horizontalDist < ENEMY_CONFIG.StopDistance then
+				-- Reached target
+				shouldChooseNew = true
+			elseif currentTime - enemyData.lastWanderTime >= ENEMY_CONFIG.WanderInterval then
+				-- Time interval passed, choose new destination even if not reached
+				shouldChooseNew = true
+			end
 		end
 		
 		if shouldChooseNew then
-			-- Find new destination
-			local newTarget = findWanderDestination(enemyData.spawnPosition)
-			enemyData.currentTarget = newTarget
-			enemyData.lastWanderTime = currentTime
-			enemyData.lastPosition = currentPos
-			enemyData.lastPositionTime = 0
-			
-			-- Use NavMesh to move to destination
-			humanoid:MoveTo(newTarget)
-		end
-		
-		-- Keep moving if we have a target
-		if enemyData.currentTarget then
-			-- Check if we're stuck (not moving towards target)
-			local distanceToTarget = (humanoidRootPart.Position - enemyData.currentTarget).Magnitude
-			if distanceToTarget > 5 then
-				-- Re-issue move command periodically to ensure navigation
-				if math.random() < 0.1 then  -- 10% chance each frame
-					humanoid:MoveTo(enemyData.currentTarget)
-				end
+			-- Maybe idle instead of immediately moving
+			if math.random() < ENEMY_CONFIG.IdleChance then
+				enemyData.isIdling = true
+				enemyData.idleEndTime = currentTime + ENEMY_CONFIG.IdleDuration * (0.5 + math.random())
+				enemyData.currentTarget = nil
+				enemyData.lastWanderTime = currentTime
+			else
+				-- Find new destination
+				local newTarget = findWanderDestination(enemyData.spawnPosition, currentPos)
+				enemyData.currentTarget = newTarget
+				enemyData.lastWanderTime = currentTime
+				enemyData.lastPosition = currentPos
+				enemyData.lastPositionTime = 0
 			end
 		end
+		
+		-- Update physics constraints to move towards target
+		updateMovementConstraint(enemyData, deltaTime)
 	end
 end
 
@@ -400,6 +568,39 @@ function HumanEnemyService:GetEnemyModels()
 		end
 	end
 	return models
+end
+
+-- Remove an enemy and clean up its constraints
+function HumanEnemyService:RemoveEnemy(enemyModel)
+	for i, enemyData in ipairs(self._enemies) do
+		if enemyData.model == enemyModel then
+			-- Clean up constraints
+			cleanupConstraints(enemyData.constraints)
+			
+			-- Remove model
+			if enemyData.model then
+				enemyData.model:Destroy()
+			end
+			
+			-- Remove from list
+			table.remove(self._enemies, i)
+			print("[HumanEnemyService] Removed enemy and cleaned up constraints")
+			return true
+		end
+	end
+	return false
+end
+
+-- Remove all enemies
+function HumanEnemyService:RemoveAllEnemies()
+	for _, enemyData in ipairs(self._enemies) do
+		cleanupConstraints(enemyData.constraints)
+		if enemyData.model then
+			enemyData.model:Destroy()
+		end
+	end
+	self._enemies = {}
+	print("[HumanEnemyService] Removed all enemies")
 end
 
 -- Spawn enemies at a specific location (called by ReservedZoneService)
@@ -465,8 +666,15 @@ function HumanEnemyService:SpawnEnemiesAt(centerPosition, radius, count)
 		local humanoid = clone:FindFirstChildOfClass("Humanoid")
 		local humanoidRootPart = clone:FindFirstChild("HumanoidRootPart")
 		
+		-- Create physics constraints for movement
+		local constraints = nil
+		if humanoidRootPart then
+			constraints = createMovementConstraints(humanoidRootPart)
+		end
+		
 		if humanoid then
-			humanoid.WalkSpeed = ENEMY_CONFIG.WalkSpeed
+			-- Disable humanoid auto-movement (we use constraints instead)
+			humanoid.WalkSpeed = 0  -- Disable built-in walking
 			humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
 			humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 		end
@@ -476,21 +684,24 @@ function HumanEnemyService:SpawnEnemiesAt(centerPosition, radius, count)
 			model = clone,
 			humanoid = humanoid,
 			humanoidRootPart = humanoidRootPart,
+			constraints = constraints,
 			spawnPosition = spawnPosition,
 			currentTarget = nil,
 			lastWanderTime = 0,
 			lastPosition = spawnPosition,
 			lastPositionTime = 0,
+			isIdling = false,
+			idleEndTime = 0,
 		}
 		
 		table.insert(self._enemies, enemyData)
 		table.insert(spawnedEnemies, enemyData)
 		
-		print(string.format("[HumanEnemyService] Spawned zone enemy %d at (%.1f, %.1f, %.1f)", 
+		print(string.format("[HumanEnemyService] Spawned zone enemy %d at (%.1f, %.1f, %.1f) with physics constraints", 
 			i, spawnPosition.X, spawnPosition.Y, spawnPosition.Z))
 	end
 	
-	print(string.format("[HumanEnemyService] Spawned %d enemies at zone center (%.1f, %.1f, %.1f)", 
+	print(string.format("[HumanEnemyService] Spawned %d enemies at zone center (%.1f, %.1f, %.1f) using physics constraints", 
 		#spawnedEnemies, centerPosition.X, centerPosition.Y, centerPosition.Z))
 	
 	-- Fire signal

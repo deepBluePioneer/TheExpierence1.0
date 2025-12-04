@@ -66,11 +66,11 @@ local CollectionService = game:GetService("CollectionService")
 
 -- === CONFIG ===
 local ZONE_CONFIG = {
-	BuildingZoneSizeX = 2,      -- Width of building zone (cells)
-	BuildingZoneSizeZ = 2,      -- Depth of building zone (cells)
+	BuildingZoneSizeX = 2,      -- Width of building zone (cells) - at center of grid
+	BuildingZoneSizeZ = 2,      -- Depth of building zone (cells) - at center of grid
 	RadiationZoneSizeX = 2,     -- Width of radiation zone (cells)
 	RadiationZoneSizeZ = 2,     -- Depth of radiation zone (cells)
-	AudioLogZoneCount = 10,     -- Number of audio log zones to create
+	AudioLogZoneCount = 5,      -- Fallback count (will use AudioLogService.LogCount if available)
 	AudioLogZoneSizeX = 1,      -- Width of each audio log zone (cells)
 	AudioLogZoneSizeZ = 1,      -- Depth of each audio log zone (cells)
 	HumanEnemyZoneSizeX = 3,    -- Width of human enemy zone (cells)
@@ -84,12 +84,14 @@ local ZONE_CUBE_TAG = "reservedZoneCube"
 
 -- === TERRAIN FLATTENING ===
 
--- Flatten terrain under the reserved area using CubeTerrainService
-local function flattenTerrainUnderReservedArea(self, cellPositions, zoneType)
+-- Flatten terrain under a zone using its zone cube bounds
+local function flattenTerrainUnderZone(self, zoneCube, zoneType)
 	if not ZONE_TYPES[zoneType] or not ZONE_TYPES[zoneType].flattenTerrain then
 		return  -- Don't flatten if zone type doesn't require it
 	end
-	if not cellPositions or #cellPositions == 0 then
+	
+	if not zoneCube then
+		warn("[ReservedZoneService] No zone cube provided for flattening")
 		return
 	end
 	
@@ -99,46 +101,15 @@ local function flattenTerrainUnderReservedArea(self, cellPositions, zoneType)
 		return
 	end
 	
-	if not self._gridService then
-		warn("[ReservedZoneService] GridService not available, cannot calculate area size")
-		return
-	end
-	
-	-- Calculate the center cell position
-	local totalX, totalZ = 0, 0
-	local minGridX, maxGridX = math.huge, -math.huge
-	local minGridZ, maxGridZ = math.huge, -math.huge
-	
-	for _, pos in ipairs(cellPositions) do
-		-- Convert world position to grid position
-		local gridX, gridZ = self._gridService:WorldToGrid(pos)
-		minGridX = math.min(minGridX, gridX)
-		maxGridX = math.max(maxGridX, gridX)
-		minGridZ = math.min(minGridZ, gridZ)
-		maxGridZ = math.max(maxGridZ, gridZ)
-		totalX = totalX + gridX
-		totalZ = totalZ + gridZ
-	end
-	
-	-- Calculate center grid position
-	local centerGridX = math.floor((minGridX + maxGridX) / 2)
-	local centerGridZ = math.floor((minGridZ + maxGridZ) / 2)
-	local radiusX = math.ceil((maxGridX - minGridX) / 2) + 1
-	local radiusZ = math.ceil((maxGridZ - minGridZ) / 2) + 1
-	local radius = math.max(radiusX, radiusZ)
-	
 	-- Get the flat height from GridService topY (the ground level)
-	local flatHeight = self._gridService:GetTopY()
+	local flatHeight = self._gridService and self._gridService:GetTopY() or 0
 	
-	print(string.format(
-		"[ReservedZoneService] Flattening terrain at grid (%d, %d) radius %d", 
-		centerGridX, centerGridZ, radius
-	))
+	print(string.format("[ReservedZoneService] Flattening terrain cubes within %s zone", zoneType))
 	
-	-- Flatten the terrain via CubeTerrainService
-	CubeTerrainService:FlattenArea(centerGridX, centerGridZ, radius, flatHeight)
+	-- Flatten terrain cubes within the zone bounds
+	CubeTerrainService:FlattenAreaInZone(zoneCube, flatHeight)
 	
-	print("[ReservedZoneService] Terrain cubes flattened under Building zone")
+	print("[ReservedZoneService] Terrain cubes flattened under " .. zoneType .. " zone")
 end
 
 -- Create a zone for a specific zone type
@@ -368,12 +339,16 @@ local function createZoneOfType(self, zoneType, sizeX, sizeZ, LoadingService, re
 	end
 	createZone(self, zoneType, cells, sizeX, sizeZ)
 	
-	-- Flatten terrain if needed
+	-- Flatten terrain if needed using the zone cube bounds
 	if zoneTypeData.flattenTerrain then
 		if reportProgress then
 			reportProgress(string.format("Flattening terrain for %s zone...", zoneType), 85)
 		end
-		flattenTerrainUnderReservedArea(self, cellPositions, zoneType)
+		-- Get the zone cube that was just created
+		local zoneData = self._zones[zoneType]
+		if zoneData and zoneData.zoneCube then
+			flattenTerrainUnderZone(self, zoneData.zoneCube, zoneType)
+		end
 	end
 	
 	if reportProgress then
@@ -409,8 +384,9 @@ local function spawnEnemiesInZone(self, centerPosition, zoneSizeX, zoneSizeZ, en
 	return enemies
 end
 
--- Helper function to spawn an audio log at a specific world position
-local function spawnAudioLogInZone(self, worldPosition, zoneIndex)
+-- Helper function to spawn an audio log within a zone using Zone+ getRandomPoint()
+-- Uses getRandomPoint() for random XZ within zone, then places on terrain surface
+local function spawnAudioLogInZone(self, zoneInstance, zoneCube, zoneIndex)
 	-- Get AudioLogService
 	local AudioLogService = nil
 	pcall(function()
@@ -422,50 +398,42 @@ local function spawnAudioLogInZone(self, worldPosition, zoneIndex)
 		return nil
 	end
 	
-	-- Raycast to find ground height at this position
-	local Terrain = Workspace.Terrain
-	local rayOrigin = Vector3.new(worldPosition.X, 500, worldPosition.Z)
-	local rayDirection = Vector3.new(0, -1000, 0)
-	
-	local rayParams = RaycastParams.new()
-	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	
-	-- Build exclude list for accurate ground detection
-	local excludeList = {}
-	local audioLogFolder = Workspace:FindFirstChild("AudioLogs")
-	if audioLogFolder then table.insert(excludeList, audioLogFolder) end
-	local treesFolder = Workspace:FindFirstChild("Trees")
-	if treesFolder then table.insert(excludeList, treesFolder) end
-	local formationsFolder = Workspace:FindFirstChild("AlienFormations")
-	if formationsFolder then table.insert(excludeList, formationsFolder) end
-	
-	-- Exclude grid cubes by tag
-	local gridCubes = CollectionService:GetTagged("gridCube")
-	for _, cube in ipairs(gridCubes) do
-		table.insert(excludeList, cube)
+	-- Use Zone+ getRandomPoint() to get a random position within the zone
+	local randomPoint = zoneInstance:getRandomPoint()
+	if not randomPoint then
+		warn("[ReservedZoneService] Could not get random point from zone")
+		return nil
 	end
 	
-	-- Exclude reserved zone cubes by tag
-	local zoneCubes = CollectionService:GetTagged(ZONE_CUBE_TAG)
-	for _, cube in ipairs(zoneCubes) do
-		table.insert(excludeList, cube)
+	-- Get the terrain surface height at this random XZ position using CubeTerrainService
+	local terrainY = self._gridService._gridData.topY  -- Default fallback
+	
+	if self._cubeTerrainService then
+		local surfaceHeight = self._cubeTerrainService:GetSurfaceHeightAt(randomPoint.X, randomPoint.Z)
+		if surfaceHeight and surfaceHeight > 0 then
+			terrainY = surfaceHeight
+		else
+			-- Fallback to grid-based height calculation
+			terrainY = self._cubeTerrainService:GetHeightAtPosition(Vector3.new(randomPoint.X, 0, randomPoint.Z))
+		end
 	end
 	
-	rayParams.FilterDescendantsInstances = excludeList
-	rayParams.IgnoreWater = true
+	-- Spawn position: random XZ from zone, Y from terrain surface + small offset
+	local spawnPosition = Vector3.new(randomPoint.X, terrainY + 0.5, randomPoint.Z)
 	
-	local rayResult = Workspace:Raycast(rayOrigin, rayDirection, rayParams)
-	local groundY = rayResult and rayResult.Position.Y or (self._gridService:GetTopY() or 0)
-	
-	-- Spawn position slightly above ground (AudioLogService will handle physics drop)
-	local spawnPosition = Vector3.new(worldPosition.X, groundY + 3, worldPosition.Z)
+	print(string.format("[ReservedZoneService] Spawning audio log %d at random zone XZ (%.1f, %.1f) on terrain Y=%.1f", 
+		zoneIndex, randomPoint.X, randomPoint.Z, terrainY))
 	
 	-- Spawn the audio log
 	local audioLog = AudioLogService:SpawnAudioLogAt(spawnPosition)
-	if audioLog and audioLog.model then
+	if audioLog and audioLog.model and audioLog.body then
 		audioLog.model.Name = "AudioLog_Zone_" .. zoneIndex
 		audioLog.entryIndex = zoneIndex
-		print(string.format("[ReservedZoneService] Spawned audio log %d at (%.1f, %.1f, %.1f)", 
+		
+		-- Keep it anchored so it stays on the terrain
+		audioLog.body.Anchored = true
+		
+		print(string.format("[ReservedZoneService] Audio log %d placed and anchored at (%.1f, %.1f, %.1f)", 
 			zoneIndex, spawnPosition.X, spawnPosition.Y, spawnPosition.Z))
 	end
 	
@@ -473,6 +441,7 @@ local function spawnAudioLogInZone(self, worldPosition, zoneIndex)
 end
 
 -- Create a single zone for AudioLog type (1x1 cell)
+-- Zone is tall to encompass terrain height variations, audio log spawns on terrain within zone XZ bounds
 local function createSingleAudioLogZone(self, cellX, cellZ, zoneIndex)
 	if not self._gridService then return nil end
 	
@@ -491,11 +460,16 @@ local function createSingleAudioLogZone(self, cellX, cellZ, zoneIndex)
 		cellData.cube.Transparency = zoneTypeData.cellTransparency
 	end
 	
-	-- Create zone cube
-	local centerY = self._gridService._gridData.topY + (cellSize / 2)
+	-- Make zone cube tall enough to encompass terrain height variations
+	-- Terrain height can vary from MinHeightOffset (-4) to MaxHeightOffset (+6) relative to topY
+	-- So we make the zone extend from below the lowest terrain to above the highest
+	local topY = self._gridService._gridData.topY
+	local zoneHeight = cellSize + 20  -- Extra height to encompass terrain variations (-10 to +10)
+	local centerY = topY + (zoneHeight / 2) - 5  -- Center it so it extends below and above grid level
+	
 	local cube = Instance.new("Part")
 	cube.Name = string.format("AudioLogZoneCube_%d", zoneIndex)
-	cube.Size = Vector3.new(cellSize, cellSize, cellSize)
+	cube.Size = Vector3.new(cellSize, zoneHeight, cellSize)
 	cube.Position = Vector3.new(worldPos.X, centerY, worldPos.Z)
 	cube.Transparency = zoneTypeData.zoneCubeTransparency
 	cube.Color = zoneTypeData.zoneCubeColor
@@ -504,6 +478,9 @@ local function createSingleAudioLogZone(self, cellX, cellZ, zoneIndex)
 	cube.CastShadow = false
 	CollectionService:AddTag(cube, ZONE_CUBE_TAG)  -- Tag for raycast exclusion
 	cube.Parent = workspace
+	
+	print(string.format("[ReservedZoneService] AudioLog zone %d cube at (%.1f, %.1f, %.1f) size (%.1f, %.1f, %.1f)", 
+		zoneIndex, worldPos.X, centerY, worldPos.Z, cellSize, zoneHeight, cellSize))
 	
 	-- Create Zone+ zone on the cube
 	local success, zoneInstance = pcall(function()
@@ -539,8 +516,9 @@ local function createSingleAudioLogZone(self, cellX, cellZ, zoneIndex)
 		))
 	end)
 	
-	-- Spawn audio log inside the zone
-	local audioLog = spawnAudioLogInZone(self, worldPos, zoneIndex)
+	-- Spawn audio log at random position within the zone, let it fall to terrain
+	-- Uses Zone+ getRandomPoint() to pick a random XZ position within zone bounds
+	local audioLog = spawnAudioLogInZone(self, zoneInstance, cube, zoneIndex)
 	
 	return {
 		cell = {x = cellX, z = cellZ},
@@ -621,10 +599,107 @@ local function createMultipleAudioLogZones(self, count, LoadingService, reportPr
 	print(string.format("[ReservedZoneService] ✓ Created %d AudioLog zones", zonesToCreate))
 end
 
+-- Create Building zone at the CENTER of the grid
+local function createBuildingZoneAtCenter(self, sizeX, sizeZ, LoadingService, reportProgress)
+	if not self._gridService then
+		warn("[ReservedZoneService] GridService not available for Building zone")
+		return
+	end
+	
+	local zoneType = "Building"
+	local zoneTypeData = ZONE_TYPES[zoneType]
+	
+	-- Get grid dimensions
+	local gridWidth, gridDepth = self._gridService:GetGridDimensions()
+	if not gridWidth or not gridDepth then
+		warn("[ReservedZoneService] Could not get grid dimensions")
+		return
+	end
+	
+	-- Calculate center of grid
+	local centerGridX = math.floor(gridWidth / 2)
+	local centerGridZ = math.floor(gridDepth / 2)
+	
+	-- Calculate starting position so zone is centered
+	local startX = centerGridX - math.floor(sizeX / 2)
+	local startZ = centerGridZ - math.floor(sizeZ / 2)
+	
+	-- Ensure start positions are valid (at least 1)
+	startX = math.max(1, startX)
+	startZ = math.max(1, startZ)
+	
+	print(string.format("[ReservedZoneService] Creating Building zone at CENTER: grid center (%d, %d), start (%d, %d), size %dx%d", 
+		centerGridX, centerGridZ, startX, startZ, sizeX, sizeZ))
+	
+	local cells = {}
+	local cellPositions = {}
+	local totalCells = sizeX * sizeZ
+	local cellIndex = 0
+	
+	-- Reserve all cells in the block at center
+	for dx = 0, sizeX - 1 do
+		for dz = 0, sizeZ - 1 do
+			local cellX = startX + dx
+			local cellZ = startZ + dz
+			cellIndex += 1
+			
+			-- Mark cell as occupied
+			if self._gridService.SetCellOccupied then
+				self._gridService:SetCellOccupied(cellX, cellZ, ZONE_CONFIG.OwnerId)
+			end
+			
+			-- Get the cell data and modify the cube
+			local cellData = self._gridService:GetCell(cellX, cellZ)
+			if cellData and cellData.cube then
+				cellData.cube.Transparency = zoneTypeData.cellTransparency
+				print(string.format("[ReservedZoneService] Reserved center cell (%d,%d) for Building zone", cellX, cellZ))
+			end
+			
+			-- Store cell position for terrain flattening
+			local cellPos = self._gridService:GridToWorld(cellX, cellZ)
+			table.insert(cellPositions, cellPos)
+			
+			-- Store reserved cell
+			table.insert(cells, {x = cellX, z = cellZ})
+			
+			if reportProgress then
+				local progress = 10 + (cellIndex / totalCells) * 60
+				reportProgress(string.format("Reserving Building zone at center (%d/%d)...", cellIndex, totalCells), progress)
+			end
+		end
+	end
+	
+	task.wait(0.5)
+	
+	-- Create the zone
+	if reportProgress then
+		reportProgress("Creating Building zone at center...", 75)
+	end
+	createZone(self, zoneType, cells, sizeX, sizeZ)
+	
+	-- Flatten terrain under the Building zone using the zone cube bounds
+	if zoneTypeData.flattenTerrain then
+		if reportProgress then
+			reportProgress("Flattening terrain under Building zone...", 85)
+		end
+		-- Get the zone cube that was just created
+		local buildingZone = self._zones.Building
+		if buildingZone and buildingZone.zoneCube then
+			flattenTerrainUnderZone(self, buildingZone.zoneCube, zoneType)
+		end
+	end
+	
+	if reportProgress then
+		reportProgress("Building zone created at center", 100)
+	end
+	
+	print(string.format("[ReservedZoneService] ✓ Building zone created at CENTER of grid (%d, %d)", centerGridX, centerGridZ))
+end
+
 -- Main function to create all zones
 local function proceedWithReservation(self, LoadingService, reportProgress)
-	-- Create building zone (15% of progress)
-	createZoneOfType(self, "Building", ZONE_CONFIG.BuildingZoneSizeX, ZONE_CONFIG.BuildingZoneSizeZ, 
+	-- Create building zone at CENTER of grid (15% of progress)
+	createBuildingZoneAtCenter(self, ZONE_CONFIG.BuildingZoneSizeX, ZONE_CONFIG.BuildingZoneSizeZ, 
 		LoadingService, function(msg, progress)
 			if reportProgress then
 				reportProgress(msg, progress * 0.15)
@@ -655,18 +730,38 @@ local function proceedWithReservation(self, LoadingService, reportProgress)
 	end
 	
 	-- Create audio log zones (50% of progress)
-	createMultipleAudioLogZones(self, ZONE_CONFIG.AudioLogZoneCount, LoadingService, function(msg, progress)
+	-- Get the audio log count from AudioLogService to ensure zone count matches
+	local audioLogCount = ZONE_CONFIG.AudioLogZoneCount  -- Default fallback
+	local AudioLogService = nil
+	pcall(function()
+		AudioLogService = Knit.GetService("AudioLogService")
+	end)
+	if AudioLogService and AudioLogService.GetLogCount then
+		audioLogCount = AudioLogService:GetLogCount()
+		print(string.format("[ReservedZoneService] Using AudioLogService LogCount: %d", audioLogCount))
+	end
+	
+	createMultipleAudioLogZones(self, audioLogCount, LoadingService, function(msg, progress)
 		if reportProgress then
 			reportProgress(msg, 50 + progress * 0.5)
 		end
 	end)
+	
+	-- Cleanup grid cells and map UI now that reserved zones are created
+	-- This deletes grid cube parts and map replica but keeps:
+	-- - Reserved zone cubes (Building, Radiation, AudioLog, HumanEnemy zones)
+	-- - Terrain cubes
+	if self._gridService and self._gridService.CleanupGridCellsAndMap then
+		print("[ReservedZoneService] Cleaning up grid cells and map UI...")
+		self._gridService:CleanupGridCellsAndMap()
+	end
 	
 	-- Mark step complete
 	if LoadingService then
 		LoadingService:MarkStepComplete("ReservedZoneService")
 	end
 	
-	print("[ReservedZoneService] All zones created")
+	print("[ReservedZoneService] All zones created, grid cells cleaned up")
 end
 
 -- === KNIT LIFECYCLE ===

@@ -622,7 +622,54 @@ end
 -- ║                         TERRAIN MODIFICATION                               ║
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
--- Flatten terrain in an area (for buildings, etc.)
+-- Flatten terrain cubes within a zone
+-- zonePart: the Part representing the zone bounds
+function CubeTerrainService:FlattenAreaInZone(zonePart, targetHeight)
+	if not zonePart then
+		warn("[CubeTerrainService] No zone part provided for flattening")
+		return 0
+	end
+	
+	if not self._gridService then
+		pcall(function()
+			self._gridService = Knit.GetService("GridService")
+		end)
+	end
+	
+	local gridData = self._gridService and self._gridService:GetGridData() or nil
+	targetHeight = targetHeight or (gridData and gridData.topY or 0)
+	
+	local flattenedCount = 0
+	local flatY = targetHeight + (CONFIG.CubeThickness / 2)
+	
+	-- Get zone bounds
+	local zonePos = zonePart.Position
+	local zoneSize = zonePart.Size
+	local halfX = zoneSize.X / 2
+	local halfZ = zoneSize.Z / 2
+	
+	-- Iterate through ALL terrain cubes
+	for key, cube in pairs(self._terrainCubes) do
+		local cubePos = cube.Position
+		
+		-- Check if terrain cube is within the zone XZ bounds
+		if cubePos.X >= (zonePos.X - halfX) and cubePos.X <= (zonePos.X + halfX) and
+		   cubePos.Z >= (zonePos.Z - halfZ) and cubePos.Z <= (zonePos.Z + halfZ) then
+			-- Flatten this cube
+			cube.Position = Vector3.new(cubePos.X, flatY, cubePos.Z)
+			
+			-- Update height map
+			self._heightMap[key] = 0
+			
+			flattenedCount += 1
+		end
+	end
+	
+	print(string.format("[CubeTerrainService] Flattened %d terrain cubes within zone", flattenedCount))
+	return flattenedCount
+end
+
+-- Legacy flatten function (kept for compatibility)
 function CubeTerrainService:FlattenArea(centerX, centerZ, radiusCells, targetHeight)
 	if not self._gridService then
 		pcall(function()
@@ -634,36 +681,27 @@ function CubeTerrainService:FlattenArea(centerX, centerZ, radiusCells, targetHei
 	targetHeight = targetHeight or (gridData and gridData.topY or 0)
 	
 	local flattenedCount = 0
+	local flatY = targetHeight + (CONFIG.CubeThickness / 2)
 	
-	for dx = -radiusCells, radiusCells do
-		for dz = -radiusCells, radiusCells do
-			local gridX = centerX + dx
-			local gridZ = centerZ + dz
-			
-			-- Check if within circular radius
-			local dist = math.sqrt(dx * dx + dz * dz)
-			if dist <= radiusCells then
-				local cube = self:GetCubeAt(gridX, gridZ)
-				if cube then
-					-- Move cube to flat height
-					local currentPos = cube.Position
-					cube.Position = Vector3.new(
-						currentPos.X,
-						targetHeight + (CONFIG.CubeThickness / 2),
-						currentPos.Z
-					)
-					
-					-- Update height map
-					local key = getCellKey(gridX, gridZ)
-					self._heightMap[key] = 0
-					
-					flattenedCount += 1
-				end
-			end
+	-- Iterate through ALL terrain cubes
+	for key, cube in pairs(self._terrainCubes) do
+		local cubePos = cube.Position
+		
+		-- Convert cube world position to grid position
+		local gridX, gridZ = self._gridService:WorldToGrid(cubePos)
+		
+		-- Check if within radius of center
+		local dx = gridX - centerX
+		local dz = gridZ - centerZ
+		if math.abs(dx) <= radiusCells and math.abs(dz) <= radiusCells then
+			-- Flatten this cube
+			cube.Position = Vector3.new(cubePos.X, flatY, cubePos.Z)
+			self._heightMap[key] = 0
+			flattenedCount += 1
 		end
 	end
 	
-	print(string.format("[CubeTerrainService] Flattened %d cubes around (%d, %d)", 
+	print(string.format("[CubeTerrainService] Flattened %d terrain cubes around (%d, %d)", 
 		flattenedCount, centerX, centerZ))
 	return flattenedCount
 end

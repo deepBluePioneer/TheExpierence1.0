@@ -19,9 +19,8 @@ local ReplicaService = require(Replica.ReplicaService)
 local GridService = Knit.CreateService {
 	Name = "GridService",
 	Client = {},
-	zones = {},  -- Store all zone instances
+	zones = {},  -- Store all zone instances (no longer used - cleaned up after reserved zones)
 	timerReplica = nil,
-	mapReplica = nil,  -- For player positions on map
 	timer = nil,
 	
 	-- Grid data structure
@@ -209,38 +208,12 @@ local function createCubeFast(x, z, folder, gridData)
 	return cube
 end
 
-local function attachZone(cube, x, z, zonesTable, mapReplica)
+-- Note: attachZone simplified - map replica removed, zones will be cleaned up after reserved zones created
+local function attachZone(cube, x, z, zonesTable)
 	local zone = Zone.new(cube)
 	
 	zone.playerEntered:Connect(function(player)
 		cube.Color = Color3.fromRGB(0, 255, 0)  -- Turn green when player enters
-		
-		-- Update player position in map replica
-		local userId = tostring(player.UserId)
-		mapReplica:SetValue({"PlayerPositions", userId}, {
-			X = x,
-			Z = z,
-			Name = player.Name,
-		})
-		
-		-- Mark cell as explored (fog of war)
-		local cellKey = string.format("%d_%d", x, z)
-		if not mapReplica.Data.ExploredCells[cellKey] then
-			mapReplica:SetValue({"ExploredCells", cellKey}, true)
-			
-			-- Also reveal adjacent cells (3x3 vision radius)
-			for dx = -1, 1 do
-				for dz = -1, 1 do
-					local adjX, adjZ = x + dx, z + dz
-					if adjX >= 1 and adjX <= GRID_WIDTH and adjZ >= 1 and adjZ <= GRID_DEPTH then
-						local adjKey = string.format("%d_%d", adjX, adjZ)
-						if not mapReplica.Data.ExploredCells[adjKey] then
-							mapReplica:SetValue({"ExploredCells", adjKey}, true)
-						end
-					end
-				end
-			end
-		end
 	end)
 	
 	zone.playerExited:Connect(function(player)
@@ -282,11 +255,6 @@ local function generateGrid(self)
 	self._gridData.cells = {}
 	self._gridData.occupiedCells = {}
 	
-	-- Update map replica with new grid dimensions
-	if self.mapReplica then
-		self.mapReplica:SetValue({"GridWidth"}, GRID_WIDTH)
-		self.mapReplica:SetValue({"GridDepth"}, GRID_DEPTH)
-	end
 	
 	reportProgress("Clearing existing grid", 5, 100)
 	
@@ -334,7 +302,7 @@ local function generateGrid(self)
 		local zoneCount = 0
 		local totalZones = #allCubes
 		for _, data in ipairs(allCubes) do
-			attachZone(data.cube, data.x, data.z, self.zones, self.mapReplica)
+			attachZone(data.cube, data.x, data.z, self.zones)
 			
 			zoneCount += 1
 			if zoneCount % BATCH_SIZE == 0 then
@@ -375,17 +343,7 @@ local function initReplica(self)
 		Replication = "All",
 	})
 	
-	-- Map replica to track player positions and explored cells (fog of war)
-	self.mapReplica = ReplicaService.NewReplica({
-		ClassToken = ReplicaService.NewClassToken("GridMapReplica"),
-		Data = {
-			PlayerPositions = {},
-			ExploredCells = {},  -- Fog of war: { ["x_z"] = true, ... }
-			GridWidth = GRID_WIDTH,
-			GridDepth = GRID_DEPTH,
-		},
-		Replication = "All",
-	})
+	-- Note: Map replica removed - no longer using grid cube map UI
 end
 
 local function startTimer(self)
@@ -487,11 +445,6 @@ function GridService:InitializeWithBaseplates(baseplateInfo)
 	print(string.format("[GridService] Grid config: %dx%d cells, %.1f studs each, total area: %.0fx%.0f", 
 		GRID_WIDTH, GRID_DEPTH, CUBE_SIZE, totalWidth, totalDepth))
 	
-	-- Update replicas
-	if self.mapReplica then
-		self.mapReplica:SetValue({"GridWidth"}, GRID_WIDTH)
-		self.mapReplica:SetValue({"GridDepth"}, GRID_DEPTH)
-	end
 	
 	-- Generate the grid
 	self:GenerateGridNow()
@@ -569,7 +522,7 @@ function GridService:GenerateGridNow()
 		local zoneCount = 0
 		local totalZones = #allCubes
 		for _, data in ipairs(allCubes) do
-			attachZone(data.cube, data.x, data.z, self.zones, self.mapReplica)
+			attachZone(data.cube, data.x, data.z, self.zones)
 			
 			zoneCount += 1
 			if zoneCount % BATCH_SIZE == 0 then
@@ -620,6 +573,39 @@ function GridService:ClearGrid()
 	if self._cubeTerrainService then
 		self._cubeTerrainService:ClearTerrain()
 	end
+end
+
+-- Cleanup grid cells and map UI after reserved zones are created
+-- This removes grid cube parts and map replica but does NOT affect:
+-- - Terrain cubes (CubeTerrainService)
+-- - Reserved zone cubes (ReservedZoneService)
+function GridService:CleanupGridCellsAndMap()
+	print("[GridService] Cleaning up grid cells and map UI...")
+	
+	-- Destroy all Zone+ zones attached to grid cubes
+	local zoneCount = 0
+	for _, zone in pairs(self.zones) do
+		if zone and zone.Destroy then
+			zone:Destroy()
+			zoneCount += 1
+		end
+	end
+	self.zones = {}
+	print(string.format("[GridService] Destroyed %d grid cell zones", zoneCount))
+	
+	-- Clear the GridCubes folder (delete all grid cube parts)
+	local gridFolder = Workspace:FindFirstChild(GRID_FOLDER_NAME)
+	if gridFolder then
+		local cubeCount = #gridFolder:GetChildren()
+		gridFolder:ClearAllChildren()
+		print(string.format("[GridService] Deleted %d grid cube parts", cubeCount))
+	end
+	
+	-- Clear cell data (but keep grid dimensions for coordinate calculations)
+	self._gridData.cells = {}
+	
+	
+	print("[GridService] Grid cells and map UI cleanup complete")
 end
 
 function GridService:StartTimer()

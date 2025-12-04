@@ -16,7 +16,7 @@ local TreeService = Knit.CreateService {
 -- === CONFIG ===
 local TREE_CONFIG = {
 	-- Spawning
-	TreeCount = 100,
+	TreeCount = 0,
 	MinSpacing = 18,
 	EdgePadding = 12,
 	TerrainEmbedDepth = 2,  -- Base studs below terrain surface to embed tree

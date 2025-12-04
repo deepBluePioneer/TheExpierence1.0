@@ -423,7 +423,6 @@ local function spawnAudioLogInZone(self, worldPosition, zoneIndex)
 	end
 	
 	-- Raycast to find ground height at this position
-	local Terrain = Workspace.Terrain
 	local rayOrigin = Vector3.new(worldPosition.X, 500, worldPosition.Z)
 	local rayDirection = Vector3.new(0, -1000, 0)
 	

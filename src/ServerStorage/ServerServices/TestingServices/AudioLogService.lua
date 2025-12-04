@@ -765,28 +765,20 @@ function AudioLogService:KnitInit()
 end
 
 function AudioLogService:KnitStart()
-	-- Get LoadingService for signal-based communication
+	-- Audio logs are now spawned by ReservedZoneService within audio log zones
+	-- This service only provides the SpawnAudioLogAt() method and manages audio log state
+	-- We do NOT auto-generate audio logs here anymore
+	print("[AudioLogService] Started - audio logs will be spawned by ReservedZoneService within zones")
+	
+	-- Mark step complete for LoadingService so it doesn't wait for us
 	local LoadingService = nil
 	pcall(function()
 		LoadingService = Knit.GetService("LoadingService")
 	end)
 	
 	if LoadingService then
-		print("[AudioLogService] Waiting for terrain generation via signals...")
-		
-		-- Wait for terrain-related services to complete via signals
-		local stepsToWait = {"CubeTerrainService", "TreeService", "FormationService"}
-		
-		LoadingService:OnStepsComplete(stepsToWait, function()
-			print("[AudioLogService] Terrain generation complete, placing audio logs...")
-			generateAudioLogs(self)
-		end)
-	else
-		-- Fallback: generate after a short delay if no LoadingService
-		warn("[AudioLogService] No LoadingService found, using fallback delay")
-		task.delay(4, function()
-			generateAudioLogs(self)
-		end)
+		LoadingService:MarkStepComplete("AudioLogService")
+		print("[AudioLogService] Marked step complete")
 	end
 end
 
@@ -807,6 +799,10 @@ end
 
 function AudioLogService:SetLogCount(count)
 	AUDIOLOG_CONFIG.LogCount = math.clamp(count, 1, 20)
+end
+
+function AudioLogService:GetLogCount()
+	return AUDIOLOG_CONFIG.LogCount
 end
 
 function AudioLogService:SpawnAudioLogAt(position)

@@ -147,12 +147,20 @@ end
 -- === ENTITY TRACKING ===
 
 -- Store original state for parts (transparency, shadows, query)
-local function storeOriginalState(parts)
+local function storeOriginalState(parts, forceOpaqueForTerrain)
 	local originals = {}
 	for _, part in ipairs(parts) do
 		if part:IsA("BasePart") then
+			-- For terrain cubes, if transparency is 1 (fully transparent) when it should be 0,
+			-- this is likely a replication timing issue - force to 0
+			local transparency = part.Transparency
+			if forceOpaqueForTerrain and transparency >= 0.9 then
+				-- Terrain cubes should be opaque - this is likely a replication timing issue
+				transparency = 0
+			end
+			
 			originals[part] = {
-				Transparency = part.Transparency,
+				Transparency = transparency,
 				CastShadow = part.CastShadow,
 				CanQuery = part.CanQuery,
 			}
@@ -287,10 +295,15 @@ function StreamingCullingController:RegisterEntity(model, customTag)
 	local parts = getPartsFromModel(model)
 	if #parts == 0 then return end
 	
+	-- Check if this is a terrain cube (should be forced opaque if transparency seems wrong)
+	local isTerrainCube = customTag == "terrainCube" 
+		or customTag == "TerrainCubes"
+		or CollectionService:HasTag(model, "terrainCube")
+	
 	local entityData = {
 		model = model,
 		parts = parts,
-		originals = storeOriginalState(parts),
+		originals = storeOriginalState(parts, isTerrainCube),
 		enabled = true,
 		currentVisibility = 1,
 		isCulled = false,
@@ -328,10 +341,15 @@ function StreamingCullingController:RegisterFolder(folderName)
 		end
 	end
 	
-	-- Watch for new children
+	-- Watch for new children (with delay to ensure properties are replicated)
 	folder.ChildAdded:Connect(function(child)
 		if child:IsA("Model") or child:IsA("BasePart") or child:IsA("Folder") then
-			self:RegisterEntity(child, folderName)
+			-- Wait a frame for properties to fully replicate from server
+			task.defer(function()
+				if child and child.Parent then
+					self:RegisterEntity(child, folderName)
+				end
+			end)
 		end
 	end)
 	
@@ -402,9 +420,14 @@ function StreamingCullingController:AddCullableTag(tag)
 			self:RegisterEntity(instance, tag)
 		end
 		
-		-- Watch for new instances
+		-- Watch for new instances (with delay to ensure properties are replicated)
 		CollectionService:GetInstanceAddedSignal(tag):Connect(function(instance)
-			self:RegisterEntity(instance, tag)
+			-- Wait a frame for properties to fully replicate from server
+			task.defer(function()
+				if instance and instance.Parent then
+					self:RegisterEntity(instance, tag)
+				end
+			end)
 		end)
 	end
 end

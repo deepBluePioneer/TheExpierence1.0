@@ -741,16 +741,16 @@ function OctoEntityController:KnitStart()
 	
 	print("[OctoEntityController] Started (CLIENT-SIDE) - ready to spawn eldritch horrors!")
 	
-	-- TEST: Spawn at player's position (remove this in production)
-	task.delay(3, function()
-		local player = Players.LocalPlayer
-		local character = player.Character or player.CharacterAdded:Wait()
-		local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-		
-		-- Spawn slightly in front of player
-		local spawnPos = humanoidRootPart.Position + humanoidRootPart.CFrame.LookVector * 15
-		self:SpawnOcto(spawnPos)
-	end)
+	-- TEST: Spawn at player's position (DISABLED - uncomment to re-enable)
+	-- task.delay(3, function()
+	-- 	local player = Players.LocalPlayer
+	-- 	local character = player.Character or player.CharacterAdded:Wait()
+	-- 	local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+	-- 	
+	-- 	-- Spawn slightly in front of player
+	-- 	local spawnPos = humanoidRootPart.Position + humanoidRootPart.CFrame.LookVector * 15
+	-- 	self:SpawnOcto(spawnPos)
+	-- end)
 end
 
 return OctoEntityController

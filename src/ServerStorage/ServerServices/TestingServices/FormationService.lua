@@ -16,7 +16,7 @@ local FormationService = Knit.CreateService {
 -- === CONFIG ===
 local CONFIG = {
 	-- Spawning
-	FormationCount = 100,
+	FormationCount = 0,
 	MinSpacing = 25,
 	EdgePadding = 15,
 	TreeAvoidDistance = 12, -- Avoid spawning too close to trees
