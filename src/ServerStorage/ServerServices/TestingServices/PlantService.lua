@@ -67,7 +67,7 @@ end
 -- === KNIT LIFECYCLE ===
 
 function PlantService:KnitInit()
-	print("[PlantService] Initializing...")
+	--("[PlantService] Initializing...")
 end
 
 function PlantService:KnitStart()
@@ -88,14 +88,14 @@ function PlantService:KnitStart()
 		target.Parent = folder
 	end
 	
-	-- Print tagged targets
+	-- -- tagged targets
 	local taggedTargets = CollectionService:GetTagged(PHOTO_TARGET_TAG)
-	print(string.format("[PlantService] Created %d photo targets with '%s' tag:", #taggedTargets, PHOTO_TARGET_TAG))
+	--[[print(string.format("[PlantService] Created %d photo targets with '%s' tag:", #taggedTargets, PHOTO_TARGET_TAG))]]
 	for _, target in ipairs(taggedTargets) do
-		print("  - " .. target.Name)
+		--("  - " .. target.Name)
 	end
 	
-	print("[PlantService] Started!")
+	--("[PlantService] Started!")
 end
 
 -- === PUBLIC METHODS ===

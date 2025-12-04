@@ -31,7 +31,7 @@ local CONFIG = {
 
 local function log(...)
 	if CONFIG.DebugMode then
-		print("[TestingService]", ...)
+		--("[TestingService]", ...)
 	end
 end
 

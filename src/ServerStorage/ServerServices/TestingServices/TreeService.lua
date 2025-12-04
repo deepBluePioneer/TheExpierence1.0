@@ -862,8 +862,8 @@ local function generateTreePositions(baseplateInfo, count)
 	local halfX = baseplateInfo.size.X / 2 - TREE_CONFIG.EdgePadding
 	local halfZ = baseplateInfo.size.Z / 2 - TREE_CONFIG.EdgePadding
 	
-	print(string.format("[TreeService] Generating %d tree positions in area %.0fx%.0f centered at (%.0f, %.0f)", 
-		count, halfX * 2, halfZ * 2, baseplateInfo.position.X, baseplateInfo.position.Z))
+	--[[print(string.format("[TreeService] Generating %d tree positions in area %.0fx%.0f centered at (%.0f, %.0f)", 
+		count, halfX * 2, halfZ * 2, baseplateInfo.position.X, baseplateInfo.position.Z))]]
 	
 	while #positions < count and attempts < maxAttempts do
 		attempts += 1
@@ -888,7 +888,7 @@ local function generateTreePositions(baseplateInfo, count)
 		end
 	end
 	
-	print(string.format("[TreeService] Generated %d tree positions after %d attempts", #positions, attempts))
+	--[[print(string.format("[TreeService] Generated %d tree positions after %d attempts", #positions, attempts))]]
 	return positions
 end
 
@@ -969,8 +969,8 @@ local function cleanupTreesNearReservedCells(self)
 	self.trees = treesToKeep
 	
 	if removedCount > 0 then
-		print(string.format("[TreeService] Removed %d trees within %.1f studs of reserved area", 
-			removedCount, totalRadius))
+		--[[print(string.format("[TreeService] Removed %d trees within %.1f studs of reserved area", 
+			removedCount, totalRadius))]]
 	end
 end
 
@@ -1020,7 +1020,7 @@ local function generateTrees(self)
 	end
 	
 	local elapsed = tick() - startTime
-	print(string.format("[TreeService] Generated %d trees in %.2fs", #positions, elapsed))
+	--[[print(string.format("[TreeService] Generated %d trees in %.2fs", #positions, elapsed))]]
 	
 	-- Clean up trees near reserved cells
 	cleanupTreesNearReservedCells(self)
@@ -1035,11 +1035,11 @@ end
 -- === KNIT LIFECYCLE ===
 
 function TreeService:KnitInit()
-	print("[TreeService] Initializing...")
+	--("[TreeService] Initializing...")
 end
 
 function TreeService:KnitStart()
-	print("[TreeService] Starting...")
+	--("[TreeService] Starting...")
 	
 	-- Only auto-generate if _autoStart is true (legacy mode)
 	-- WorldInitService will call GenerateTreesWithBaseplates() instead
@@ -1052,9 +1052,9 @@ function TreeService:KnitStart()
 		
 		if LoadingService then
 			-- Wait for ReservedZoneService to complete before generating trees
-			print("[TreeService] Waiting for ReservedZoneService to complete...")
+			--("[TreeService] Waiting for ReservedZoneService to complete...")
 			LoadingService:OnStepComplete("ReservedZoneService", function()
-				print("[TreeService] ReservedZoneService complete, generating trees...")
+				--("[TreeService] ReservedZoneService complete, generating trees...")
 				generateTrees(self)
 			end)
 		else
@@ -1063,7 +1063,7 @@ function TreeService:KnitStart()
 			generateTrees(self)
 		end
 	else
-		print("[TreeService] Waiting for WorldInitService to generate trees...")
+		--("[TreeService] Waiting for WorldInitService to generate trees...")
 	end
 end
 
@@ -1078,7 +1078,7 @@ function TreeService:GenerateTreesWithBaseplates(baseplateInfo)
 		return false
 	end
 	
-	print("[TreeService] Generating trees with baseplate info from WorldInitService...")
+	--("[TreeService] Generating trees with baseplate info from WorldInitService...")
 	self._baseplateInfo = baseplateInfo
 	
 	-- Create a fake baseplate info structure compatible with generateTreePositions
@@ -1127,14 +1127,14 @@ function TreeService:GenerateTreesWithBaseplates(baseplateInfo)
 	end
 	
 	local elapsed = tick() - startTime
-	print(string.format("[TreeService] Generated %d trees in %.2fs", #positions, elapsed))
+	--[[print(string.format("[TreeService] Generated %d trees in %.2fs", #positions, elapsed))]]
 	
 	-- Clean up trees near reserved cells
 	cleanupTreesNearReservedCells(self)
 	
 	reportProgress(100, 100, "Forest complete")
 	
-	print("[TreeService] Tree generation complete")
+	--[[print("[TreeService] Tree generation complete")]]
 	return true
 end
 

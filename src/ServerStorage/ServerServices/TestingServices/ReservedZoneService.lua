@@ -104,12 +104,12 @@ local function flattenTerrainUnderZone(self, zoneCube, zoneType)
 	-- Get the flat height from GridService topY (the ground level)
 	local flatHeight = self._gridService and self._gridService:GetTopY() or 0
 	
-	print(string.format("[ReservedZoneService] Flattening terrain cubes within %s zone", zoneType))
+	--[[print(string.format("[ReservedZoneService] Flattening terrain cubes within %s zone", zoneType))]]
 	
 	-- Flatten terrain cubes within the zone bounds
 	CubeTerrainService:FlattenAreaInZone(zoneCube, flatHeight)
 	
-	print("[ReservedZoneService] Terrain cubes flattened under " .. zoneType .. " zone")
+	--("[ReservedZoneService] Terrain cubes flattened under " .. zoneType .. " zone")
 end
 
 -- Create a zone for a specific zone type
@@ -195,10 +195,10 @@ local function createZone(self, zoneType, cells, sizeX, sizeZ)
 		local position = character and character:FindFirstChild("HumanoidRootPart") and 
 			character.HumanoidRootPart.Position or Vector3.zero
 		
-		print(string.format(
+		--[[print(string.format(
 			"[ReservedZoneService] >>> Player '%s' (UserId: %d) ENTERED %s zone at position (%.1f, %.1f, %.1f)",
 			player.Name, player.UserId, zoneType, position.X, position.Y, position.Z
-		))
+		))]]
 	end)
 	
 	zoneInstance.playerExited:Connect(function(player)
@@ -206,10 +206,10 @@ local function createZone(self, zoneType, cells, sizeX, sizeZ)
 		local position = character and character:FindFirstChild("HumanoidRootPart") and 
 			character.HumanoidRootPart.Position or Vector3.zero
 		
-		print(string.format(
+		--[[print(string.format(
 			"[ReservedZoneService] <<< Player '%s' (UserId: %d) EXITED %s zone at position (%.1f, %.1f, %.1f)",
 			player.Name, player.UserId, zoneType, position.X, position.Y, position.Z
-		))
+		))]]
 	end)
 	
 	-- Store zone data
@@ -219,8 +219,8 @@ local function createZone(self, zoneType, cells, sizeX, sizeZ)
 		zone = zoneInstance,
 	}
 	
-	print(string.format("[ReservedZoneService] ✓ Created %s zone (%.1f x %.1f x %.1f studs) covering %d cells", 
-		zoneType, totalSizeX, cellSize, totalSizeZ, #cells))
+	--[[print(string.format("[ReservedZoneService] ✓ Created %s zone (%.1f x %.1f x %.1f studs) covering %d cells", 
+		zoneType, totalSizeX, cellSize, totalSizeZ, #cells))]]
 end
 
 -- Helper function to create a zone of a specific type
@@ -284,8 +284,8 @@ local function createZoneOfType(self, zoneType, sizeX, sizeZ, LoadingService, re
 		return
 	end
 	
-	print(string.format("[ReservedZoneService] Selected %dx%d block starting at (%d,%d) for %s zone", 
-		sizeX, sizeZ, startX, startZ, zoneType))
+	--[[print(string.format("[ReservedZoneService] Selected %dx%d block starting at (%d,%d) for %s zone", 
+		sizeX, sizeZ, startX, startZ, zoneType))]]
 	
 	local zoneTypeData = ZONE_TYPES[zoneType]
 	local cells = {}
@@ -310,8 +310,8 @@ local function createZoneOfType(self, zoneType, sizeX, sizeZ, LoadingService, re
 			if cellData and cellData.cube then
 				cellData.cube.Transparency = zoneTypeData.cellTransparency
 				-- Color doesn't matter when fully transparent, but set it anyway
-				print(string.format("[ReservedZoneService] Reserved cell (%d,%d) for %s zone", 
-					cellX, cellZ, zoneType))
+				--[[print(string.format("[ReservedZoneService] Reserved cell (%d,%d) for %s zone", 
+					cellX, cellZ, zoneType))]]
 			else
 				warn(string.format("[ReservedZoneService] Could not find cube for cell (%d,%d)", cellX, cellZ))
 			end
@@ -378,8 +378,8 @@ local function spawnEnemiesInZone(self, centerPosition, zoneSizeX, zoneSizeZ, en
 	-- Call HumanEnemyService to spawn enemies at this location
 	local enemies = HumanEnemyService:SpawnEnemiesAt(centerPosition, spawnRadius, enemyCount)
 	
-	print(string.format("[ReservedZoneService] Spawned %d enemies in HumanEnemy zone at (%.1f, %.1f, %.1f)", 
-		enemyCount, centerPosition.X, centerPosition.Y, centerPosition.Z))
+	--[[print(string.format("[ReservedZoneService] Spawned %d enemies in HumanEnemy zone at (%.1f, %.1f, %.1f)", 
+		enemyCount, centerPosition.X, centerPosition.Y, centerPosition.Z))]]
 	
 	return enemies
 end
@@ -421,8 +421,8 @@ local function spawnAudioLogInZone(self, zoneInstance, zoneCube, zoneIndex)
 	-- Spawn position: random XZ from zone, Y from terrain surface + small offset
 	local spawnPosition = Vector3.new(randomPoint.X, terrainY + 0.5, randomPoint.Z)
 	
-	print(string.format("[ReservedZoneService] Spawning audio log %d at random zone XZ (%.1f, %.1f) on terrain Y=%.1f", 
-		zoneIndex, randomPoint.X, randomPoint.Z, terrainY))
+	--[[print(string.format("[ReservedZoneService] Spawning audio log %d at random zone XZ (%.1f, %.1f) on terrain Y=%.1f", 
+		zoneIndex, randomPoint.X, randomPoint.Z, terrainY))]]
 	
 	-- Spawn the audio log
 	local audioLog = AudioLogService:SpawnAudioLogAt(spawnPosition)
@@ -433,8 +433,8 @@ local function spawnAudioLogInZone(self, zoneInstance, zoneCube, zoneIndex)
 		-- Keep it anchored so it stays on the terrain
 		audioLog.body.Anchored = true
 		
-		print(string.format("[ReservedZoneService] Audio log %d placed and anchored at (%.1f, %.1f, %.1f)", 
-			zoneIndex, spawnPosition.X, spawnPosition.Y, spawnPosition.Z))
+		--[[print(string.format("[ReservedZoneService] Audio log %d placed and anchored at (%.1f, %.1f, %.1f)", 
+			zoneIndex, spawnPosition.X, spawnPosition.Y, spawnPosition.Z))]]
 	end
 	
 	return audioLog
@@ -479,8 +479,8 @@ local function createSingleAudioLogZone(self, cellX, cellZ, zoneIndex)
 	CollectionService:AddTag(cube, ZONE_CUBE_TAG)  -- Tag for raycast exclusion
 	cube.Parent = workspace
 	
-	print(string.format("[ReservedZoneService] AudioLog zone %d cube at (%.1f, %.1f, %.1f) size (%.1f, %.1f, %.1f)", 
-		zoneIndex, worldPos.X, centerY, worldPos.Z, cellSize, zoneHeight, cellSize))
+	--[[print(string.format("[ReservedZoneService] AudioLog zone %d cube at (%.1f, %.1f, %.1f) size (%.1f, %.1f, %.1f)", 
+		zoneIndex, worldPos.X, centerY, worldPos.Z, cellSize, zoneHeight, cellSize))]]
 	
 	-- Create Zone+ zone on the cube
 	local success, zoneInstance = pcall(function()
@@ -499,10 +499,10 @@ local function createSingleAudioLogZone(self, cellX, cellZ, zoneIndex)
 		local position = character and character:FindFirstChild("HumanoidRootPart") and 
 			character.HumanoidRootPart.Position or Vector3.zero
 		
-		print(string.format(
+		--[[print(string.format(
 			"[ReservedZoneService] >>> Player '%s' ENTERED AudioLog zone %d at (%.1f, %.1f, %.1f)",
 			player.Name, zoneIndex, position.X, position.Y, position.Z
-		))
+		))]]
 	end)
 	
 	zoneInstance.playerExited:Connect(function(player)
@@ -510,10 +510,10 @@ local function createSingleAudioLogZone(self, cellX, cellZ, zoneIndex)
 		local position = character and character:FindFirstChild("HumanoidRootPart") and 
 			character.HumanoidRootPart.Position or Vector3.zero
 		
-		print(string.format(
+		--[[print(string.format(
 			"[ReservedZoneService] <<< Player '%s' EXITED AudioLog zone %d at (%.1f, %.1f, %.1f)",
 			player.Name, zoneIndex, position.X, position.Y, position.Z
-		))
+		))]]
 	end)
 	
 	-- Spawn audio log at random position within the zone, let it fall to terrain
@@ -590,13 +590,13 @@ local function createMultipleAudioLogZones(self, count, LoadingService, reportPr
 		if zoneData then
 			table.insert(self._zones.AudioLog.cells, zoneData.cell)
 			table.insert(self._zones.AudioLog.zones, zoneData)
-			print(string.format("[ReservedZoneService] ✓ AudioLog zone %d at cell (%d, %d)", i, cell.x, cell.z))
+			--[[print(string.format("[ReservedZoneService] ✓ AudioLog zone %d at cell (%d, %d)", i, cell.x, cell.z))]]
 		end
 		
 		task.wait(0.1)
 	end
 	
-	print(string.format("[ReservedZoneService] ✓ Created %d AudioLog zones", zonesToCreate))
+	--[[print(string.format("[ReservedZoneService] ✓ Created %d AudioLog zones", zonesToCreate))]]
 end
 
 -- Create Building zone at the CENTER of the grid
@@ -628,8 +628,8 @@ local function createBuildingZoneAtCenter(self, sizeX, sizeZ, LoadingService, re
 	startX = math.max(1, startX)
 	startZ = math.max(1, startZ)
 	
-	print(string.format("[ReservedZoneService] Creating Building zone at CENTER: grid center (%d, %d), start (%d, %d), size %dx%d", 
-		centerGridX, centerGridZ, startX, startZ, sizeX, sizeZ))
+	--[[print(string.format("[ReservedZoneService] Creating Building zone at CENTER: grid center (%d, %d), start (%d, %d), size %dx%d", 
+		centerGridX, centerGridZ, startX, startZ, sizeX, sizeZ))]]
 	
 	local cells = {}
 	local cellPositions = {}
@@ -652,7 +652,7 @@ local function createBuildingZoneAtCenter(self, sizeX, sizeZ, LoadingService, re
 			local cellData = self._gridService:GetCell(cellX, cellZ)
 			if cellData and cellData.cube then
 				cellData.cube.Transparency = zoneTypeData.cellTransparency
-				print(string.format("[ReservedZoneService] Reserved center cell (%d,%d) for Building zone", cellX, cellZ))
+				--[[print(string.format("[ReservedZoneService] Reserved center cell (%d,%d) for Building zone", cellX, cellZ))]]
 			end
 			
 			-- Store cell position for terrain flattening
@@ -693,7 +693,7 @@ local function createBuildingZoneAtCenter(self, sizeX, sizeZ, LoadingService, re
 		reportProgress("Building zone created at center", 100)
 	end
 	
-	print(string.format("[ReservedZoneService] ✓ Building zone created at CENTER of grid (%d, %d)", centerGridX, centerGridZ))
+	--[[print(string.format("[ReservedZoneService] ✓ Building zone created at CENTER of grid (%d, %d)", centerGridX, centerGridZ))]]
 end
 
 -- Main function to create all zones
@@ -738,7 +738,7 @@ local function proceedWithReservation(self, LoadingService, reportProgress)
 	end)
 	if AudioLogService and AudioLogService.GetLogCount then
 		audioLogCount = AudioLogService:GetLogCount()
-		print(string.format("[ReservedZoneService] Using AudioLogService LogCount: %d", audioLogCount))
+		--[[print(string.format("[ReservedZoneService] Using AudioLogService LogCount: %d", audioLogCount))]]
 	end
 	
 	createMultipleAudioLogZones(self, audioLogCount, LoadingService, function(msg, progress)
@@ -752,7 +752,7 @@ local function proceedWithReservation(self, LoadingService, reportProgress)
 	-- - Reserved zone cubes (Building, Radiation, AudioLog, HumanEnemy zones)
 	-- - Terrain cubes
 	if self._gridService and self._gridService.CleanupGridCellsAndMap then
-		print("[ReservedZoneService] Cleaning up grid cells and map UI...")
+		--("[ReservedZoneService] Cleaning up grid cells and map UI...")
 		self._gridService:CleanupGridCellsAndMap()
 	end
 	
@@ -761,13 +761,13 @@ local function proceedWithReservation(self, LoadingService, reportProgress)
 		LoadingService:MarkStepComplete("ReservedZoneService")
 	end
 	
-	print("[ReservedZoneService] All zones created, grid cells cleaned up")
+	--("[ReservedZoneService] All zones created, grid cells cleaned up")
 end
 
 -- === KNIT LIFECYCLE ===
 
 function ReservedZoneService:KnitInit()
-	print("[ReservedZoneService] Initializing...")
+	--("[ReservedZoneService] Initializing...")
 	
 	-- Get GridService reference
 	pcall(function()
@@ -803,9 +803,9 @@ function ReservedZoneService:KnitStart()
 		
 		-- Wait for CubeTerrainService to complete before flattening
 		if LoadingService then
-			print("[ReservedZoneService] Waiting for CubeTerrainService to complete...")
+			--("[ReservedZoneService] Waiting for CubeTerrainService to complete...")
 			LoadingService:OnStepComplete("CubeTerrainService", function()
-				print("[ReservedZoneService] CubeTerrainService complete, proceeding with reservation...")
+				--("[ReservedZoneService] CubeTerrainService complete, proceeding with reservation...")
 				proceedWithReservation(self, LoadingService, reportProgress)
 			end)
 		else
@@ -814,7 +814,7 @@ function ReservedZoneService:KnitStart()
 			proceedWithReservation(self, LoadingService, reportProgress)
 		end
 	else
-		print("[ReservedZoneService] Waiting for WorldInitService to initialize zones...")
+		--("[ReservedZoneService] Waiting for WorldInitService to initialize zones...")
 	end
 end
 
@@ -825,11 +825,11 @@ end
 -- Initialize zones (called by WorldInitService)
 function ReservedZoneService:InitializeZones()
 	if self._isInitialized then
-		print("[ReservedZoneService] Already initialized, skipping...")
+		--("[ReservedZoneService] Already initialized, skipping...")
 		return true
 	end
 	
-	print("[ReservedZoneService] Initializing zones (called by WorldInitService)...")
+	--("[ReservedZoneService] Initializing zones (called by WorldInitService)...")
 	
 	-- Get LoadingService for progress updates
 	local LoadingService = nil
@@ -852,7 +852,7 @@ function ReservedZoneService:InitializeZones()
 	proceedWithReservation(self, LoadingService, reportProgress)
 	
 	self._isInitialized = true
-	print("[ReservedZoneService] Zone initialization complete")
+	--("[ReservedZoneService] Zone initialization complete")
 	return true
 end
 
@@ -964,14 +964,14 @@ function ReservedZoneService:ClearZone(zoneType)
 	end
 	
 	self._zones[zoneType] = nil
-	print(string.format("[ReservedZoneService] Cleared %s zone", zoneType))
+	--[[print(string.format("[ReservedZoneService] Cleared %s zone", zoneType))]]
 end
 
 function ReservedZoneService:ClearAllZones()
 	for zoneType, _ in pairs(self._zones) do
 		self:ClearZone(zoneType)
 	end
-	print("[ReservedZoneService] Cleared all zones")
+	--("[ReservedZoneService] Cleared all zones")
 end
 
 -- === AUDIOLOG ZONE SPECIFIC API ===

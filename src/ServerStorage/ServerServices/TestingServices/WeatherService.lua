@@ -161,16 +161,16 @@ local function updateTimeOfDay(self, deltaTime)
 		self.weatherReplica:SetValue({"IsNight"}, self._isNight)
 		
 		-- Fire signal to all clients
-		print(string.format("[WeatherService] Firing IsNightChanged signal: %s", tostring(self._isNight)))
+		--[[print(string.format("[WeatherService] Firing IsNightChanged signal: %s", tostring(self._isNight)))]]
 		self.Client.IsNightChanged:FireAll(self._isNight)
 		
 		if self._isNight then
 			-- Transition to night weather (rainy)
-			print("[WeatherService] Night falling - starting rain...")
+			--("[WeatherService] Night falling - starting rain...")
 			self:SetWeather(DAY_NIGHT_CONFIG.NightWeather, DAY_NIGHT_CONFIG.TransitionTime)
 		else
 			-- Transition to day weather (sunny)
-			print("[WeatherService] Dawn breaking - stopping rain...")
+			--("[WeatherService] Dawn breaking - stopping rain...")
 			self:SetWeather(DAY_NIGHT_CONFIG.DayWeather, DAY_NIGHT_CONFIG.TransitionTime)
 		end
 	end
@@ -191,8 +191,8 @@ local function startDayNightCycle(self)
 	-- Fire initial signal to all clients
 	self.Client.IsNightChanged:FireAll(self._isNight)
 	
-	print(string.format("[WeatherService] Initial state - IsNight: %s, Time: %.1f, CycleEnabled: %s", 
-		tostring(self._isNight), self._currentTime, tostring(self._dayNightEnabled)))
+	--[[print(string.format("[WeatherService] Initial state - IsNight: %s, Time: %.1f, CycleEnabled: %s", 
+		tostring(self._isNight), self._currentTime, tostring(self._dayNightEnabled)))]]
 	
 	-- Set initial weather to night (stormy)
 	self:SetWeather(DAY_NIGHT_CONFIG.NightWeather, 0)
@@ -203,11 +203,11 @@ local function startDayNightCycle(self)
 	end)
 	
 	if self._dayNightEnabled then
-		print(string.format("[WeatherService] Day/Night cycle started - %.1f seconds per hour, starting at %d:00", 
-			DAY_NIGHT_CONFIG.SecondsPerHour, math.floor(self._currentTime)))
+		--[[print(string.format("[WeatherService] Day/Night cycle started - %.1f seconds per hour, starting at %d:00", 
+			DAY_NIGHT_CONFIG.SecondsPerHour, math.floor(self._currentTime)))]]
 	else
-		print(string.format("[WeatherService] Time fixed at %d:00 (night) - cycle disabled", 
-			math.floor(self._currentTime)))
+		--[[print(string.format("[WeatherService] Time fixed at %d:00 (night) - cycle disabled", 
+			math.floor(self._currentTime)))]]
 	end
 end
 
@@ -226,7 +226,7 @@ function WeatherService:SetWeather(weatherName, transitionTime)
 	self.weatherReplica:SetValue({"TransitionTime"}, transitionTime)
 	self.weatherReplica:SetValue({"Settings"}, preset)
 	
-	print("[WeatherService] Weather changed to:", weatherName)
+	--("[WeatherService] Weather changed to:", weatherName)
 	return true
 end
 
@@ -260,13 +260,13 @@ function WeatherService:SetTime(hour)
 		end
 	end
 	
-	print(string.format("[WeatherService] Time set to %d:00", math.floor(self._currentTime)))
+	--[[print(string.format("[WeatherService] Time set to %d:00", math.floor(self._currentTime)))]]
 end
 
 function WeatherService:SetDayNightEnabled(enabled)
 	self._dayNightEnabled = enabled
 	self.weatherReplica:SetValue({"DayNightEnabled"}, enabled)
-	print("[WeatherService] Day/Night cycle:", enabled and "ENABLED" or "DISABLED")
+	--("[WeatherService] Day/Night cycle:", enabled and "ENABLED" or "DISABLED")
 end
 
 function WeatherService:IsDayNightEnabled()
@@ -284,7 +284,7 @@ end
 
 function WeatherService:SetCycleSpeed(secondsPerHour)
 	DAY_NIGHT_CONFIG.SecondsPerHour = secondsPerHour
-	print(string.format("[WeatherService] Cycle speed set to %.1f seconds per hour", secondsPerHour))
+	--[[print(string.format("[WeatherService] Cycle speed set to %.1f seconds per hour", secondsPerHour))]]
 end
 
 function WeatherService:SkipToNight()
@@ -314,7 +314,7 @@ function WeatherService:KnitStart()
 	
 	-- Start the day/night cycle (disabled by default - stays night)
 	startDayNightCycle(self)
-	print("[WeatherService] Started - Day/night cycle DISABLED, fixed at night")
+	--("[WeatherService] Started - Day/night cycle DISABLED, fixed at night")
 	
 	if LoadingService then
 		LoadingService:UpdateStatus("WeatherService", "Weather system ready", 1)

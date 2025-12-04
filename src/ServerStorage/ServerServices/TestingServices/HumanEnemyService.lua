@@ -384,11 +384,11 @@ local function spawnEnemiesInCircle(self)
 		
 		table.insert(self._enemies, enemyData)
 		
-		print(string.format("[HumanEnemyService] Spawned enemy %d at (%.1f, %.1f, %.1f) with physics constraints", 
-			i, spawnPosition.X, spawnPosition.Y, spawnPosition.Z))
+		--[[print(string.format("[HumanEnemyService] Spawned enemy %d at (%.1f, %.1f, %.1f) with physics constraints", 
+			i, spawnPosition.X, spawnPosition.Y, spawnPosition.Z))]]
 	end
 	
-	print(string.format("[HumanEnemyService] Spawned %d enemies in a circle", #self._enemies))
+	--[[print(string.format("[HumanEnemyService] Spawned %d enemies in a circle", #self._enemies))]]
 	
 	-- Wait a bit for models to be fully replicated to clients
 	task.wait(1)
@@ -396,7 +396,7 @@ local function spawnEnemiesInCircle(self)
 	-- Fire signal to all clients that enemies were created
 	-- Clients will find entities via CollectionService using the "entity" tag
 	self.Client.EnemyCreated:FireAll()
-	print("[HumanEnemyService] Fired EnemyCreated signal")
+	--("[HumanEnemyService] Fired EnemyCreated signal")
 end
 
 -- === WANDERING (PHYSICS-BASED) ===
@@ -527,7 +527,7 @@ end
 -- === KNIT LIFECYCLE ===
 
 function HumanEnemyService:KnitInit()
-	print("[HumanEnemyService] Initializing...")
+	--("[HumanEnemyService] Initializing...")
 end
 
 function HumanEnemyService:KnitStart()
@@ -543,10 +543,10 @@ function HumanEnemyService:KnitStart()
 		task.wait(1)
 		spawnEnemiesInCircle(self)
 	else
-		print("[HumanEnemyService] Waiting for ReservedZoneService to spawn enemies...")
+		--("[HumanEnemyService] Waiting for ReservedZoneService to spawn enemies...")
 	end
 	
-	print("[HumanEnemyService] Started!")
+	--("[HumanEnemyService] Started!")
 end
 
 -- === PUBLIC API ===
@@ -584,7 +584,7 @@ function HumanEnemyService:RemoveEnemy(enemyModel)
 			
 			-- Remove from list
 			table.remove(self._enemies, i)
-			print("[HumanEnemyService] Removed enemy and cleaned up constraints")
+			--("[HumanEnemyService] Removed enemy and cleaned up constraints")
 			return true
 		end
 	end
@@ -600,7 +600,7 @@ function HumanEnemyService:RemoveAllEnemies()
 		end
 	end
 	self._enemies = {}
-	print("[HumanEnemyService] Removed all enemies")
+	--("[HumanEnemyService] Removed all enemies")
 end
 
 -- Spawn enemies at a specific location (called by ReservedZoneService)
@@ -697,12 +697,12 @@ function HumanEnemyService:SpawnEnemiesAt(centerPosition, radius, count)
 		table.insert(self._enemies, enemyData)
 		table.insert(spawnedEnemies, enemyData)
 		
-		print(string.format("[HumanEnemyService] Spawned zone enemy %d at (%.1f, %.1f, %.1f) with physics constraints", 
-			i, spawnPosition.X, spawnPosition.Y, spawnPosition.Z))
+		--[[print(string.format("[HumanEnemyService] Spawned zone enemy %d at (%.1f, %.1f, %.1f) with physics constraints", 
+			i, spawnPosition.X, spawnPosition.Y, spawnPosition.Z))]]
 	end
 	
-	print(string.format("[HumanEnemyService] Spawned %d enemies at zone center (%.1f, %.1f, %.1f) using physics constraints", 
-		#spawnedEnemies, centerPosition.X, centerPosition.Y, centerPosition.Z))
+	--[[print(string.format("[HumanEnemyService] Spawned %d enemies at zone center (%.1f, %.1f, %.1f) using physics constraints", 
+		#spawnedEnemies, centerPosition.X, centerPosition.Y, centerPosition.Z))]]
 	
 	-- Fire signal
 	task.delay(1, function()

@@ -43,7 +43,7 @@ local function setFirstPerson(player)
 		player.CameraMaxZoomDistance = CAMERA_CONFIG.MaxZoomDistance
 	end
 	
-	print(string.format("[CameraService] Set %s to First Person mode", player.Name))
+	--(string.format("[CameraService] Set %s to First Person mode", player.Name))
 end
 
 -- Set a player to third-person mode
@@ -57,13 +57,13 @@ local function setThirdPerson(player)
 	player.CameraMinZoomDistance = CAMERA_CONFIG.ThirdPersonMinZoom
 	player.CameraMaxZoomDistance = CAMERA_CONFIG.ThirdPersonMaxZoom
 	
-	print(string.format("[CameraService] Set %s to Third Person mode", player.Name))
+	--(string.format("[CameraService] Set %s to Third Person mode", player.Name))
 end
 
 -- === PLAYER ADDED FUNCTIONS ===
 
 local function onPlayerAdded(player)
-	print(string.format("[CameraService] Player joined: %s", player.Name))
+	--(string.format("[CameraService] Player joined: %s", player.Name))
 	
 	-- Apply initial camera mode
 	if CAMERA_CONFIG.FPSEnabled then
@@ -74,11 +74,11 @@ local function onPlayerAdded(player)
 end
 
 local function onPlayerRemoving(player)
-	print(string.format("[CameraService] Player leaving: %s", player.Name))
+	--(string.format("[CameraService] Player leaving: %s", player.Name))
 end
 
 local function onCharacterAdded(player, character)
-	print(string.format("[CameraService] Character spawned for: %s", player.Name))
+	--(string.format("[CameraService] Character spawned for: %s", player.Name))
 	
 	-- Re-apply camera mode when character respawns (in case it was reset)
 	if CameraService.isFPSMode then
@@ -102,7 +102,7 @@ function CameraService:KnitStart()
 		onCharacterAdded         -- When character spawns
 	)
 	
-	print("[CameraService] Initialized - FPS Mode:", self.isFPSMode)
+	--("[CameraService] Initialized - FPS Mode:", self.isFPSMode)
 end
 
 -- === PUBLIC METHODS ===
@@ -115,7 +115,7 @@ function CameraService:EnableFPSMode()
 		setFirstPerson(player)
 	end
 	
-	print("[CameraService] FPS Mode enabled for all players")
+	--("[CameraService] FPS Mode enabled for all players")
 end
 
 -- Disable FPS mode (enable third person) for all players
@@ -126,7 +126,7 @@ function CameraService:DisableFPSMode()
 		setThirdPerson(player)
 	end
 	
-	print("[CameraService] Third Person Mode enabled for all players")
+	--("[CameraService] Third Person Mode enabled for all players")
 end
 
 -- Toggle between FPS and third person

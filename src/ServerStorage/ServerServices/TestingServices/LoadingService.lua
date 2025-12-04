@@ -63,7 +63,7 @@ local function completeLoadingStep(self, stepName)
 			local progress = completedCount / #self._loadingSteps
 			local currentStep = self._loadingSteps[i]
 			
-			print(string.format("[LoadingService] Step completed: %s (%.0f%%)", stepName, progress * 100))
+			--[[print(string.format("[LoadingService] Step completed: %s (%.0f%%)", stepName, progress * 100))]]
 			
 			-- Notify all waiting clients
 			self.Client.LoadingProgress:FireAll(progress, currentStep.description)
@@ -108,12 +108,12 @@ local function spawnPlayer(player)
 		return -- Already has character
 	end
 	
-	print("[LoadingService] Spawning player:", player.Name)
+	--("[LoadingService] Spawning player:", player.Name)
 	player:LoadCharacter()
 end
 
 local function onPlayerAdded(self, player)
-	print("[LoadingService] Player joined:", player.Name)
+	--("[LoadingService] Player joined:", player.Name)
 	
 	-- Add to waiting list
 	self._playersWaiting[player] = true
@@ -159,8 +159,8 @@ local function initializeLoading(self)
 end
 
 local function waitForServices(self)
-	print("[LoadingService] Waiting for services to initialize...")
-	print("[LoadingService] Services will mark themselves complete when ready")
+	--("[LoadingService] Waiting for services to initialize...")
+	--("[LoadingService] Services will mark themselves complete when ready")
 	
 	-- Services mark their own steps complete via MarkStepComplete()
 	-- We just wait for all steps to be done
@@ -181,7 +181,7 @@ local function waitForServices(self)
 end
 
 local function finalizeLoading(self)
-	print("[LoadingService] Waiting for all services to complete...")
+	--("[LoadingService] Waiting for all services to complete...")
 	
 	-- Wait until all steps (except Finalizing) are complete
 	local waitStart = tick()
@@ -189,12 +189,12 @@ local function finalizeLoading(self)
 		-- Log progress every 2 seconds
 		if (tick() - waitStart) % 2 < 0.15 then
 			local incomplete = getIncompleteSteps(self)
-			print("[LoadingService] Still waiting for:", table.concat(incomplete, ", "))
+			--("[LoadingService] Still waiting for:", table.concat(incomplete, ", "))
 		end
 		task.wait(0.1)
 	end
 	
-	print("[LoadingService] All services complete!")
+	--("[LoadingService] All services complete!")
 	
 	-- Add minimum loading time
 	local startTime = tick()
@@ -207,7 +207,7 @@ local function finalizeLoading(self)
 	
 	-- Mark server as ready
 	self._isServerReady = true
-	print("[LoadingService] *** SERVER READY ***")
+	--("[LoadingService] *** SERVER READY ***")
 	
 	-- Notify all waiting players and spawn them
 	for player, _ in pairs(self._playersWaiting) do
@@ -284,7 +284,7 @@ function LoadingService:KnitInit()
 		onPlayerAdded(self, player)
 	end
 	
-	print("[LoadingService] Initialized - CharacterAutoLoads disabled")
+	--("[LoadingService] Initialized - CharacterAutoLoads disabled")
 end
 
 function LoadingService:KnitStart()
@@ -315,7 +315,7 @@ end
 function LoadingService:UpdateStatus(serviceName, statusMessage, subProgress)
 	-- subProgress is optional (0-1) for sub-progress within a step
 	local fullMessage = string.format("[%s] %s", serviceName, statusMessage)
-	print("[LoadingService] Status update:", fullMessage)
+	--("[LoadingService] Status update:", fullMessage)
 	
 	-- Calculate overall progress
 	local completedCount = 0

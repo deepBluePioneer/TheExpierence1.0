@@ -377,7 +377,7 @@ local function generateParticleGroups(self)
 		end
 	end
 	
-	print(string.format("[ParticleService] Created %d particle groups", #self._emitterGroups))
+	--[[print(string.format("[ParticleService] Created %d particle groups", #self._emitterGroups))]]
 	reportProgress(100, 100, "Ambient effects ready")
 	
 	-- Mark step complete
@@ -389,7 +389,7 @@ end
 -- === KNIT LIFECYCLE ===
 
 function ParticleService:KnitInit()
-	print("[ParticleService] Initializing...")
+	--("[ParticleService] Initializing...")
 end
 
 function ParticleService:KnitStart()
@@ -406,12 +406,12 @@ end
 function ParticleService:ClearParticles()
 	self._emitterGroups = {}
 	clearParticles()
-	print("[ParticleService] All particles cleared")
+	--("[ParticleService] All particles cleared")
 end
 
 function ParticleService:SetGroupCount(count)
 	PARTICLE_CONFIG.GroupCount = math.clamp(count, 1, 100)
-	print("[ParticleService] Group count set to:", count)
+	--("[ParticleService] Group count set to:", count)
 end
 
 function ParticleService:EnableType(typeName, enabled)
@@ -421,7 +421,7 @@ function ParticleService:EnableType(typeName, enabled)
 			emitter.Enabled = enabled
 		end
 	end
-	print(string.format("[ParticleService] %s %s", typeName, enabled and "enabled" or "disabled"))
+	--[[print(string.format("[ParticleService] %s %s", typeName, enabled and "enabled" or "disabled"))]]
 end
 
 function ParticleService:SetAllEnabled(enabled)
@@ -432,7 +432,7 @@ function ParticleService:SetAllEnabled(enabled)
 			end
 		end
 	end
-	print("[ParticleService] All particles", enabled and "enabled" or "disabled")
+	--("[ParticleService] All particles", enabled and "enabled" or "disabled")
 end
 
 function ParticleService:GetEmitterCount()

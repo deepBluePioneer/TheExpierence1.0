@@ -80,14 +80,14 @@ local function createRedZone(baseplateInfo, cellHeight)
 	
 	-- Log when player enters red zone
 	zone.playerEntered:Connect(function(player)
-		print(string.format("[RedZoneService] Player %s entered red zone at (%.1f, %.1f, %.1f)", 
-			player.Name, centerX, centerY, centerZ))
+		--[[print(string.format("[RedZoneService] Player %s entered red zone at (%.1f, %.1f, %.1f)", 
+			player.Name, centerX, centerY, centerZ))]]
 	end)
 	
 	-- Log when player exits red zone
 	zone.playerExited:Connect(function(player)
-		print(string.format("[RedZoneService] Player %s exited red zone at (%.1f, %.1f, %.1f)", 
-			player.Name, centerX, centerY, centerZ))
+		--[[print(string.format("[RedZoneService] Player %s exited red zone at (%.1f, %.1f, %.1f)", 
+			player.Name, centerX, centerY, centerZ))]]
 	end)
 	
 	-- Store zone info
@@ -100,8 +100,8 @@ local function createRedZone(baseplateInfo, cellHeight)
 	table.insert(RedZoneService._zones, zoneData)
 	table.insert(RedZoneService._zoneParts, zonePart)
 	
-	print(string.format("[RedZoneService] Created red zone at (%.1f, %.1f, %.1f) size (%.1f, %.1f, %.1f)", 
-		centerX, centerY, centerZ, width, cellHeight, depth))
+	--[[print(string.format("[RedZoneService] Created red zone at (%.1f, %.1f, %.1f) size (%.1f, %.1f, %.1f)", 
+		centerX, centerY, centerZ, width, cellHeight, depth))]]
 	
 	return zoneData
 end
@@ -132,7 +132,7 @@ local function createAllRedZones()
 		cellSize = 8
 	end
 	
-	print(string.format("[RedZoneService] Creating %d red zones with cell height %.1f...", #baseplatePositions, cellSize))
+	--[[print(string.format("[RedZoneService] Creating %d red zones with cell height %.1f...", #baseplatePositions, cellSize))]]
 	
 	-- Get LoadingService for progress reporting
 	local LoadingService = nil
@@ -158,20 +158,20 @@ local function createAllRedZones()
 	end
 	
 	reportProgress(#baseplatePositions, #baseplatePositions, "Red zones complete")
-	print(string.format("[RedZoneService] Created %d red zones", #RedZoneService._zones))
+	--[[print(string.format("[RedZoneService] Created %d red zones", #RedZoneService._zones))]]
 end
 
 -- === KNIT LIFECYCLE ===
 
 function RedZoneService:KnitInit()
-	print("[RedZoneService] Initializing...")
+	--("[RedZoneService] Initializing...")
 end
 
 function RedZoneService:KnitStart()
-	print("[RedZoneService] Starting...")
+	--("[RedZoneService] Starting...")
 	
 	if not CONFIG.Enabled then
-		print("[RedZoneService] Red zone creation disabled")
+		--("[RedZoneService] Red zone creation disabled")
 		return
 	end
 	
@@ -188,7 +188,7 @@ function RedZoneService:KnitStart()
 			-- Wait for GridService step to complete
 			if LoadingService then
 				LoadingService:OnStepComplete("GridService", function()
-					print("[RedZoneService] GridService complete, waiting before creating red zones...")
+					--("[RedZoneService] GridService complete, waiting before creating red zones...")
 					task.wait(CONFIG.WaitForTerrainDelay)
 					createAllRedZones()
 					
@@ -207,7 +207,7 @@ function RedZoneService:KnitStart()
 			createAllRedZones()
 		end
 	else
-		print("[RedZoneService] Waiting for WorldInitService to initialize zones...")
+		--("[RedZoneService] Waiting for WorldInitService to initialize zones...")
 	end
 end
 
@@ -218,21 +218,21 @@ end
 -- Initialize zones (called by WorldInitService)
 function RedZoneService:InitializeZones()
 	if self._isInitialized then
-		print("[RedZoneService] Already initialized, skipping...")
+		--("[RedZoneService] Already initialized, skipping...")
 		return true
 	end
 	
 	if not CONFIG.Enabled then
-		print("[RedZoneService] Red zone creation disabled")
+		--("[RedZoneService] Red zone creation disabled")
 		return true
 	end
 	
-	print("[RedZoneService] Initializing zones (called by WorldInitService)...")
+	--("[RedZoneService] Initializing zones (called by WorldInitService)...")
 	
 	createAllRedZones()
 	
 	self._isInitialized = true
-	print("[RedZoneService] Zone initialization complete")
+	--("[RedZoneService] Zone initialization complete")
 	return true
 end
 
@@ -256,7 +256,7 @@ end
 
 function RedZoneService:SetEnabled(enabled)
 	CONFIG.Enabled = enabled
-	print("[RedZoneService] Red zone creation", enabled and "enabled" or "disabled")
+	--("[RedZoneService] Red zone creation", enabled and "enabled" or "disabled")
 end
 
 function RedZoneService:SetZoneTransparency(transparency)
@@ -267,7 +267,7 @@ function RedZoneService:SetZoneTransparency(transparency)
 			zoneData.part.Transparency = transparency
 		end
 	end
-	print(string.format("[RedZoneService] Zone transparency set to %.2f", transparency))
+	--[[print(string.format("[RedZoneService] Zone transparency set to %.2f", transparency))]]
 end
 
 function RedZoneService:SetZoneColor(color)
@@ -278,7 +278,7 @@ function RedZoneService:SetZoneColor(color)
 			zoneData.part.BrickColor = BrickColor.new(color)
 		end
 	end
-	print(string.format("[RedZoneService] Zone color set to %s", tostring(color)))
+	--[[print(string.format("[RedZoneService] Zone color set to %s", tostring(color)))]]
 end
 
 return RedZoneService

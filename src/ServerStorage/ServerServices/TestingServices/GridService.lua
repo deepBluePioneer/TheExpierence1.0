@@ -100,8 +100,8 @@ local function calculateGridFromDimensions(gridData, width, depth, centerPos, to
 		gridData.topY = BASEPLATE_TOP_Y
 	end
 	
-	print(string.format("[GridService] Grid area: %.0fx%.0f | Grid: %dx%d | Cell size: %.1f", 
-		width, depth, GRID_WIDTH, GRID_DEPTH, CUBE_SIZE))
+	--[[print(string.format("[GridService] Grid area: %.0fx%.0f | Grid: %dx%d | Cell size: %.1f", 
+		width, depth, GRID_WIDTH, GRID_DEPTH, CUBE_SIZE))]]
 	
 	return GRID_WIDTH, GRID_DEPTH
 end
@@ -118,7 +118,7 @@ local function calculateGridFromBaseplate(gridData)
 	-- Try to find a physical baseplate as fallback (legacy support)
 	local baseplate = Workspace:FindFirstChild("Baseplate")
 	if baseplate and baseplate:IsA("BasePart") then
-		print("[GridService] Found physical baseplate, using its dimensions")
+		--("[GridService] Found physical baseplate, using its dimensions")
 		local baseplateSize = baseplate.Size
 		return calculateGridFromDimensions(
 			gridData,
@@ -128,7 +128,7 @@ local function calculateGridFromBaseplate(gridData)
 			baseplate.Position.Y + (baseplateSize.Y / 2)
 		)
 	else
-		print("[GridService] No physical baseplate found, using defaults (will be updated by WorldInitService)")
+		--("[GridService] No physical baseplate found, using defaults (will be updated by WorldInitService)")
 		return calculateGridFromDimensions(gridData, defaultWidth, defaultDepth, defaultCenter, defaultTopY)
 	end
 end
@@ -292,7 +292,7 @@ local function generateGrid(self)
 	end
 	
 	local partTime = tick()
-	print(string.format("[GridService] Created %d zone cubes in %.2fs", #allCubes, partTime - startTime))
+	--[[print(string.format("[GridService] Created %d zone cubes in %.2fs", #allCubes, partTime - startTime))]]
 	reportProgress("Grid cells created", 60, 100)
 	
 	-- PHASE 2: Attach zones in batches
@@ -313,8 +313,8 @@ local function generateGrid(self)
 		end
 		
 		local totalTime = tick()
-		print(string.format("[GridService] Attached %d zones in %.2fs (total: %.2fs)", 
-			zoneCount, totalTime - partTime, totalTime - startTime))
+		--[[print(string.format("[GridService] Attached %d zones in %.2fs (total: %.2fs)", 
+			zoneCount, totalTime - partTime, totalTime - startTime))]]
 		
 		reportProgress("Grid complete", 100, 100)
 		
@@ -324,8 +324,8 @@ local function generateGrid(self)
 		end
 	end)
 	
-	print(string.format("[GridService] Generated %dx%d grid (%d cells, size %.1f each)", 
-		GRID_WIDTH, GRID_DEPTH, #allCubes, CUBE_SIZE))
+	--[[print(string.format("[GridService] Generated %dx%d grid (%d cells, size %.1f each)", 
+		GRID_WIDTH, GRID_DEPTH, #allCubes, CUBE_SIZE))]]
 end
 
 -- === TIMER FUNCTIONS ===
@@ -361,12 +361,12 @@ local function startTimer(self)
 			self.timerReplica:SetValue({"TimeRemaining"}, currentTime - 1)
 		else
 			self:StopTimer()
-			print("[GridService] Timer finished!")
+			--("[GridService] Timer finished!")
 		end
 	end)
 	
 	self.timer:Start()
-	print("[GridService] Timer started!")
+	--("[GridService] Timer started!")
 end
 
 local function stopTimer(self)
@@ -394,7 +394,7 @@ function GridService:KnitStart()
 		generateGrid(self)
 		startTimer(self)
 	else
-		print("[GridService] Waiting for WorldInitService to initialize grid...")
+		--("[GridService] Waiting for WorldInitService to initialize grid...")
 	end
 end
 
@@ -409,7 +409,7 @@ function GridService:InitializeWithBaseplates(baseplateInfo)
 		return false
 	end
 	
-	print("[GridService] Initializing with baseplate info from WorldInitService...")
+	--("[GridService] Initializing with baseplate info from WorldInitService...")
 	self._baseplateInfo = baseplateInfo
 	self._isGridReady = false
 	
@@ -442,8 +442,8 @@ function GridService:InitializeWithBaseplates(baseplateInfo)
 	self._gridData.centerZ = BASEPLATE_CENTER.Z
 	self._gridData.topY = BASEPLATE_TOP_Y
 	
-	print(string.format("[GridService] Grid config: %dx%d cells, %.1f studs each, total area: %.0fx%.0f", 
-		GRID_WIDTH, GRID_DEPTH, CUBE_SIZE, totalWidth, totalDepth))
+	--[[print(string.format("[GridService] Grid config: %dx%d cells, %.1f studs each, total area: %.0fx%.0f", 
+		GRID_WIDTH, GRID_DEPTH, CUBE_SIZE, totalWidth, totalDepth))]]
 	
 	
 	-- Generate the grid
@@ -458,7 +458,7 @@ end
 -- Generate grid immediately (called by InitializeWithBaseplates or manually)
 function GridService:GenerateGridNow()
 	local startTime = tick()
-	print("[GridService] Generating grid...")
+	--("[GridService] Generating grid...")
 	
 	-- Get LoadingService for progress updates
 	local LoadingService = nil
@@ -512,7 +512,7 @@ function GridService:GenerateGridNow()
 	end
 	
 	local partTime = tick()
-	print(string.format("[GridService] Created %d zone cubes in %.2fs", #allCubes, partTime - startTime))
+	--[[print(string.format("[GridService] Created %d zone cubes in %.2fs", #allCubes, partTime - startTime))]]
 	reportProgress("Grid cells created", 55, 100)
 	
 	-- Attach zones in background
@@ -533,15 +533,15 @@ function GridService:GenerateGridNow()
 		end
 		
 		local totalTime = tick()
-		print(string.format("[GridService] Attached %d zones in %.2fs (total: %.2fs)", 
-			zoneCount, totalTime - partTime, totalTime - startTime))
+		--[[print(string.format("[GridService] Attached %d zones in %.2fs (total: %.2fs)", 
+			zoneCount, totalTime - partTime, totalTime - startTime))]]
 		
 		reportProgress("Grid complete", 100, 100)
 		self._isGridReady = true
 	end)
 	
-	print(string.format("[GridService] Generated %dx%d grid (%d cells, size %.1f each)", 
-		GRID_WIDTH, GRID_DEPTH, #allCubes, CUBE_SIZE))
+	--[[print(string.format("[GridService] Generated %dx%d grid (%d cells, size %.1f each)", 
+		GRID_WIDTH, GRID_DEPTH, #allCubes, CUBE_SIZE))]]
 end
 
 -- Check if grid is ready (all zones attached)
@@ -580,7 +580,7 @@ end
 -- - Terrain cubes (CubeTerrainService)
 -- - Reserved zone cubes (ReservedZoneService)
 function GridService:CleanupGridCellsAndMap()
-	print("[GridService] Cleaning up grid cells and map UI...")
+	--("[GridService] Cleaning up grid cells and map UI...")
 	
 	-- Destroy all Zone+ zones attached to grid cubes
 	local zoneCount = 0
@@ -591,21 +591,21 @@ function GridService:CleanupGridCellsAndMap()
 		end
 	end
 	self.zones = {}
-	print(string.format("[GridService] Destroyed %d grid cell zones", zoneCount))
+	--[[print(string.format("[GridService] Destroyed %d grid cell zones", zoneCount))]]
 	
 	-- Clear the GridCubes folder (delete all grid cube parts)
 	local gridFolder = Workspace:FindFirstChild(GRID_FOLDER_NAME)
 	if gridFolder then
 		local cubeCount = #gridFolder:GetChildren()
 		gridFolder:ClearAllChildren()
-		print(string.format("[GridService] Deleted %d grid cube parts", cubeCount))
+		--[[print(string.format("[GridService] Deleted %d grid cube parts", cubeCount))]]
 	end
 	
 	-- Clear cell data (but keep grid dimensions for coordinate calculations)
 	self._gridData.cells = {}
 	
 	
-	print("[GridService] Grid cells and map UI cleanup complete")
+	--("[GridService] Grid cells and map UI cleanup complete")
 end
 
 function GridService:StartTimer()
@@ -744,8 +744,8 @@ function GridService:RegisterExclusionZone(id, position, radius, height, owner)
 		height = height or 100,
 		owner = owner or "unknown",
 	}
-	print(string.format("[GridService] Registered exclusion zone '%s' at (%.1f, %.1f, %.1f) radius=%.1f owner=%s",
-		id, position.X, position.Y, position.Z, radius or 50, owner or "unknown"))
+	--[[print(string.format("[GridService] Registered exclusion zone '%s' at (%.1f, %.1f, %.1f) radius=%.1f owner=%s",
+		id, position.X, position.Y, position.Z, radius or 50, owner or "unknown"))]]
 	
 	-- Fire signal to notify listeners
 	if self.ExclusionZoneChanged then
@@ -759,7 +759,7 @@ end
 function GridService:RemoveExclusionZone(id)
 	if self._exclusionZones[id] then
 		self._exclusionZones[id] = nil
-		print("[GridService] Removed exclusion zone:", id)
+		--("[GridService] Removed exclusion zone:", id)
 		
 		-- Fire signal to notify listeners
 		if self.ExclusionZoneChanged then

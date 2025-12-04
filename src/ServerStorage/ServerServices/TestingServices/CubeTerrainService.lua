@@ -352,7 +352,7 @@ end
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
 function CubeTerrainService:KnitInit()
-	print("[CubeTerrainService] Initializing...")
+	--("[CubeTerrainService] Initializing...")
 end
 
 function CubeTerrainService:KnitStart()
@@ -361,7 +361,7 @@ function CubeTerrainService:KnitStart()
 		self._gridService = Knit.GetService("GridService")
 	end)
 	
-	print("[CubeTerrainService] Started - waiting for terrain generation request")
+	--("[CubeTerrainService] Started - waiting for terrain generation request")
 end
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -376,7 +376,7 @@ function CubeTerrainService:GenerateTerrain(gridWidth, gridDepth, cubeSize, cent
 	if CONFIG.SubdivisionEnabled then
 		subdivisionInfo = string.format(" (subdivided %d-%d per cell)", CONFIG.MinSubdivisions, CONFIG.MaxSubdivisions)
 	end
-	print(string.format("[CubeTerrainService] Generating %dx%d terrain cells%s...", gridWidth, gridDepth, subdivisionInfo))
+	--[[print(string.format("[CubeTerrainService] Generating %dx%d terrain cells%s...", gridWidth, gridDepth, subdivisionInfo))]]
 	
 	-- Clear existing terrain
 	clearTerrainCubes(self)
@@ -409,10 +409,10 @@ function CubeTerrainService:GenerateTerrain(gridWidth, gridDepth, cubeSize, cent
 	
 	local elapsed = tick() - startTime
 	local avgSubdivisions = totalCubesCreated / totalCells
-	print(string.format("[CubeTerrainService] Generated %d terrain cubes from %d cells (avg %.1f cubes/cell) in %.2fs", 
-		totalCubesCreated, totalCells, avgSubdivisions, elapsed))
-	print(string.format("[CubeTerrainService] Height range: %.1f to %.1f studs", 
-		CONFIG.MinHeightOffset, CONFIG.MaxHeightOffset))
+	--[[print(string.format("[CubeTerrainService] Generated %d terrain cubes from %d cells (avg %.1f cubes/cell) in %.2fs", 
+		totalCubesCreated, totalCells, avgSubdivisions, elapsed))]]
+	--[[print(string.format("[CubeTerrainService] Height range: %.1f to %.1f studs", 
+		CONFIG.MinHeightOffset, CONFIG.MaxHeightOffset))]]
 	
 	return totalCubesCreated
 end
@@ -444,7 +444,7 @@ end
 -- Clear all terrain
 function CubeTerrainService:ClearTerrain()
 	clearTerrainCubes(self)
-	print("[CubeTerrainService] Terrain cleared")
+	--("[CubeTerrainService] Terrain cleared")
 end
 
 -- Check if terrain is generated
@@ -597,7 +597,7 @@ end
 function CubeTerrainService:SetConfig(key, value)
 	if CONFIG[key] ~= nil then
 		CONFIG[key] = value
-		print("[CubeTerrainService] Config updated:", key, "=", tostring(value))
+		--("[CubeTerrainService] Config updated:", key, "=", tostring(value))
 		return true
 	end
 	warn("[CubeTerrainService] Unknown config key:", key)
@@ -614,7 +614,7 @@ end
 -- Regenerate with new seed
 function CubeTerrainService:RegenerateWithSeed(newSeed)
 	CONFIG.NoiseSeed = newSeed or math.random(1, 999999)
-	print("[CubeTerrainService] Regenerating with seed:", CONFIG.NoiseSeed)
+	--("[CubeTerrainService] Regenerating with seed:", CONFIG.NoiseSeed)
 	return self:GenerateTerrainFromGrid()
 end
 
@@ -665,7 +665,7 @@ function CubeTerrainService:FlattenAreaInZone(zonePart, targetHeight)
 		end
 	end
 	
-	print(string.format("[CubeTerrainService] Flattened %d terrain cubes within zone", flattenedCount))
+	--(string.format("[CubeTerrainService] Flattened %d terrain cubes within zone", flattenedCount))
 	return flattenedCount
 end
 
@@ -701,8 +701,8 @@ function CubeTerrainService:FlattenArea(centerX, centerZ, radiusCells, targetHei
 		end
 	end
 	
-	print(string.format("[CubeTerrainService] Flattened %d terrain cubes around (%d, %d)", 
-		flattenedCount, centerX, centerZ))
+	--[[print(string.format("[CubeTerrainService] Flattened %d terrain cubes around (%d, %d)", 
+		flattenedCount, centerX, centerZ))]]
 	return flattenedCount
 end
 

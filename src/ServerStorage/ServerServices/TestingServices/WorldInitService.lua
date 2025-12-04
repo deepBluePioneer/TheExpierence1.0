@@ -59,7 +59,7 @@ local CONFIG = {
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
 local function createBaseplateGrid(self, centerX, centerZ)
-	print("[WorldInitService] Phase 1: Creating baseplate grid...")
+	--("[WorldInitService] Phase 1: Creating baseplate grid...")
 	self._initPhase = "creating_baseplates"
 	
 	local baseplates = {}
@@ -126,8 +126,8 @@ local function createBaseplateGrid(self, centerX, centerZ)
 		baseplates = baseplates,
 	}
 	
-	print(string.format("[WorldInitService] Created %dx%d baseplate grid (%.0f x %.0f studs)", 
-		gridSize, gridSize, totalWidth, totalDepth))
+	--[[print(string.format("[WorldInitService] Created %dx%d baseplate grid (%.0f x %.0f studs)", 
+		gridSize, gridSize, totalWidth, totalDepth))]]
 	
 	return baseplates, self._baseplateInfo
 end
@@ -137,7 +137,7 @@ end
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
 local function initializeGridService(self)
-	print("[WorldInitService] Phase 2: Initializing GridService with baseplates...")
+	--("[WorldInitService] Phase 2: Initializing GridService with baseplates...")
 	self._initPhase = "creating_grid"
 	
 	if not self._gridService then
@@ -153,7 +153,7 @@ local function initializeGridService(self)
 	-- Pass baseplate info to GridService and trigger grid creation
 	self._gridService:InitializeWithBaseplates(self._baseplateInfo)
 	
-	print("[WorldInitService] GridService initialized with baseplates")
+	--("[WorldInitService] GridService initialized with baseplates")
 	return true
 end
 
@@ -162,7 +162,7 @@ end
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
 local function generateTerrain(self)
-	print("[WorldInitService] Phase 3: Generating cube terrain...")
+	--("[WorldInitService] Phase 3: Generating cube terrain...")
 	self._initPhase = "generating_terrain"
 	
 	if not self._baseplateInfo then
@@ -172,7 +172,7 @@ local function generateTerrain(self)
 	
 	-- Generate cube-based terrain using CubeTerrainService
 	if self._cubeTerrainService then
-		print("[WorldInitService] Generating cube terrain via CubeTerrainService")
+		--("[WorldInitService] Generating cube terrain via CubeTerrainService")
 		local width, depth = 20, 20
 		local cellSize = 8
 		
@@ -190,7 +190,7 @@ local function generateTerrain(self)
 			self._baseplateInfo.topY
 		)
 		
-		print("[WorldInitService] Cube terrain generation complete")
+		--("[WorldInitService] Cube terrain generation complete")
 		return true
 	else
 		warn("[WorldInitService] CubeTerrainService not available!")
@@ -204,19 +204,19 @@ end
 -- NOTE: Reserve cells AFTER terrain so flattening works properly!
 
 local function reserveCells(self)
-	print("[WorldInitService] Phase 4: Reserving cells (after terrain for flattening)...")
+	--("[WorldInitService] Phase 4: Reserving cells (after terrain for flattening)...")
 	self._initPhase = "reserving_cells"
 	
 	-- Initialize ReservedZoneService (will flatten terrain under Building zones)
 	if self._reservedZoneService then
 		self._reservedZoneService:InitializeZones()
-		print("[WorldInitService] Reserved zones created and terrain flattened")
+		--("[WorldInitService] Reserved zones created and terrain flattened")
 	end
 	
 	-- Initialize RedZoneService
 	if self._redZoneService then
 		self._redZoneService:InitializeZones()
-		print("[WorldInitService] Red zones created")
+		--("[WorldInitService] Red zones created")
 	end
 	
 	return true
@@ -227,22 +227,22 @@ end
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
 local function generateVegetation(self)
-	print("[WorldInitService] Phase 5: Generating trees and formations...")
+	--("[WorldInitService] Phase 5: Generating trees and formations...")
 	self._initPhase = "generating_vegetation"
 	
 	-- Generate trees
 	if self._treeService then
-		print("[WorldInitService] Generating trees...")
+		--("[WorldInitService] Generating trees...")
 		self._treeService:GenerateTreesWithBaseplates(self._baseplateInfo)
 	end
 	
 	-- Generate formations
 	if self._formationService then
-		print("[WorldInitService] Generating formations...")
+		--("[WorldInitService] Generating formations...")
 		self._formationService:GenerateFormationsWithBaseplates(self._baseplateInfo)
 	end
 	
-	print("[WorldInitService] Vegetation generation complete")
+	--("[WorldInitService] Vegetation generation complete")
 	return true
 end
 
@@ -251,21 +251,21 @@ end
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
 local function removeBaseplates(self)
-	print("[WorldInitService] Phase 6: Removing baseplates...")
+	--("[WorldInitService] Phase 6: Removing baseplates...")
 	self._initPhase = "removing_baseplates"
 	
 	-- Remove the WorldBaseplates folder we created
 	if self._baseplateFolder then
 		self._baseplateFolder:Destroy()
 		self._baseplateFolder = nil
-		print("[WorldInitService] WorldBaseplates folder removed")
+		--("[WorldInitService] WorldBaseplates folder removed")
 	end
 	
 	-- Also check for WorldBaseplates folder in case reference was lost
 	local worldBaseplates = Workspace:FindFirstChild("WorldBaseplates")
 	if worldBaseplates then
 		worldBaseplates:Destroy()
-		print("[WorldInitService] Found and removed WorldBaseplates folder")
+		--("[WorldInitService] Found and removed WorldBaseplates folder")
 	end
 	
 	-- Remove ANY baseplate parts in workspace (including default spawn plate)
@@ -283,19 +283,19 @@ local function removeBaseplates(self)
 	
 	-- Remove all found baseplates
 	for _, baseplate in ipairs(baseplatesToRemove) do
-		print("[WorldInitService] Removing baseplate:", baseplate.Name)
+		--("[WorldInitService] Removing baseplate:", baseplate.Name)
 		baseplate:Destroy()
 	end
 	
 	if #baseplatesToRemove > 0 then
-		print(string.format("[WorldInitService] Removed %d baseplate(s) from workspace", #baseplatesToRemove))
+		--[[print(string.format("[WorldInitService] Removed %d baseplate(s) from workspace", #baseplatesToRemove))]]
 	end
 	
 	-- Also remove TerrainBaseplates folder if it exists (from old TerrainService)
 	local terrainBaseplates = Workspace:FindFirstChild("TerrainBaseplates")
 	if terrainBaseplates then
 		terrainBaseplates:Destroy()
-		print("[WorldInitService] Removed TerrainBaseplates folder")
+		--("[WorldInitService] Removed TerrainBaseplates folder")
 	end
 	
 	self._initPhase = "complete"
@@ -308,13 +308,13 @@ end
 
 local function runInitializationSequence(self)
 	local startTime = tick()
-	print("[WorldInitService] ========== STARTING WORLD INITIALIZATION ==========")
+	--("[WorldInitService] ========== STARTING WORLD INITIALIZATION ==========")
 	
 	local function reportProgress(phase, progress, message)
 		if self._loadingService then
 			self._loadingService:UpdateStatus("WorldInitService", message, progress)
 		end
-		print(string.format("[WorldInitService] [%s] %s", phase, message))
+		--[[print(string.format("[WorldInitService] [%s] %s", phase, message))]]
 	end
 	
 	-- ===== PHASE 1: Create Baseplate Grid =====
@@ -371,7 +371,7 @@ local function runInitializationSequence(self)
 	
 	-- ===== COMPLETE =====
 	local elapsed = tick() - startTime
-	print(string.format("[WorldInitService] ========== WORLD INITIALIZATION COMPLETE (%.2fs) ==========", elapsed))
+	--[[print(string.format("[WorldInitService] ========== WORLD INITIALIZATION COMPLETE (%.2fs) ==========", elapsed))]]
 	
 	if self._loadingService then
 		self._loadingService:MarkStepComplete("WorldInitService")
@@ -385,7 +385,7 @@ end
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
 function WorldInitService:KnitInit()
-	print("[WorldInitService] Initializing - World generation orchestrator")
+	--("[WorldInitService] Initializing - World generation orchestrator")
 	
 	-- Get service references (they may not all be available yet)
 	pcall(function() self._loadingService = Knit.GetService("LoadingService") end)
@@ -398,7 +398,7 @@ function WorldInitService:KnitInit()
 end
 
 function WorldInitService:KnitStart()
-	print("[WorldInitService] Starting world generation sequence...")
+	--("[WorldInitService] Starting world generation sequence...")
 	
 	-- Run the initialization sequence
 	task.spawn(function()
@@ -479,13 +479,13 @@ end
 function WorldInitService:SetConfig(key, value)
 	if CONFIG[key] ~= nil then
 		CONFIG[key] = value
-		print("[WorldInitService] Config updated:", key, "=", value)
+		--("[WorldInitService] Config updated:", key, "=", value)
 	end
 end
 
 -- Manual regeneration (useful for debugging)
 function WorldInitService:RegenerateWorld()
-	print("[WorldInitService] Regenerating world...")
+	--("[WorldInitService] Regenerating world...")
 	
 	-- Clear existing world
 	if self._cubeTerrainService then

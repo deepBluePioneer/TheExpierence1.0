@@ -976,8 +976,8 @@ local function generateFormationPositions(baseplateInfo, count)
 	local halfX = baseplateInfo.size.X / 2 - CONFIG.EdgePadding
 	local halfZ = baseplateInfo.size.Z / 2 - CONFIG.EdgePadding
 	
-	print(string.format("[FormationService] Generating %d formation positions in area %.0fx%.0f centered at (%.0f, %.0f)", 
-		count, halfX * 2, halfZ * 2, baseplateInfo.position.X, baseplateInfo.position.Z))
+	--[[print(string.format("[FormationService] Generating %d formation positions in area %.0fx%.0f centered at (%.0f, %.0f)", 
+		count, halfX * 2, halfZ * 2, baseplateInfo.position.X, baseplateInfo.position.Z))]]
 	
 	while #positions < count and attempts < maxAttempts do
 		attempts += 1
@@ -1006,7 +1006,7 @@ local function generateFormationPositions(baseplateInfo, count)
 		end
 	end
 	
-	print(string.format("[FormationService] Generated %d formation positions after %d attempts", #positions, attempts))
+	--[[print(string.format("[FormationService] Generated %d formation positions after %d attempts", #positions, attempts))]]
 	return positions
 end
 
@@ -1087,8 +1087,8 @@ local function cleanupFormationsNearReservedCells(self)
 	self.formations = formationsToKeep
 	
 	if removedCount > 0 then
-		print(string.format("[FormationService] Removed %d formations within %.1f studs of reserved area", 
-			removedCount, totalRadius))
+		--[[print(string.format("[FormationService] Removed %d formations within %.1f studs of reserved area", 
+			removedCount, totalRadius))]]
 	end
 end
 
@@ -1138,7 +1138,7 @@ local function generateFormations(self)
 	end
 	
 	local elapsed = tick() - startTime
-	print(string.format("[FormationService] Generated %d formations in %.2fs", #positions, elapsed))
+	--[[print(string.format("[FormationService] Generated %d formations in %.2fs", #positions, elapsed))]]
 	
 	-- Clean up formations near reserved cells
 	cleanupFormationsNearReservedCells(self)
@@ -1153,11 +1153,11 @@ end
 -- === KNIT LIFECYCLE ===
 
 function FormationService:KnitInit()
-	print("[FormationService] Initializing...")
+	--("[FormationService] Initializing...")
 end
 
 function FormationService:KnitStart()
-	print("[FormationService] Starting...")
+	--("[FormationService] Starting...")
 	
 	-- Only auto-generate if _autoStart is true (legacy mode)
 	-- WorldInitService will call GenerateFormationsWithBaseplates() instead
@@ -1170,9 +1170,9 @@ function FormationService:KnitStart()
 		
 		if LoadingService then
 			-- Wait for ReservedZoneService to complete before generating formations
-			print("[FormationService] Waiting for ReservedZoneService to complete...")
+			--("[FormationService] Waiting for ReservedZoneService to complete...")
 			LoadingService:OnStepComplete("ReservedZoneService", function()
-				print("[FormationService] ReservedZoneService complete, generating formations...")
+				--("[FormationService] ReservedZoneService complete, generating formations...")
 				generateFormations(self)
 			end)
 		else
@@ -1181,7 +1181,7 @@ function FormationService:KnitStart()
 			generateFormations(self)
 		end
 	else
-		print("[FormationService] Waiting for WorldInitService to generate formations...")
+		--("[FormationService] Waiting for WorldInitService to generate formations...")
 	end
 end
 
@@ -1196,7 +1196,7 @@ function FormationService:GenerateFormationsWithBaseplates(baseplateInfo)
 		return false
 	end
 	
-	print("[FormationService] Generating formations with baseplate info from WorldInitService...")
+	--("[FormationService] Generating formations with baseplate info from WorldInitService...")
 	self._baseplateInfo = baseplateInfo
 	
 	-- Create a fake baseplate info structure compatible with generateFormationPositions
@@ -1245,14 +1245,14 @@ function FormationService:GenerateFormationsWithBaseplates(baseplateInfo)
 	end
 	
 	local elapsed = tick() - startTime
-	print(string.format("[FormationService] Generated %d formations in %.2fs", #positions, elapsed))
+	--[[print(string.format("[FormationService] Generated %d formations in %.2fs", #positions, elapsed))]]
 	
 	-- Clean up formations near reserved cells
 	cleanupFormationsNearReservedCells(self)
 	
 	reportProgress(100, 100, "Terrain complete")
 	
-	print("[FormationService] Formation generation complete")
+	--[[print("[FormationService] Formation generation complete")]]
 	return true
 end
 

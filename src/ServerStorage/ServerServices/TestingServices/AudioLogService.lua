@@ -174,7 +174,7 @@ local function getBaseplateInfo()
 	end
 	
 	-- Default fallback (3x3 grid of 128x128 baseplates)
-	print("[AudioLogService] Using default baseplate dimensions (384x384)")
+	----("[AudioLogService] Using default baseplate dimensions (384x384)")
 	return {
 		position = Vector3.new(0, 0, 0),
 		size = Vector3.new(384, 1, 384),
@@ -708,27 +708,27 @@ local function generateAudioLogs(self)
 			LoadingService:ReportProgress("AudioLogService", i, config.LogCount, "Placing audio logs")
 		end
 		
-		print(string.format(
+		--[[print(string.format(
 			"[AudioLogService] Audio Log %d (Entry #%d): Position=(%.0f, %.0f, %.0f)",
 			i, audioLog.entryIndex, position.X, position.Y, position.Z
-		))
+		))]]
 		
 		task.wait(0.1)
 	end
 	
 	local elapsed = tick() - startTime
-	print(string.format("[AudioLogService] Generated %d audio logs in %.2fs", config.LogCount, elapsed))
+	--[[print(string.format("[AudioLogService] Generated %d audio logs in %.2fs", config.LogCount, elapsed))]]
 	
 	-- Mark step complete
 	if LoadingService then
 		LoadingService:MarkStepComplete("AudioLogService")
 	end
 	
-	-- Print all tagged audio logs
+	-- -- all tagged audio logs
 	local taggedLogs = CollectionService:GetTagged(AUDIO_LOG_TAG)
-	print(string.format("[AudioLogService] Found %d instances with '%s' tag:", #taggedLogs, AUDIO_LOG_TAG))
+	--[[print(string.format("[AudioLogService] Found %d instances with '%s' tag:", #taggedLogs, AUDIO_LOG_TAG))]]
 	for _, taggedInstance in ipairs(taggedLogs) do
-		print("  - " .. taggedInstance.Name)
+		--[[print("  - " .. taggedInstance.Name)]]
 	end
 	
 	-- Connect proximity prompt events
@@ -736,14 +736,14 @@ local function generateAudioLogs(self)
 	for _, audioLog in ipairs(self.audioLogs) do
 		if audioLog.proximityPrompt then
 			connectedCount = connectedCount + 1
-			print("[AudioLogService] Connecting prompt for:", audioLog.model.Name)
+			--("[AudioLogService] Connecting prompt for:", audioLog.model.Name)
 			
 			audioLog.proximityPrompt.Triggered:Connect(function(player)
-				print("[AudioLogService] Prompt triggered by:", player.Name, "for:", audioLog.model.Name)
+				--("[AudioLogService] Prompt triggered by:", player.Name, "for:", audioLog.model.Name)
 				
 				-- Don't allow if an audio log is already playing
 				if self:IsAudioLogPlaying() then
-					print("[AudioLogService] Blocked - audio log already playing")
+					--("[AudioLogService] Blocked - audio log already playing")
 					return
 				end
 				self:OnAudioLogTriggered(audioLog, player)
@@ -752,7 +752,7 @@ local function generateAudioLogs(self)
 			warn("[AudioLogService] No proximity prompt for:", audioLog.model and audioLog.model.Name or "unknown")
 		end
 	end
-	print("[AudioLogService] Connected", connectedCount, "proximity prompts")
+	--("[AudioLogService] Connected", connectedCount, "proximity prompts")
 	
 	-- Start animations
 	animateAudioLogs(self)
@@ -768,7 +768,7 @@ function AudioLogService:KnitStart()
 	-- Audio logs are now spawned by ReservedZoneService within audio log zones
 	-- This service only provides the SpawnAudioLogAt() method and manages audio log state
 	-- We do NOT auto-generate audio logs here anymore
-	print("[AudioLogService] Started - audio logs will be spawned by ReservedZoneService within zones")
+	--("[AudioLogService] Started - audio logs will be spawned by ReservedZoneService within zones")
 	
 	-- Mark step complete for LoadingService so it doesn't wait for us
 	local LoadingService = nil
@@ -778,7 +778,7 @@ function AudioLogService:KnitStart()
 	
 	if LoadingService then
 		LoadingService:MarkStepComplete("AudioLogService")
-		print("[AudioLogService] Marked step complete")
+		--("[AudioLogService] Marked step complete")
 	end
 end
 
@@ -830,12 +830,12 @@ end
 -- Called when a player triggers an audio log's proximity prompt
 function AudioLogService:OnAudioLogTriggered(audioLog, player)
 	local entryIndex = audioLog.entryIndex or 1
-	print(string.format("[AudioLogService] %s triggered audio log: %s (Entry #%d)", player.Name, audioLog.model.Name, entryIndex))
+	--[[print(string.format("[AudioLogService] %s triggered audio log: %s (Entry #%d)", player.Name, audioLog.model.Name, entryIndex))]]
 	
 	-- Disable ALL prompts while playing
 	self.isAudioLogPlaying = true
 	self:DisableAllPrompts()
-	print("[AudioLogService] Prompts disabled, isAudioLogPlaying =", self.isAudioLogPlaying)
+	--[[print("[AudioLogService] Prompts disabled, isAudioLogPlaying =", self.isAudioLogPlaying)]]
 	
 	-- Fire custom callback if set
 	if self.onTriggeredCallback then
@@ -844,7 +844,7 @@ function AudioLogService:OnAudioLogTriggered(audioLog, player)
 	
 	-- Fire client event ONLY to the player who triggered it, with the entry index
 	if self.Client and self.Client.AudioLogTriggered then
-		print("[AudioLogService] Firing AudioLogTriggered signal to", player.Name, "with entryIndex", entryIndex)
+		--[[print("[AudioLogService] Firing AudioLogTriggered signal to", player.Name, "with entryIndex", entryIndex)]]
 		self.Client.AudioLogTriggered:Fire(player, entryIndex)
 	else
 		warn("[AudioLogService] Cannot fire signal - self.Client or AudioLogTriggered is nil")
@@ -860,7 +860,7 @@ end
 function AudioLogService.Client:NotifyDialogClosed(player)
 	self.Server.isAudioLogPlaying = false
 	self.Server:EnableAllPrompts()
-	print(string.format("[AudioLogService] %s finished viewing audio log - prompts re-enabled", player.Name))
+	--[[print(string.format("[AudioLogService] %s finished viewing audio log - prompts re-enabled", player.Name))]]
 end
 
 -- Set a custom callback for when audio logs are triggered

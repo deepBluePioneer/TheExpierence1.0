@@ -147,13 +147,13 @@ local function updateVisuals(self)
 		end
 	end
 	
-	print(string.format("[ExclusionDebugService] Updated %d exclusion zone visuals", #self._visualParts))
+	--[[print(string.format("[ExclusionDebugService] Updated %d exclusion zone visuals", #self._visualParts))]]
 end
 
 -- === KNIT LIFECYCLE ===
 
 function ExclusionDebugService:KnitInit()
-	print("[ExclusionDebugService] Initializing...")
+	--("[ExclusionDebugService] Initializing...")
 end
 
 function ExclusionDebugService:KnitStart()
@@ -179,7 +179,7 @@ function ExclusionDebugService:KnitStart()
 				updateVisuals(self)
 			end
 		end)
-		print("[ExclusionDebugService] Listening to exclusion zone changes via signal")
+		--("[ExclusionDebugService] Listening to exclusion zone changes via signal")
 	else
 		warn("[ExclusionDebugService] GridService.ExclusionZoneChanged signal not available, falling back to polling")
 		-- Fallback to polling if signal not available
@@ -193,7 +193,7 @@ function ExclusionDebugService:KnitStart()
 		end)
 	end
 	
-	print("[ExclusionDebugService] Started")
+	--("[ExclusionDebugService] Started")
 end
 
 -- === PUBLIC API ===
@@ -201,7 +201,7 @@ end
 function ExclusionDebugService:Enable()
 	self._enabled = true
 	updateVisuals(self)
-	print("[ExclusionDebugService] Enabled")
+	--("[ExclusionDebugService] Enabled")
 end
 
 function ExclusionDebugService:Disable()
@@ -214,7 +214,7 @@ function ExclusionDebugService:Disable()
 		self._zoneChangedConnection = nil
 	end
 	
-	print("[ExclusionDebugService] Disabled")
+	--("[ExclusionDebugService] Disabled")
 end
 
 function ExclusionDebugService:Toggle()
