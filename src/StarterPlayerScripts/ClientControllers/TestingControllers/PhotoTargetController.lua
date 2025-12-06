@@ -66,6 +66,14 @@ local TARGET_CONFIG = {
 	ProgressBarSegments = 20,
 	ScanLineSpeed = 1.5,
 	
+	-- Timing Bar (minigame)
+	TimingBarEnabled = true,
+	TimingBarSpeed = 0.8,  -- Speed of the moving line (cycles per second) - reduced from 2.0
+	TimingBarCenterZone = 0.15,  -- Size of center zone (0.15 = 15% of bar width)
+	TimingBarProgressGain = 0.02,  -- Progress gained per successful hit
+	TimingBarProgressLoss = 0.05,  -- Progress lost per miss
+	TimingBarRequireHit = true,  -- If true, progress only advances on successful hits
+	
 	-- World-Space Reticle
 	WorldReticleEnabled = true,
 	WorldReticleColor = Color3.fromRGB(0, 255, 100),
@@ -93,6 +101,12 @@ local bracketInsetValue = Value(1.0)
 local bracketInsetSpring = Spring(bracketInsetValue, 25, 0.8)
 local crosshairSizeValue = Value(1.0)
 local crosshairSizeSpring = Spring(crosshairSizeValue, 30, 0.7)
+
+-- Timing bar state
+local timingBarPosition = Value(0)  -- 0 to 1, position of moving line
+local timingBarDirection = Value(1)  -- 1 = right, -1 = left
+local timingBarLastHitTime = Value(0)  -- Time since last successful hit
+local timingBarNeedsHit = Value(false)  -- Whether a hit is required for progress
 
 -- === DEBUG GIZMOS ===
 local gizmoInitialized = false
@@ -622,6 +636,172 @@ local function createCrosshair(parent, animatedTransparency)
 	}
 end
 
+-- === TIMING BAR (MINIGAME) ===
+
+local function createTimingBar(parent, animatedTransparency)
+	local centerZoneStart = 0.5 - (TARGET_CONFIG.TimingBarCenterZone / 2)
+	local centerZoneEnd = 0.5 + (TARGET_CONFIG.TimingBarCenterZone / 2)
+	
+	return New "Frame" {
+		Name = "TimingBar",
+		Size = UDim2.new(0.88, 0, 0.12, 0),
+		Position = UDim2.new(0.5, 0, 0.0, 0),  -- Moved to top
+		AnchorPoint = Vector2.new(0.5, 0),
+		BackgroundTransparency = 1,
+		Visible = Computed(function()
+			return isLookingAtPhotoTarget:get() and not isCaptured:get() and TARGET_CONFIG.TimingBarEnabled
+		end),
+		Parent = parent,
+		
+		[Children] = {
+			-- Background bar
+			New "Frame" {
+				Name = "BarBackground",
+				Size = UDim2.new(1, 0, 0.4, 0),
+				Position = UDim2.new(0.5, 0, 0.5, 0),
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				BackgroundColor3 = Color3.fromRGB(40, 40, 40),
+				BackgroundTransparency = Computed(function()
+					return 0.3 + animatedTransparency:get() * 0.7
+				end),
+				BorderSizePixel = 0,
+				[Children] = {
+					New "UICorner" { CornerRadius = UDim.new(0.2, 0) },
+				},
+			},
+			
+			-- Left end marker
+			New "Frame" {
+				Name = "LeftMarker",
+				Size = UDim2.new(0.015, 0, 0.7, 0),  -- Made thicker
+				Position = UDim2.new(0, 0, 0.5, 0),
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				BackgroundColor3 = TARGET_CONFIG.TargetColor,
+				BackgroundTransparency = animatedTransparency,
+				BorderSizePixel = 0,
+			},
+			
+			-- Right end marker
+			New "Frame" {
+				Name = "RightMarker",
+				Size = UDim2.new(0.015, 0, 0.7, 0),  -- Made thicker
+				Position = UDim2.new(1, 0, 0.5, 0),
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				BackgroundColor3 = TARGET_CONFIG.TargetColor,
+				BackgroundTransparency = animatedTransparency,
+				BorderSizePixel = 0,
+			},
+			
+			-- Center zone (highlighted area) - more prominent
+			New "Frame" {
+				Name = "CenterZone",
+				Size = UDim2.new(TARGET_CONFIG.TimingBarCenterZone, 0, 0.6, 0),  -- Made taller
+				Position = UDim2.new(0.5, 0, 0.5, 0),
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				BackgroundColor3 = TARGET_CONFIG.TargetActiveColor,
+				BackgroundTransparency = Computed(function()
+					return 0.4 + animatedTransparency:get() * 0.6  -- More opaque
+				end),
+				BorderSizePixel = 0,
+				[Children] = {
+					New "UICorner" { CornerRadius = UDim.new(0.1, 0) },
+					-- Add border/outline for better visibility
+					New "UIStroke" {
+						Color = TARGET_CONFIG.TargetActiveColor,
+						Thickness = 2,
+						Transparency = Computed(function()
+							return 0.2 + animatedTransparency:get() * 0.8
+						end),
+					},
+				},
+			},
+			
+			-- Left boundary line of center zone
+			New "Frame" {
+				Name = "CenterZoneLeft",
+				Size = UDim2.new(0.003, 0, 0.8, 0),
+				Position = UDim2.new(0.5 - (TARGET_CONFIG.TimingBarCenterZone / 2), 0, 0.5, 0),
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				BackgroundColor3 = TARGET_CONFIG.TargetActiveColor,
+				BackgroundTransparency = Computed(function()
+					return 0.1 + animatedTransparency:get() * 0.9
+				end),
+				BorderSizePixel = 0,
+			},
+			
+			-- Right boundary line of center zone
+			New "Frame" {
+				Name = "CenterZoneRight",
+				Size = UDim2.new(0.003, 0, 0.8, 0),
+				Position = UDim2.new(0.5 + (TARGET_CONFIG.TimingBarCenterZone / 2), 0, 0.5, 0),
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				BackgroundColor3 = TARGET_CONFIG.TargetActiveColor,
+				BackgroundTransparency = Computed(function()
+					return 0.1 + animatedTransparency:get() * 0.9
+				end),
+				BorderSizePixel = 0,
+			},
+			
+			-- Moving line indicator
+			New "Frame" {
+				Name = "MovingLine",
+				Size = Computed(function()
+					local pos = timingBarPosition:get()
+					local inZone = pos >= centerZoneStart and pos <= centerZoneEnd
+					-- Make it thicker and taller when in center zone
+					if inZone then
+						return UDim2.new(0.012, 0, 0.85, 0)
+					else
+						return UDim2.new(0.008, 0, 0.7, 0)
+					end
+				end),
+				Position = Computed(function()
+					local pos = timingBarPosition:get()
+					return UDim2.new(pos, 0, 0.5, 0)
+				end),
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				BackgroundColor3 = Computed(function()
+					local pos = timingBarPosition:get()
+					local inZone = pos >= centerZoneStart and pos <= centerZoneEnd
+					return inZone and TARGET_CONFIG.TargetActiveColor or TARGET_CONFIG.TargetColor
+				end),
+				BackgroundTransparency = Computed(function()
+					local pos = timingBarPosition:get()
+					local inZone = pos >= centerZoneStart and pos <= centerZoneEnd
+					-- More opaque when in center zone
+					if inZone then
+						return 0.1 + animatedTransparency:get() * 0.9
+					else
+						return animatedTransparency:get()
+					end
+				end),
+				BorderSizePixel = 0,
+				[Children] = {
+					New "UICorner" { CornerRadius = UDim.new(0.5, 0) },
+					-- Add glow effect when in center zone
+					New "UIStroke" {
+						Color = Computed(function()
+							local pos = timingBarPosition:get()
+							local inZone = pos >= centerZoneStart and pos <= centerZoneEnd
+							return inZone and TARGET_CONFIG.TargetActiveColor or Color3.fromRGB(0, 0, 0)
+						end),
+						Thickness = Computed(function()
+							local pos = timingBarPosition:get()
+							local inZone = pos >= centerZoneStart and pos <= centerZoneEnd
+							return inZone and 1.5 or 0
+						end),
+						Transparency = Computed(function()
+							local pos = timingBarPosition:get()
+							local inZone = pos >= centerZoneStart and pos <= centerZoneEnd
+							return inZone and (0.3 + animatedTransparency:get() * 0.7) or 1
+						end),
+					},
+				},
+			},
+		},
+	}
+end
+
 -- === GAZE PROGRESS BAR ===
 
 local function createSegmentedProgressBar(parent, animatedTransparency)
@@ -761,6 +941,9 @@ local function createGazeProgressBar(parent, animatedTransparency)
 				BackgroundTransparency = 1,
 				
 				[Children] = {
+					-- Timing bar (minigame)
+					createTimingBar(nil, animatedTransparency),
+					
 					-- Status indicator
 					New "Frame" {
 						Name = "StatusRow",
@@ -886,6 +1069,36 @@ local function createGazeProgressBar(parent, animatedTransparency)
 	}
 end
 
+-- === HELPER FUNCTIONS ===
+
+-- Check if progress reached 100% and trigger completion
+local function checkAndTriggerCompletion(self, hitTargetInstance)
+	local currentProgress = gazeProgress:get()
+	
+	-- Check if progress reached 100% (using >= to catch any edge cases)
+	if currentProgress >= 1 and not isCaptured:get() then
+		isCaptured:set(true)
+		
+		-- Fire signal to server that this target has been scanned
+		if hitTargetInstance and not self._scannedTargets[hitTargetInstance] then
+			-- Mark as scanned to prevent duplicate signals
+			self._scannedTargets[hitTargetInstance] = true
+			
+			-- Get PhotoTargetService and fire the signal
+			if not self._photoTargetService then
+				self._photoTargetService = Knit.GetService("PhotoTargetService")
+			end
+			
+			if self._photoTargetService and self._photoTargetService.PhotoTargetScanned then
+				self._photoTargetService.PhotoTargetScanned:Fire(hitTargetInstance)
+				--[[print(string.format("[PhotoTargetController] Fired scan signal for target: %s", hitTargetInstance.Name))]]
+			else
+				warn("[PhotoTargetController] PhotoTargetService or PhotoTargetScanned signal not found")
+			end
+		end
+	end
+end
+
 -- === TARGET DETECTION ===
 
 local function checkPhotoTargetInView(self, deltaTime)
@@ -923,10 +1136,20 @@ local function checkPhotoTargetInView(self, deltaTime)
 			isCaptured:set(false)
 			currentTargetInstance = hitTargetInstance
 			
+			-- Reset timing bar for new target
+			if TARGET_CONFIG.TimingBarEnabled then
+				timingBarPosition:set(0)
+				timingBarDirection:set(1)
+				timingBarLastHitTime:set(0)
+				timingBarNeedsHit:set(false)
+			end
+			
 			-- If this target was already scanned, mark it as captured immediately
 			if self._scannedTargets[hitTargetInstance] then
 				isCaptured:set(true)
 				gazeProgress:set(1)
+				-- Check completion (should already be captured, but ensure it's handled)
+				checkAndTriggerCompletion(self, hitTargetInstance)
 			end
 		end
 		
@@ -948,34 +1171,53 @@ local function checkPhotoTargetInView(self, deltaTime)
 		crosshairSizeValue:set(1.2)
 		bracketInsetValue:set(1.15)
 		
-		-- Update gaze progress
+		-- Update timing bar position
+		if TARGET_CONFIG.TimingBarEnabled then
+			local currentPos = timingBarPosition:get()
+			local direction = timingBarDirection:get()
+			local speed = TARGET_CONFIG.TimingBarSpeed * dt
+			local newPos = currentPos + (direction * speed)
+			
+			-- Bounce at edges
+			if newPos >= 1 then
+				newPos = 1
+				timingBarDirection:set(-1)
+			elseif newPos <= 0 then
+				newPos = 0
+				timingBarDirection:set(1)
+			end
+			
+			timingBarPosition:set(newPos)
+			
+			-- Update last hit time
+			timingBarLastHitTime:set(timingBarLastHitTime:get() + dt)
+			
+			-- Check if we need a hit (after a certain time without progress)
+			if TARGET_CONFIG.TimingBarRequireHit then
+				timingBarNeedsHit:set(timingBarLastHitTime:get() > 0.5)  -- Require hit every 0.5 seconds
+			end
+		end
+		
+		-- Update gaze progress (only if timing bar allows it)
 		local currentProgress = gazeProgress:get()
 		if currentProgress < 1 then
-			local newProgress = currentProgress + (dt / TARGET_CONFIG.GazeFillTime)
+			local progressDelta = 0
+			
+			if TARGET_CONFIG.TimingBarEnabled and TARGET_CONFIG.TimingBarRequireHit then
+				-- Progress only advances if we've had a recent successful hit
+				if not timingBarNeedsHit:get() then
+					progressDelta = dt / TARGET_CONFIG.GazeFillTime
+				end
+			else
+				-- Normal progress (timing bar disabled or not required)
+				progressDelta = dt / TARGET_CONFIG.GazeFillTime
+			end
+			
+			local newProgress = currentProgress + progressDelta
 			gazeProgress:set(math.min(newProgress, 1))
 			
-			-- Check if just captured
-			if newProgress >= 1 and not isCaptured:get() then
-				isCaptured:set(true)
-				
-				-- Fire signal to server that this target has been scanned
-				if hitTargetInstance and not self._scannedTargets[hitTargetInstance] then
-					-- Mark as scanned to prevent duplicate signals
-					self._scannedTargets[hitTargetInstance] = true
-					
-					-- Get PhotoTargetService and fire the signal
-					if not self._photoTargetService then
-						self._photoTargetService = Knit.GetService("PhotoTargetService")
-					end
-					
-					if self._photoTargetService and self._photoTargetService.PhotoTargetScanned then
-						self._photoTargetService.PhotoTargetScanned:Fire(hitTargetInstance)
-						--[[print(string.format("[PhotoTargetController] Fired scan signal for target: %s", hitTargetInstance.Name))]]
-					else
-						warn("[PhotoTargetController] PhotoTargetService or PhotoTargetScanned signal not found")
-					end
-				end
-			end
+			-- Check if progress reached 100% and trigger completion
+			checkAndTriggerCompletion(self, hitTargetInstance)
 		end
 		
 		-- Update world-space reticle around target
@@ -992,6 +1234,14 @@ local function checkPhotoTargetInView(self, deltaTime)
 		isCaptured:set(false)
 		targetName:set("---")
 		currentTargetInstance = nil
+		
+		-- Reset timing bar
+		if TARGET_CONFIG.TimingBarEnabled then
+			timingBarPosition:set(0)
+			timingBarDirection:set(1)
+			timingBarLastHitTime:set(0)
+			timingBarNeedsHit:set(false)
+		end
 		
 		-- Hide world-space reticle
 		updateWorldReticle(nil, dt)
@@ -1069,10 +1319,43 @@ function PhotoTargetController:KnitStart()
 		initGizmo()
 	end
 	
-	-- Track mouse button for debug gizmos
+	-- Track mouse button for debug gizmos and timing bar
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
 			isMouseButtonHeld = true
+			
+			-- Check timing bar hit if scanning
+			if TARGET_CONFIG.TimingBarEnabled and isLookingAtPhotoTarget:get() and not isCaptured:get() then
+				local pos = timingBarPosition:get()
+				local centerZoneStart = 0.5 - (TARGET_CONFIG.TimingBarCenterZone / 2)
+				local centerZoneEnd = 0.5 + (TARGET_CONFIG.TimingBarCenterZone / 2)
+				
+				-- Check if hit is in center zone
+				if pos >= centerZoneStart and pos <= centerZoneEnd then
+					-- Successful hit!
+					local currentProgress = gazeProgress:get()
+					local newProgress = math.min(currentProgress + TARGET_CONFIG.TimingBarProgressGain, 1)
+					gazeProgress:set(newProgress)
+					
+					-- Reset timing bar state
+					timingBarLastHitTime:set(0)
+					timingBarNeedsHit:set(false)
+					
+					-- Check if progress reached 100% and trigger completion
+					checkAndTriggerCompletion(self, currentTargetInstance)
+					
+					--[[print(string.format("[PhotoTargetController] Timing hit! Progress: %.1f%%", newProgress * 100))]]
+				else
+					-- Miss - lose progress
+					local currentProgress = gazeProgress:get()
+					local newProgress = math.max(currentProgress - TARGET_CONFIG.TimingBarProgressLoss, 0)
+					gazeProgress:set(newProgress)
+					
+					-- Note: We don't check completion on miss since progress went down
+					
+					--[[print(string.format("[PhotoTargetController] Timing miss! Progress: %.1f%%", newProgress * 100))]]
+				end
+			end
 		end
 	end)
 	
