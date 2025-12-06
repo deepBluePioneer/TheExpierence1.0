@@ -4,6 +4,11 @@ local CollectionService = game:GetService("CollectionService")
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Knit = require(Packages.Knit)
 
+-- Shared modules
+local Source = ReplicatedStorage:WaitForChild("Source")
+local SharedModules = Source:WaitForChild("SharedModules")
+local TetrominoShapes = require(SharedModules:WaitForChild("TetrominoShapes"))
+
 local TetrominoService = Knit.CreateService {
 	Name = "TetrominoService",
 	Client = {},
@@ -13,22 +18,11 @@ local TetrominoService = Knit.CreateService {
 local PHOTO_TARGET_TAG = "PhotoTarget"
 local TETROMINO_ATTRIBUTE_NAME = "TetrominoShape"
 
--- The 7 classic tetromino shapes
-local TETROMINO_SHAPES = {
-	"I",  -- I-piece (straight line)
-	"O",  -- O-piece (square)
-	"T",  -- T-piece
-	"S",  -- S-piece
-	"Z",  -- Z-piece
-	"J",  -- J-piece
-	"L",  -- L-piece
-}
-
 -- === HELPERS ===
 
--- Get a random tetromino shape
+-- Get a random tetromino shape (using shared module)
 local function getRandomTetrominoShape()
-	return TETROMINO_SHAPES[math.random(1, #TETROMINO_SHAPES)]
+	return TetrominoShapes.GetRandomShape()
 end
 
 -- Assign a random tetromino shape to a photo target
@@ -96,7 +90,7 @@ function TetrominoService:AssignTetrominoShape(target, shape)
 		return false
 	end
 	
-	if not shape or not table.find(TETROMINO_SHAPES, shape) then
+	if not TetrominoShapes.IsValidShape(shape) then
 		warn(string.format("[TetrominoService] Invalid tetromino shape: %s", tostring(shape)))
 		return false
 	end
@@ -107,7 +101,7 @@ end
 
 -- Get all available tetromino shapes
 function TetrominoService:GetAllTetrominoShapes()
-	return TETROMINO_SHAPES
+	return TetrominoShapes.SHAPE_NAMES
 end
 
 -- Reassign random tetromino shapes to all photo targets

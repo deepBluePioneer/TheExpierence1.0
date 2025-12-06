@@ -1036,6 +1036,21 @@ function PhotoTargetController:KnitStart()
 	-- Get PhotoTargetService reference
 	self._photoTargetService = Knit.GetService("PhotoTargetService")
 	
+	-- Listen for tetromino shape capture signal from server
+	if self._photoTargetService and self._photoTargetService.TetrominoShapeCaptured then
+		self._photoTargetService.TetrominoShapeCaptured:Connect(function(gridX, gridZ, tetrominoShape)
+			-- Get CameraUIController and call method to create tetromino shape
+			local cameraUIController = Knit.GetController("CameraUIController")
+			if cameraUIController and cameraUIController.SetTetrominoShape then
+				cameraUIController:SetTetrominoShape(gridX, gridZ, tetrominoShape)
+				--[[print(string.format("[PhotoTargetController] Created tetromino shape '%s' at grid cell (%d, %d)", 
+					tetrominoShape, gridX, gridZ))]]
+			else
+				warn("[PhotoTargetController] CameraUIController or SetTetrominoShape method not found")
+			end
+		end)
+	end
+	
 	-- Pre-load tagged objects in parallel (wait for them to replicate)
 	task.spawn(function()
 		Promise.all({

@@ -9,6 +9,7 @@ local PhotoTargetService = Knit.CreateService {
 	Name = "PhotoTargetService",
 	Client = {
 		PhotoTargetScanned = Knit.CreateSignal(),  -- Fires when a player scans a photo target
+		TetrominoShapeCaptured = Knit.CreateSignal(),  -- Fires to client when a tetromino shape is captured
 	},
 	_scannedTargets = {},  -- Track which targets have been scanned (by model reference)
 }
@@ -113,24 +114,25 @@ function PhotoTargetService:KnitStart()
 			targetPosition = targetModel:FindFirstChild("TargetPart").Position
 		end
 		
-		-- Update grid UI with tetromino shape
+		-- Destroy the target first
+		targetModel:Destroy()
+		
+		-- Notify client to create tetromino shape in camera grid UI
 		if targetPosition and tetrominoShape then
 			local GridService = Knit.GetService("GridService")
-			if GridService then
+			if GridService and GridService.WorldToGrid then
 				local gridX, gridZ = GridService:WorldToGrid(targetPosition)
 				if gridX and gridZ then
-					GridService:SetTetrominoShape(gridX, gridZ, tetrominoShape)
-					--[[print(string.format("[PhotoTargetService] Updated grid cell (%d, %d) with tetromino shape '%s'", 
-						gridX, gridZ, tetrominoShape))]]
+					-- Fire signal to client with grid coordinates and tetromino shape
+					self.Client.TetrominoShapeCaptured:Fire(player, gridX, gridZ, tetrominoShape)
+					--[[print(string.format("[PhotoTargetService] Notified client %s to create tetromino shape '%s' at grid cell (%d, %d)", 
+						player.Name, tetrominoShape, gridX, gridZ))]]
 				end
 			end
 		end
 		
 		--("[PhotoTargetService] Player %s scanned photo target %s (Tetromino: %s)", 
 		--	player.Name, targetModel.Name, tetrominoShape or "Unknown")
-		
-		-- Destroy the target
-		targetModel:Destroy()
 		
 		--("[PhotoTargetService] Photo target %s destroyed after being scanned", targetModel.Name)
 	end)

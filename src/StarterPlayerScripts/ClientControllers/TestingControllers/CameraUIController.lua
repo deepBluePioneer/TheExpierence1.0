@@ -14,6 +14,11 @@ local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
 local Knit = require(Packages.Knit)
 local Fusion = require(CustomPackages:WaitForChild("FusionRoot"):WaitForChild("Fusion"))
 
+-- Shared modules
+local Source = ReplicatedStorage:WaitForChild("Source")
+local SharedModules = Source:WaitForChild("SharedModules")
+local TetrominoShapes = require(SharedModules:WaitForChild("TetrominoShapes"))
+
 -- Fusion imports
 local New = Fusion.New
 local Children = Fusion.Children
@@ -1476,6 +1481,66 @@ end
 
 function CameraUIController:GetInventoryItems()
 	return inventoryItems:get()
+end
+
+-- === TETROMINO SHAPE METHODS ===
+
+function CameraUIController:SetTetrominoShape(gridX, gridZ, tetrominoShape)
+	if not tetrominoShape or not gridX or not gridZ then
+		warn("[CameraUIController] Invalid tetromino shape data")
+		return
+	end
+	
+	-- Get shape block positions from shared module
+	local shape = TetrominoShapes.GetShapeBlocks(tetrominoShape)
+	if not shape then
+		warn(string.format("[CameraUIController] Unknown tetromino shape: %s", tetrominoShape))
+		return
+	end
+	
+	-- Map world grid coordinates to inventory grid (5x5)
+	-- Use modulo to wrap coordinates into the 5x5 grid
+	local baseSlotX = ((gridX - 1) % 5) + 1
+	local baseSlotZ = ((gridZ - 1) % 5) + 1
+	
+	-- Place tetromino shape in inventory grid
+	-- Start from center of inventory grid and place relative to base position
+	local centerSlot = 13  -- Center of 5x5 grid (row 3, col 3)
+	local centerRow = 3
+	local centerCol = 3
+	
+	-- Calculate offset from world grid to inventory grid
+	local offsetX = baseSlotX - centerCol
+	local offsetZ = baseSlotZ - centerRow
+	
+	-- Place each block of the tetromino
+	for _, block in ipairs(shape) do
+		local relX = block[1]
+		local relZ = block[2]
+		
+		-- Calculate inventory slot position
+		local slotCol = centerCol + offsetX + relX
+		local slotRow = centerRow + offsetZ + relZ
+		
+		-- Clamp to valid inventory grid bounds (1-5)
+		slotCol = math.clamp(slotCol, 1, 5)
+		slotRow = math.clamp(slotRow, 1, 5)
+		
+		-- Convert to slot index (1-25)
+		local slotIndex = (slotRow - 1) * 5 + slotCol
+		
+		-- Set the inventory item to show the tetromino block
+		self:SetInventoryItem(slotIndex, {
+			id = "tetromino_" .. tetrominoShape,
+			name = tetrominoShape,
+			icon = "■",  -- Block icon
+			count = 1,
+			slot = slotIndex,
+		})
+	end
+	
+	--[[print(string.format("[CameraUIController] Placed tetromino shape '%s' at grid (%d, %d) in inventory slots", 
+		tetrominoShape, gridX, gridZ))]]
 end
 
 function CameraUIController:Cleanup()
