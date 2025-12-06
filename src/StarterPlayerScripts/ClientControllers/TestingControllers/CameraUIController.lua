@@ -108,6 +108,11 @@ local visorMode = Value("STANDARD")
 local currentWaypoint = Value("BASE CAMP")
 local waypointDistance = Value(1247)
 
+-- Inventory state
+local inventoryItems = Value({})  -- Array of {id, name, icon, count, slot}
+local selectedSlot = Value(1)
+local inventoryVisible = Value(true)
+
 local missionStartTime = os.time()
 
 -- Parallax state
@@ -775,6 +780,147 @@ local function createBottomRightPanel(parent, animatedTransparency)
 	}
 end
 
+local function createInventoryPanel(parent, animatedTransparency)
+	-- Inventory grid config
+	local GRID_COLS = 5
+	local GRID_ROWS = 5
+	local SLOT_SIZE = 0.06  -- Smaller slots to fit 5x5 grid
+	local SLOT_GAP = 0  -- No gap between slots
+	local PANEL_WIDTH = (SLOT_SIZE * GRID_COLS) + (SLOT_GAP * (GRID_COLS - 1)) + 0.02
+	local PANEL_HEIGHT = (SLOT_SIZE * GRID_ROWS) + (SLOT_GAP * (GRID_ROWS - 1)) + 0.05
+	
+	-- Create inventory slots
+	local slots = {}
+	for row = 1, GRID_ROWS do
+		for col = 1, GRID_COLS do
+			local slotIndex = (row - 1) * GRID_COLS + col
+			local xPos = (col - 1) * (SLOT_SIZE + SLOT_GAP) + 0.01
+			local yPos = (row - 1) * (SLOT_SIZE + SLOT_GAP) + 0.04
+			
+			table.insert(slots, New "Frame" {
+				Name = "Slot" .. slotIndex,
+				Size = UDim2.new(SLOT_SIZE, 0, SLOT_SIZE, 0),  -- Square slots
+				Position = UDim2.new(xPos, 0, yPos, 0),
+				BackgroundColor3 = Computed(function()
+					if selectedSlot:get() == slotIndex then
+						return HUD_CONFIG.AccentColor
+					else
+						return HUD_CONFIG.DimColor
+					end
+				end),
+				BackgroundTransparency = Computed(function()
+					if selectedSlot:get() == slotIndex then
+						return 0.7 + animatedTransparency:get() * 0.3
+					else
+						return 0.85 + animatedTransparency:get() * 0.15
+					end
+				end),
+				BorderSizePixel = 0,
+				[Children] = {
+					New "UIStroke" {
+						Color = Computed(function()
+							if selectedSlot:get() == slotIndex then
+								return HUD_CONFIG.PrimaryColor
+							else
+								return HUD_CONFIG.DimColor
+							end
+						end),
+						Thickness = Computed(function()
+							return selectedSlot:get() == slotIndex and 1 or 0.5
+						end),
+						Transparency = Computed(function()
+							return 0.3 + animatedTransparency:get() * 0.7
+						end),
+						ApplyStrokeMode = Enum.ApplyStrokeMode.Border,  -- Draws stroke inside the frame
+					},
+					New "UICorner" {
+						CornerRadius = UDim.new(0, 4),
+					},
+					New "UIAspectRatioConstraint" {
+						AspectRatio = 1,  -- Ensures perfect square
+					},
+					-- Item icon placeholder
+					New "TextLabel" {
+						Size = UDim2.new(0.7, 0, 0.7, 0),
+						Position = UDim2.new(0.5, 0, 0.3, 0),
+						AnchorPoint = Vector2.new(0.5, 0.5),
+						BackgroundTransparency = 1,
+						Font = Enum.Font.SciFi,
+						TextScaled = true,
+						TextColor3 = HUD_CONFIG.PrimaryColor,
+						TextTransparency = Computed(function()
+							local items = inventoryItems:get()
+							local item = items[slotIndex]
+							return item and (0.2 + animatedTransparency:get() * 0.8) or 1
+						end),
+						Text = Computed(function()
+							local items = inventoryItems:get()
+							local item = items[slotIndex]
+							return item and (item.icon or "?") or ""
+						end),
+					},
+					-- Item count
+					New "TextLabel" {
+						Size = UDim2.new(1, -4, 0, 12),
+						Position = UDim2.new(0.5, 0, 1, -2),
+						AnchorPoint = Vector2.new(0.5, 1),
+						BackgroundTransparency = 1,
+						Font = Enum.Font.RobotoMono,
+						TextSize = 8,
+						TextColor3 = HUD_CONFIG.SecondaryColor,
+						TextTransparency = Computed(function()
+							local items = inventoryItems:get()
+							local item = items[slotIndex]
+							return item and item.count and item.count > 1 and (0.1 + animatedTransparency:get() * 0.9) or 1
+						end),
+						TextXAlignment = Enum.TextXAlignment.Right,
+						Text = Computed(function()
+							local items = inventoryItems:get()
+							local item = items[slotIndex]
+							return item and item.count and item.count > 1 and tostring(item.count) or ""
+						end),
+					},
+				},
+			})
+		end
+	end
+	
+	return New "Frame" {
+		Name = "InventoryPanel",
+		Size = UDim2.new(PANEL_WIDTH, 0, PANEL_HEIGHT, 0),
+		Position = UDim2.new(1 - HUD_CONFIG.MarginX, 0, 1 - HUD_CONFIG.MarginY - 0.1, 0),
+		AnchorPoint = Vector2.new(1, 1),
+		BackgroundTransparency = 1,
+		Parent = parent,
+		Visible = Computed(function()
+			return inventoryVisible:get()
+		end),
+		
+		[Children] = {
+			-- Title
+			New "TextLabel" {
+				Size = UDim2.new(1, 0, 0, 0.03),
+				Position = UDim2.new(0, 0, 0, 0),
+				BackgroundTransparency = 1,
+				Font = Enum.Font.SciFi,
+				TextScaled = true,
+				TextColor3 = HUD_CONFIG.PrimaryColor,
+				TextTransparency = animatedTransparency,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Text = "INVENTORY",
+			},
+			-- Grid container
+			New "Frame" {
+				Name = "GridContainer",
+				Size = UDim2.new(1, 0, 1, -0.03),
+				Position = UDim2.new(0, 0, 0, 0.03),
+				BackgroundTransparency = 1,
+				[Children] = slots,
+			},
+		},
+	}
+end
+
 local function createBottomCenterPanel(parent, animatedTransparency)
 	return New "Frame" {
 		Name = "BottomCenterPanel",
@@ -938,6 +1084,7 @@ local function createHelmetHUD(self)
 						createBottomLeftPanel(nil, animatedTransparency),
 						createBottomRightPanel(nil, animatedTransparency),
 						createBottomCenterPanel(nil, animatedTransparency),
+						createInventoryPanel(nil, animatedTransparency),
 					}),
 				},
 			},
@@ -1266,6 +1413,69 @@ end
 
 function CameraUIController:SetParallaxIntensity(intensity)
 	HUD_CONFIG.ParallaxIntensity = math.clamp(intensity, 0, 100)
+end
+
+-- === INVENTORY METHODS ===
+
+function CameraUIController:SetInventoryItem(slotIndex, itemData)
+	local items = inventoryItems:get()
+	items[slotIndex] = itemData and {
+		id = itemData.id or slotIndex,
+		name = itemData.name or "Item",
+		icon = itemData.icon or "?",
+		count = itemData.count or 1,
+		slot = slotIndex,
+	} or nil
+	inventoryItems:set(items)
+end
+
+function CameraUIController:AddInventoryItem(itemData)
+	local items = inventoryItems:get()
+	-- Find first empty slot (5x5 = 25 slots)
+	for i = 1, 25 do
+		if not items[i] then
+			items[i] = {
+				id = itemData.id or i,
+				name = itemData.name or "Item",
+				icon = itemData.icon or "?",
+				count = itemData.count or 1,
+				slot = i,
+			}
+			inventoryItems:set(items)
+			return i
+		end
+	end
+	return nil -- Inventory full
+end
+
+function CameraUIController:RemoveInventoryItem(slotIndex)
+	local items = inventoryItems:get()
+	items[slotIndex] = nil
+	inventoryItems:set(items)
+end
+
+function CameraUIController:ClearInventory()
+	inventoryItems:set({})
+end
+
+function CameraUIController:SetSelectedSlot(slotIndex)
+	selectedSlot:set(math.clamp(slotIndex, 1, 25))  -- 5x5 = 25 slots
+end
+
+function CameraUIController:GetSelectedSlot()
+	return selectedSlot:get()
+end
+
+function CameraUIController:SetInventoryVisible(visible)
+	inventoryVisible:set(visible)
+end
+
+function CameraUIController:IsInventoryVisible()
+	return inventoryVisible:get()
+end
+
+function CameraUIController:GetInventoryItems()
+	return inventoryItems:get()
 end
 
 function CameraUIController:Cleanup()

@@ -21,6 +21,7 @@ local GridService = Knit.CreateService {
 	Client = {},
 	zones = {},  -- Store all zone instances (no longer used - cleaned up after reserved zones)
 	timerReplica = nil,
+	tetrominoGridReplica = nil,  -- Replica to track tetromino shapes on the grid
 	timer = nil,
 	
 	-- Grid data structure
@@ -343,7 +344,16 @@ local function initReplica(self)
 		Replication = "All",
 	})
 	
-	-- Note: Map replica removed - no longer using grid cube map UI
+	-- Tetromino grid replica to track scanned photo target shapes
+	self.tetrominoGridReplica = ReplicaService.NewReplica({
+		ClassToken = ReplicaService.NewClassToken("TetrominoGridReplica"),
+		Data = {
+			TetrominoShapes = {},  -- { ["x_z"] = "I"|"O"|"T"|"S"|"Z"|"J"|"L", ... }
+			GridWidth = self._gridData.width,
+			GridDepth = self._gridData.depth,
+		},
+		Replication = "All",
+	})
 end
 
 local function startTimer(self)

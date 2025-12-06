@@ -348,18 +348,24 @@ end
 -- === IRIS UI ===
 
 function PerformanceProfilerController:InitializeIris()
+	-- DISABLED: Iris windows disabled
+	-- Disable Iris completely
+	Iris.Disabled = true
+	
 	-- Initialize states
-	IrisStates.ShowFrameGraph = Iris.State(true)
-	IrisStates.ShowMemoryGraph = Iris.State(true)
-	IrisStates.ShowEntityCounts = Iris.State(true)
-	IrisStates.ShowCullingStats = Iris.State(true)
-	IrisStates.ShowTimingMarkers = Iris.State(true)
-	IrisStates.ShowNetworkStats = Iris.State(true)
+	-- IrisStates.ShowFrameGraph = Iris.State(true)
+	-- IrisStates.ShowMemoryGraph = Iris.State(true)
+	-- IrisStates.ShowEntityCounts = Iris.State(true)
+	-- IrisStates.ShowCullingStats = Iris.State(true)
+	-- IrisStates.ShowTimingMarkers = Iris.State(true)
+	-- IrisStates.ShowNetworkStats = Iris.State(true)
 	
 	-- Connect UI drawing
-	Iris:Connect(function()
-		self:DrawProfilerWindow()
-	end)
+	-- Iris:Connect(function()
+	-- 	self:DrawProfilerWindow()
+	-- end)
+	
+	print("[PerformanceProfilerController] Iris GUI disabled")
 end
 
 function PerformanceProfilerController:DrawProfilerWindow()

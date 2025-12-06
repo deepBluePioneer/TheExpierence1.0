@@ -50,28 +50,32 @@ end
 --=============================================
 
 function TestingController:InitializeIris()
+	-- DISABLED: Iris windows disabled
 	-- Initialize Iris
-	Iris.Init()
+	-- Iris.Init()
+	
+	-- Disable Iris completely
+	Iris.Disabled = true
 	
 	-- Create persistent states for Iris widgets
-	IrisStates.TestValue = Iris.State(100)
-	IrisStates.DebugModeEnabled = Iris.State(true)
-	IrisStates.ShowDemoWindow = Iris.State(false)
-	IrisStates.TestMessage = Iris.State("Hello from Testing!")
-	IrisStates.SliderValue = Iris.State(50)
-	IrisStates.ColorPicker = Iris.State(Color3.fromRGB(100, 255, 150))
+	-- IrisStates.TestValue = Iris.State(100)
+	-- IrisStates.DebugModeEnabled = Iris.State(true)
+	-- IrisStates.ShowDemoWindow = Iris.State(false)
+	-- IrisStates.TestMessage = Iris.State("Hello from Testing!")
+	-- IrisStates.SliderValue = Iris.State(50)
+	-- IrisStates.ColorPicker = Iris.State(Color3.fromRGB(100, 255, 150))
 	
 	-- Ambience/Lighting states (initialize with custom defaults)
-	IrisStates.ClockTime = Iris.State(22.20)
-	IrisStates.Brightness = Iris.State(10)
-	IrisStates.ExposureCompensation = Iris.State(1.5)
-	IrisStates.Ambient = Iris.State(Color3.fromRGB(0, 0, 0))
-	IrisStates.OutdoorAmbient = Iris.State(Color3.fromRGB(70, 70, 70))
-	IrisStates.FogColor = Iris.State(Color3.fromRGB(226, 112, 203))
-	IrisStates.FogStart = Iris.State(2150)
-	IrisStates.FogEnd = Iris.State(6430)
-	IrisStates.EnvironmentDiffuseScale = Iris.State(1)
-	IrisStates.EnvironmentSpecularScale = Iris.State(1)
+	-- IrisStates.ClockTime = Iris.State(22.20)
+	-- IrisStates.Brightness = Iris.State(10)
+	-- IrisStates.ExposureCompensation = Iris.State(1.5)
+	-- IrisStates.Ambient = Iris.State(Color3.fromRGB(0, 0, 0))
+	-- IrisStates.OutdoorAmbient = Iris.State(Color3.fromRGB(70, 70, 70))
+	-- IrisStates.FogColor = Iris.State(Color3.fromRGB(226, 112, 203))
+	-- IrisStates.FogStart = Iris.State(2150)
+	-- IrisStates.FogEnd = Iris.State(6430)
+	-- IrisStates.EnvironmentDiffuseScale = Iris.State(1)
+	-- IrisStates.EnvironmentSpecularScale = Iris.State(1)
 	
 	-- Apply these values to actual Lighting
 	Lighting.ClockTime = 22.20
@@ -86,14 +90,14 @@ function TestingController:InitializeIris()
 	Lighting.EnvironmentSpecularScale = 1
 	
 	-- Connect the main UI function to Iris
-	Iris:Connect(function()
-		self:DrawDebugUI()
-	end)
+	-- Iris:Connect(function()
+	-- 	self:DrawDebugUI()
+	-- end)
 	
-	-- Show mouse cursor since Iris starts visible
-	self:ShowMouseCursor()
+	-- Don't show mouse cursor since Iris is disabled
+	-- self:ShowMouseCursor()
 	
-	log("Iris GUI initialized")
+	log("Iris GUI disabled")
 end
 
 function TestingController:DrawDebugUI()

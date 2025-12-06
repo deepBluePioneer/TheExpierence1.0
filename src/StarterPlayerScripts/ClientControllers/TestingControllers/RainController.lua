@@ -9,6 +9,7 @@ local CollectionService = game:GetService("CollectionService")
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Knit = require(Packages.Knit)
 local PartCache = require(Packages.partcache)
+local Promise = require(Packages.promise)
 
 local Player = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
@@ -21,6 +22,7 @@ local RainController = Knit.CreateController {
 	isRaining = false,        -- Start with no rain (will enable at night)
 	lightningEnabled = false, -- Start with no lightning (will enable at night)
 	_weatherService = nil,    -- Reference to WeatherService
+	_taggedObjectsCache = {},  -- Cache for tagged objects to avoid repeated waiting
 }
 
 -- === CONFIG ===
@@ -135,6 +137,53 @@ local function getRainFolder()
 	return folder
 end
 
+-- === PROMISE HELPER FOR TAGGED OBJECTS ===
+
+-- Wait for tagged objects to replicate (with caching)
+local function waitForTaggedObjects(self, tag, minCount, timeout)
+	minCount = minCount or 1
+	timeout = timeout or 5
+	
+	-- Check cache first
+	if self._taggedObjectsCache[tag] then
+		return Promise.resolve(self._taggedObjectsCache[tag])
+	end
+	
+	-- Check if objects already exist
+	local existing = CollectionService:GetTagged(tag)
+	if #existing >= minCount then
+		self._taggedObjectsCache[tag] = existing
+		return Promise.resolve(existing)
+	end
+	
+	-- Wait for objects to be added
+	local collected = {}
+	for _, obj in ipairs(existing) do
+		table.insert(collected, obj)
+	end
+	
+	-- Create promise from the GetInstanceAddedSignal event
+	return Promise.race({
+		Promise.fromEvent(CollectionService:GetInstanceAddedSignal(tag), function(obj)
+			table.insert(collected, obj)
+			if #collected >= minCount then
+				self._taggedObjectsCache[tag] = collected
+				return true
+			end
+			return false
+		end):andThen(function()
+			return collected
+		end),
+		Promise.delay(timeout):andThen(function()
+			-- Timeout - return what we have (might be empty, but that's okay)
+			if #collected >= minCount then
+				self._taggedObjectsCache[tag] = collected
+			end
+			return collected
+		end)
+	})
+end
+
 -- === SPAWN RAINDROP ===
 
 local function getRandomSpawnPosition()
@@ -166,20 +215,20 @@ local function spawnRaindrop(self)
 	-- Exclude rain effects, player, grid cells, and particle groups from raycast
 	local excludeList = {getRainFolder(), Player.Character}
 	
-	-- Exclude grid cubes by tag
-	local gridCubes = CollectionService:GetTagged("gridCube")
+	-- Exclude grid cubes by tag (use cached or wait for replication)
+	local gridCubes = self._taggedObjectsCache["gridCube"] or CollectionService:GetTagged("gridCube")
 	for _, cube in ipairs(gridCubes) do
 		table.insert(excludeList, cube)
 	end
 	
 	-- Exclude reserved zone cubes by tag
-	local zoneCubes = CollectionService:GetTagged("reservedZoneCube")
+	local zoneCubes = self._taggedObjectsCache["reservedZoneCube"] or CollectionService:GetTagged("reservedZoneCube")
 	for _, cube in ipairs(zoneCubes) do
 		table.insert(excludeList, cube)
 	end
 	
 	-- Exclude all particle group anchors
-	local particleGroups = CollectionService:GetTagged("particleGroup")
+	local particleGroups = self._taggedObjectsCache["particleGroup"] or CollectionService:GetTagged("particleGroup")
 	for _, part in ipairs(particleGroups) do
 		table.insert(excludeList, part)
 	end
@@ -715,6 +764,19 @@ function RainController:KnitStart()
 	if not Player.Character then
 		Player.CharacterAdded:Wait()
 	end
+	
+	-- Pre-load tagged objects in parallel (wait for them to replicate)
+	task.spawn(function()
+		Promise.all({
+			waitForTaggedObjects(self, "gridCube", 1, 10),
+			waitForTaggedObjects(self, "reservedZoneCube", 1, 10),
+			waitForTaggedObjects(self, "particleGroup", 1, 10),
+		}):andThen(function()
+			print("[RainController] Tagged objects loaded and cached")
+		end):catch(function(err)
+			warn("[RainController] Some tagged objects failed to load:", err)
+		end)
+	end)
 	
 	-- Initialize systems (but don't enable yet)
 	startSpawnLoop(self)

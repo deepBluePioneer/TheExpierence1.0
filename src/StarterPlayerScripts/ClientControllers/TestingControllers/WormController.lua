@@ -13,11 +13,13 @@ local CollectionService = game:GetService("CollectionService")
 
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Knit = require(Packages.Knit)
+local Promise = require(Packages.promise)
 
 local WormController = Knit.CreateController {
     Name = "WormController",
     _worms = {},
     _streamingCullingController = nil, -- Reference to culling controller
+    _taggedObjectsCache = {},  -- Cache for tagged objects
 }
 
 -- === CONFIGURATION ===
@@ -87,6 +89,53 @@ raycastParams.FilterDescendantsInstances = {}
 
 -- === HELPER: RAYCAST FILTER SETUP ===
 
+-- === PROMISE HELPER FOR TAGGED OBJECTS ===
+
+-- Wait for tagged objects to replicate (with caching)
+local function waitForTaggedObjects(self, tag, minCount, timeout)
+    minCount = minCount or 1
+    timeout = timeout or 5
+    
+    -- Check cache first
+    if self._taggedObjectsCache[tag] then
+        return Promise.resolve(self._taggedObjectsCache[tag])
+    end
+    
+    -- Check if objects already exist
+    local existing = CollectionService:GetTagged(tag)
+    if #existing >= minCount then
+        self._taggedObjectsCache[tag] = existing
+        return Promise.resolve(existing)
+    end
+    
+    -- Wait for objects to be added
+    local collected = {}
+    for _, obj in ipairs(existing) do
+        table.insert(collected, obj)
+    end
+    
+    -- Create promise from the GetInstanceAddedSignal event
+    return Promise.race({
+        Promise.fromEvent(CollectionService:GetInstanceAddedSignal(tag), function(obj)
+            table.insert(collected, obj)
+            if #collected >= minCount then
+                self._taggedObjectsCache[tag] = collected
+                return true
+            end
+            return false
+        end):andThen(function()
+            return collected
+        end),
+        Promise.delay(timeout):andThen(function()
+            -- Timeout - return what we have
+            if #collected >= minCount then
+                self._taggedObjectsCache[tag] = collected
+            end
+            return collected
+        end)
+    })
+end
+
 local function updateRaycastFilter()
     local excludeList = {}
 
@@ -110,14 +159,14 @@ local function updateRaycastFilter()
         table.insert(excludeList, redZonesFolder)
     end
 
-    -- Exclude grid cubes by tag
-    local gridCubes = CollectionService:GetTagged("gridCube")
+    -- Exclude grid cubes by tag (use cached or wait for replication)
+    local gridCubes = WormController._taggedObjectsCache["gridCube"] or CollectionService:GetTagged("gridCube")
     for _, cube in ipairs(gridCubes) do
         table.insert(excludeList, cube)
     end
 
     -- Exclude reserved zone cubes by tag
-    local zoneCubes = CollectionService:GetTagged("reservedZoneCube")
+    local zoneCubes = WormController._taggedObjectsCache["reservedZoneCube"] or CollectionService:GetTagged("reservedZoneCube")
     for _, cube in ipairs(zoneCubes) do
         table.insert(excludeList, cube)
     end
@@ -688,6 +737,18 @@ function WormController:KnitInit()
 end
 
 function WormController:KnitStart()
+    -- Pre-load tagged objects in parallel (wait for them to replicate)
+    task.spawn(function()
+        Promise.all({
+            waitForTaggedObjects(self, "gridCube", 1, 10),
+            waitForTaggedObjects(self, "reservedZoneCube", 1, 10),
+        }):andThen(function()
+            print("[WormController] Tagged objects loaded and cached")
+        end):catch(function(err)
+            warn("[WormController] Some tagged objects failed to load:", err)
+        end)
+    end)
+    
     local lastTime = os.clock()
 
     RunService.Heartbeat:Connect(function()

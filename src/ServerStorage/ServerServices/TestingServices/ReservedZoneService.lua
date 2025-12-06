@@ -60,6 +60,14 @@ local ZONE_TYPES = {
 		spawnEnemies = true,  -- Special flag to spawn enemies in zone
 		enemyCount = 5,
 	},
+	PhotoTarget = {
+		name = "PhotoTarget",
+		cellTransparency = 1.0,  -- Fully transparent cells
+		zoneCubeTransparency = 0.85,
+		zoneCubeColor = Color3.fromRGB(255, 255, 0),  -- Yellow
+		flattenTerrain = false,
+		spawnPhotoTarget = true,  -- Special flag to spawn photo target in zone
+	},
 }
 
 local CollectionService = game:GetService("CollectionService")
@@ -73,6 +81,9 @@ local ZONE_CONFIG = {
 	AudioLogZoneCount = 5,      -- Fallback count (will use AudioLogService.LogCount if available)
 	AudioLogZoneSizeX = 1,      -- Width of each audio log zone (cells)
 	AudioLogZoneSizeZ = 1,      -- Depth of each audio log zone (cells)
+	PhotoTargetZoneCount = 20,  -- Fallback count (will use PhotoTargetService.SpawnCount if available)
+	PhotoTargetZoneSizeX = 1,   -- Width of each photo target zone (cells)
+	PhotoTargetZoneSizeZ = 1,   -- Depth of each photo target zone (cells)
 	HumanEnemyZoneSizeX = 3,    -- Width of human enemy zone (cells)
 	HumanEnemyZoneSizeZ = 3,    -- Depth of human enemy zone (cells)
 	HumanEnemyCount = 5,        -- Number of enemies to spawn in zone
@@ -440,6 +451,58 @@ local function spawnAudioLogInZone(self, zoneInstance, zoneCube, zoneIndex)
 	return audioLog
 end
 
+-- Helper function to spawn a photo target within a zone using Zone+ getRandomPoint()
+-- Uses getRandomPoint() for random XZ within zone, then places on terrain surface
+local function spawnPhotoTargetInZone(self, zoneInstance, zoneCube, zoneIndex)
+	-- Get PhotoTargetService
+	local PhotoTargetService = nil
+	pcall(function()
+		PhotoTargetService = Knit.GetService("PhotoTargetService")
+	end)
+	
+	if not PhotoTargetService then
+		warn("[ReservedZoneService] PhotoTargetService not found, cannot spawn photo target")
+		return nil
+	end
+	
+	-- Use Zone+ getRandomPoint() to get a random position within the zone
+	local randomPoint = zoneInstance:getRandomPoint()
+	if not randomPoint then
+		warn("[ReservedZoneService] Could not get random point from zone")
+		return nil
+	end
+	
+	-- Get the terrain surface height at this random XZ position using CubeTerrainService
+	local terrainY = self._gridService._gridData.topY  -- Default fallback
+	
+	if self._cubeTerrainService then
+		local surfaceHeight = self._cubeTerrainService:GetSurfaceHeightAt(randomPoint.X, randomPoint.Z)
+		if surfaceHeight and surfaceHeight > 0 then
+			terrainY = surfaceHeight
+		else
+			-- Fallback to grid-based height calculation
+			terrainY = self._cubeTerrainService:GetHeightAtPosition(Vector3.new(randomPoint.X, 0, randomPoint.Z))
+		end
+	end
+	
+	-- Spawn position: random XZ from zone, Y from terrain surface + target height offset
+	local spawnPosition = Vector3.new(randomPoint.X, terrainY + 1 + 1, randomPoint.Z)  -- terrainY + SpawnHeight + Size.Y/2
+	
+	--[[print(string.format("[ReservedZoneService] Spawning photo target %d at random zone XZ (%.1f, %.1f) on terrain Y=%.1f", 
+		zoneIndex, randomPoint.X, randomPoint.Z, terrainY))]]
+	
+	-- Spawn the photo target
+	local photoTarget = PhotoTargetService:CreateTarget(spawnPosition)
+	if photoTarget then
+		photoTarget.Name = "PhotoTarget_Zone_" .. zoneIndex
+		
+		--[[print(string.format("[ReservedZoneService] Photo target %d placed at (%.1f, %.1f, %.1f)", 
+			zoneIndex, spawnPosition.X, spawnPosition.Y, spawnPosition.Z))]]
+	end
+	
+	return photoTarget
+end
+
 -- Create a single zone for AudioLog type (1x1 cell)
 -- Zone is tall to encompass terrain height variations, audio log spawns on terrain within zone XZ bounds
 local function createSingleAudioLogZone(self, cellX, cellZ, zoneIndex)
@@ -599,6 +662,154 @@ local function createMultipleAudioLogZones(self, count, LoadingService, reportPr
 	--[[print(string.format("[ReservedZoneService] ✓ Created %d AudioLog zones", zonesToCreate))]]
 end
 
+-- Create a single zone for PhotoTarget type (1x1 cell)
+-- Zone is tall to encompass terrain height variations, photo target spawns on terrain within zone XZ bounds
+local function createSinglePhotoTargetZone(self, cellX, cellZ, zoneIndex)
+	if not self._gridService then return nil end
+	
+	local zoneTypeData = ZONE_TYPES.PhotoTarget
+	local cellSize = self._gridService:GetCellSize()
+	local worldPos = self._gridService:GridToWorld(cellX, cellZ)
+	
+	-- Mark cell as occupied
+	if self._gridService.SetCellOccupied then
+		self._gridService:SetCellOccupied(cellX, cellZ, ZONE_CONFIG.OwnerId .. "_PhotoTarget_" .. zoneIndex)
+	end
+	
+	-- Get the cell data and modify the cube
+	local cellData = self._gridService:GetCell(cellX, cellZ)
+	if cellData and cellData.cube then
+		cellData.cube.Transparency = zoneTypeData.cellTransparency
+	end
+	
+	-- Make zone cube tall enough to encompass terrain height variations
+	local topY = self._gridService._gridData.topY
+	local zoneHeight = cellSize + 20  -- Extra height to encompass terrain variations
+	local centerY = topY + (zoneHeight / 2) - 5  -- Center it so it extends below and above grid level
+	
+	local cube = Instance.new("Part")
+	cube.Name = string.format("PhotoTargetZoneCube_%d", zoneIndex)
+	cube.Size = Vector3.new(cellSize, zoneHeight, cellSize)
+	cube.Position = Vector3.new(worldPos.X, centerY, worldPos.Z)
+	cube.Transparency = zoneTypeData.zoneCubeTransparency
+	cube.Color = zoneTypeData.zoneCubeColor
+	cube.CanCollide = false
+	cube.Anchored = true
+	cube.CastShadow = false
+	CollectionService:AddTag(cube, ZONE_CUBE_TAG)  -- Tag for raycast exclusion
+	cube.Parent = workspace
+	
+	-- Create Zone+ zone on the cube
+	local success, zoneInstance = pcall(function()
+		return Zone.new(cube)
+	end)
+	
+	if not success then
+		warn(string.format("[ReservedZoneService] Failed to create PhotoTarget zone %d: %s", zoneIndex, tostring(zoneInstance)))
+		cube:Destroy()
+		return nil
+	end
+	
+	-- Event handlers for the zone
+	zoneInstance.playerEntered:Connect(function(player)
+		-- Optional: Add behavior when player enters photo target zone
+	end)
+	
+	zoneInstance.playerExited:Connect(function(player)
+		-- Optional: Add behavior when player exits photo target zone
+	end)
+	
+	-- Spawn photo target at random position within the zone
+	local photoTarget = spawnPhotoTargetInZone(self, zoneInstance, cube, zoneIndex)
+	
+	return {
+		cell = {x = cellX, z = cellZ},
+		zoneCube = cube,
+		zone = zoneInstance,
+		photoTarget = photoTarget,
+		zoneIndex = zoneIndex,
+	}
+end
+
+-- Create multiple independent zones of PhotoTarget type
+local function createMultiplePhotoTargetZones(self, count, LoadingService, reportProgress)
+	if not self._gridService then
+		warn("[ReservedZoneService] GridService not available for PhotoTarget zones")
+		return
+	end
+	
+	local gridWidth, gridDepth = self._gridService:GetGridDimensions()
+	if not gridWidth or not gridDepth then
+		warn("[ReservedZoneService] Could not get grid dimensions")
+		return
+	end
+	
+	-- Initialize PhotoTarget zones storage
+	self._zones.PhotoTarget = {
+		cells = {},
+		zones = {},
+		isMultiZone = true,
+	}
+	
+	-- Build list of cells already reserved by other zones
+	local reservedCells = {}
+	for zoneType, zoneData in pairs(self._zones) do
+		if zoneType ~= "PhotoTarget" and zoneData.cells then
+			if zoneData.isMultiZone and zoneData.zones then
+				-- Handle multi-zone types (like AudioLog)
+				for _, individualZone in ipairs(zoneData.zones) do
+					if individualZone.cell then
+						reservedCells[individualZone.cell.x .. "," .. individualZone.cell.z] = true
+					end
+				end
+			else
+				-- Handle single zone types
+				for _, cell in ipairs(zoneData.cells) do
+					reservedCells[cell.x .. "," .. cell.z] = true
+				end
+			end
+		end
+	end
+	
+	-- Build list of all unreserved cells
+	local availableCells = {}
+	for x = 1, gridWidth do
+		for z = 1, gridDepth do
+			if not reservedCells[x .. "," .. z] then
+				table.insert(availableCells, {x = x, z = z})
+			end
+		end
+	end
+	
+	-- Shuffle for random distribution
+	for i = #availableCells, 2, -1 do
+		local j = math.random(1, i)
+		availableCells[i], availableCells[j] = availableCells[j], availableCells[i]
+	end
+	
+	-- Create the zones
+	local zonesToCreate = math.min(count, #availableCells)
+	
+	for i = 1, zonesToCreate do
+		local cell = availableCells[i]
+		
+		if reportProgress then
+			reportProgress(string.format("Creating PhotoTarget zone %d/%d...", i, zonesToCreate), (i / zonesToCreate) * 100)
+		end
+		
+		local zoneData = createSinglePhotoTargetZone(self, cell.x, cell.z, i)
+		
+		if zoneData then
+			table.insert(self._zones.PhotoTarget.cells, zoneData.cell)
+			table.insert(self._zones.PhotoTarget.zones, zoneData)
+		end
+		
+		task.wait(0.05)  -- Slightly faster than audio logs
+	end
+	
+	--[[print(string.format("[ReservedZoneService] ✓ Created %d PhotoTarget zones", zonesToCreate))]]
+end
+
 -- Create Building zone at the CENTER of the grid
 local function createBuildingZoneAtCenter(self, sizeX, sizeZ, LoadingService, reportProgress)
 	if not self._gridService then
@@ -743,7 +954,24 @@ local function proceedWithReservation(self, LoadingService, reportProgress)
 	
 	createMultipleAudioLogZones(self, audioLogCount, LoadingService, function(msg, progress)
 		if reportProgress then
-			reportProgress(msg, 50 + progress * 0.5)
+			reportProgress(msg, 50 + progress * 0.25)
+		end
+	end)
+	
+	-- Create photo target zones (25% of progress)
+	-- Get the photo target count from PhotoTargetService to ensure zone count matches
+	local photoTargetCount = ZONE_CONFIG.PhotoTargetZoneCount  -- Default fallback
+	local PhotoTargetService = nil
+	pcall(function()
+		PhotoTargetService = Knit.GetService("PhotoTargetService")
+	end)
+	if PhotoTargetService and PhotoTargetService.GetSpawnCount then
+		photoTargetCount = PhotoTargetService:GetSpawnCount()
+	end
+	
+	createMultiplePhotoTargetZones(self, photoTargetCount, LoadingService, function(msg, progress)
+		if reportProgress then
+			reportProgress(msg, 75 + progress * 0.25)
 		end
 	end)
 	

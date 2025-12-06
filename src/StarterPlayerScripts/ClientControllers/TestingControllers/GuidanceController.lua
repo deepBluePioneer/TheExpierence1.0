@@ -14,6 +14,7 @@ local Workspace = game:GetService("Workspace")
 
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Knit = require(Packages.Knit)
+local Promise = require(Packages.promise)
 
 local Player = Players.LocalPlayer
 
@@ -25,6 +26,7 @@ local GuidanceController = Knit.CreateController {
 	_pathFolder = nil,
 	_pathAttachments = {},
 	_beam = nil,
+	_taggedObjectsCache = {},  -- Cache for tagged objects
 }
 
 -- === CONFIG ===
@@ -88,9 +90,56 @@ local function getPlayerPosition()
 	return hrp.Position
 end
 
+-- === PROMISE HELPER FOR TAGGED OBJECTS ===
+
+-- Wait for tagged objects to replicate (with caching)
+local function waitForTaggedObjects(self, tag, minCount, timeout)
+	minCount = minCount or 1
+	timeout = timeout or 5
+	
+	-- Check cache first
+	if self._taggedObjectsCache[tag] then
+		return Promise.resolve(self._taggedObjectsCache[tag])
+	end
+	
+	-- Check if objects already exist
+	local existing = CollectionService:GetTagged(tag)
+	if #existing >= minCount then
+		self._taggedObjectsCache[tag] = existing
+		return Promise.resolve(existing)
+	end
+	
+	-- Wait for objects to be added
+	local collected = {}
+	for _, obj in ipairs(existing) do
+		table.insert(collected, obj)
+	end
+	
+	-- Create promise from the GetInstanceAddedSignal event
+	return Promise.race({
+		Promise.fromEvent(CollectionService:GetInstanceAddedSignal(tag), function(obj)
+			table.insert(collected, obj)
+			if #collected >= minCount then
+				self._taggedObjectsCache[tag] = collected
+				return true
+			end
+			return false
+		end):andThen(function()
+			return collected
+		end),
+		Promise.delay(timeout):andThen(function()
+			-- Timeout - return what we have
+			if #collected >= minCount then
+				self._taggedObjectsCache[tag] = collected
+			end
+			return collected
+		end)
+	})
+end
+
 -- Get terrain height at a world position using CollectionService tagged terrain cubes
 local function getTerrainHeightAt(worldX, worldZ)
-	local terrainCubes = CollectionService:GetTagged(GUIDANCE_CONFIG.TerrainCubeTag)
+	local terrainCubes = GuidanceController._taggedObjectsCache[GUIDANCE_CONFIG.TerrainCubeTag] or CollectionService:GetTagged(GUIDANCE_CONFIG.TerrainCubeTag)
 	
 	local closestCube = nil
 	local closestDist = math.huge
@@ -143,7 +192,7 @@ end
 -- Get all audio logs using CollectionService
 local function getAllAudioLogs()
 	local logs = {}
-	local taggedLogs = CollectionService:GetTagged(GUIDANCE_CONFIG.AudioLogTag)
+	local taggedLogs = GuidanceController._taggedObjectsCache[GUIDANCE_CONFIG.AudioLogTag] or CollectionService:GetTagged(GUIDANCE_CONFIG.AudioLogTag)
 	
 	for _, log in ipairs(taggedLogs) do
 		if log:IsA("Model") or log:IsA("BasePart") then
@@ -600,11 +649,25 @@ end
 function GuidanceController:KnitStart()
 	setupInput(self)
 	
-	-- Count available targets
-	local logs = getAllAudioLogs()
-	local terrainCubes = CollectionService:GetTagged(GUIDANCE_CONFIG.TerrainCubeTag)
-	print(string.format("[GuidanceController] Ready - Found %d audio logs, %d terrain cubes", #logs, #terrainCubes))
-	print("[GuidanceController] Press G to show guidance path")
+	-- Pre-load tagged objects in parallel (wait for them to replicate)
+	task.spawn(function()
+		Promise.all({
+			waitForTaggedObjects(self, GUIDANCE_CONFIG.TerrainCubeTag, 1, 10),
+			waitForTaggedObjects(self, GUIDANCE_CONFIG.AudioLogTag, 1, 10),
+		}):andThen(function()
+			-- Count available targets
+			local logs = getAllAudioLogs()
+			local terrainCubes = self._taggedObjectsCache[GUIDANCE_CONFIG.TerrainCubeTag] or CollectionService:GetTagged(GUIDANCE_CONFIG.TerrainCubeTag)
+			print(string.format("[GuidanceController] Ready - Found %d audio logs, %d terrain cubes", #logs, #terrainCubes))
+			print("[GuidanceController] Press G to show guidance path")
+		end):catch(function(err)
+			warn("[GuidanceController] Some tagged objects failed to load:", err)
+			-- Still try to use what we have
+			local logs = getAllAudioLogs()
+			local terrainCubes = CollectionService:GetTagged(GUIDANCE_CONFIG.TerrainCubeTag)
+			print(string.format("[GuidanceController] Ready (partial) - Found %d audio logs, %d terrain cubes", #logs, #terrainCubes))
+		end)
+	end)
 end
 
 -- === PUBLIC METHODS ===

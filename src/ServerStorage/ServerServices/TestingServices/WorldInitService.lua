@@ -12,7 +12,7 @@
 	
 	This service ensures all other services initialize in the correct sequence.
 ]]
-
+--tes
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 

@@ -12,6 +12,7 @@ local RunService = game:GetService("RunService")
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
 local Knit = require(Packages.Knit)
+local Promise = require(Packages.promise)
 local Fusion = require(CustomPackages:WaitForChild("FusionRoot"):WaitForChild("Fusion"))
 local Gizmo = require(Packages.imgizmo)
 
@@ -32,6 +33,9 @@ local PhotoTargetController = Knit.CreateController {
 	Name = "PhotoTargetController",
 	screenGui = nil,
 	worldReticle = nil, -- Container for world-space reticle parts
+	_taggedObjectsCache = {},  -- Cache for tagged objects
+	_scannedTargets = {},  -- Track which targets have been scanned to prevent duplicate signals
+	_photoTargetService = nil,  -- Cached reference to PhotoTargetService
 }
 
 -- === CONFIG ===
@@ -367,6 +371,53 @@ local function hasPhotoTargetTag(instance)
 	return false, nil
 end
 
+-- === PROMISE HELPER FOR TAGGED OBJECTS ===
+
+-- Wait for tagged objects to replicate (with caching)
+local function waitForTaggedObjects(self, tag, minCount, timeout)
+	minCount = minCount or 1
+	timeout = timeout or 5
+	
+	-- Check cache first
+	if self._taggedObjectsCache[tag] then
+		return Promise.resolve(self._taggedObjectsCache[tag])
+	end
+	
+	-- Check if objects already exist
+	local existing = CollectionService:GetTagged(tag)
+	if #existing >= minCount then
+		self._taggedObjectsCache[tag] = existing
+		return Promise.resolve(existing)
+	end
+	
+	-- Wait for objects to be added
+	local collected = {}
+	for _, obj in ipairs(existing) do
+		table.insert(collected, obj)
+	end
+	
+	-- Create promise from the GetInstanceAddedSignal event
+	return Promise.race({
+		Promise.fromEvent(CollectionService:GetInstanceAddedSignal(tag), function(obj)
+			table.insert(collected, obj)
+			if #collected >= minCount then
+				self._taggedObjectsCache[tag] = collected
+				return true
+			end
+			return false
+		end):andThen(function()
+			return collected
+		end),
+		Promise.delay(timeout):andThen(function()
+			-- Timeout - return what we have
+			if #collected >= minCount then
+				self._taggedObjectsCache[tag] = collected
+			end
+			return collected
+		end)
+	})
+end
+
 -- === RAYCAST ===
 
 local function performRaycast()
@@ -393,20 +444,20 @@ local function performRaycast()
 		end
 	end
 	
-	-- Exclude grid cubes by tag
-	local gridCubes = CollectionService:GetTagged(GRID_CUBE_TAG)
+	-- Exclude grid cubes by tag (use cached or wait for replication)
+	local gridCubes = PhotoTargetController._taggedObjectsCache[GRID_CUBE_TAG] or CollectionService:GetTagged(GRID_CUBE_TAG)
 	for _, cube in ipairs(gridCubes) do
 		table.insert(excludeList, cube)
 	end
 	
 	-- Exclude reserved zone cubes by tag
-	local zoneCubes = CollectionService:GetTagged("reservedZoneCube")
+	local zoneCubes = PhotoTargetController._taggedObjectsCache["reservedZoneCube"] or CollectionService:GetTagged("reservedZoneCube")
 	for _, cube in ipairs(zoneCubes) do
 		table.insert(excludeList, cube)
 	end
 	
 	-- Exclude particle groups
-	local particleGroups = CollectionService:GetTagged(PARTICLE_GROUP_TAG)
+	local particleGroups = PhotoTargetController._taggedObjectsCache[PARTICLE_GROUP_TAG] or CollectionService:GetTagged(PARTICLE_GROUP_TAG)
 	for _, part in ipairs(particleGroups) do
 		table.insert(excludeList, part)
 	end
@@ -837,7 +888,7 @@ end
 
 -- === TARGET DETECTION ===
 
-local function checkPhotoTargetInView(deltaTime)
+local function checkPhotoTargetInView(self, deltaTime)
 	local raycastResult, unitRay = performRaycast()
 	
 	-- Debug visualization
@@ -871,6 +922,12 @@ local function checkPhotoTargetInView(deltaTime)
 			gazeProgress:set(0)
 			isCaptured:set(false)
 			currentTargetInstance = hitTargetInstance
+			
+			-- If this target was already scanned, mark it as captured immediately
+			if self._scannedTargets[hitTargetInstance] then
+				isCaptured:set(true)
+				gazeProgress:set(1)
+			end
 		end
 		
 		-- Update target name
@@ -900,6 +957,24 @@ local function checkPhotoTargetInView(deltaTime)
 			-- Check if just captured
 			if newProgress >= 1 and not isCaptured:get() then
 				isCaptured:set(true)
+				
+				-- Fire signal to server that this target has been scanned
+				if hitTargetInstance and not self._scannedTargets[hitTargetInstance] then
+					-- Mark as scanned to prevent duplicate signals
+					self._scannedTargets[hitTargetInstance] = true
+					
+					-- Get PhotoTargetService and fire the signal
+					if not self._photoTargetService then
+						self._photoTargetService = Knit.GetService("PhotoTargetService")
+					end
+					
+					if self._photoTargetService and self._photoTargetService.PhotoTargetScanned then
+						self._photoTargetService.PhotoTargetScanned:Fire(hitTargetInstance)
+						--[[print(string.format("[PhotoTargetController] Fired scan signal for target: %s", hitTargetInstance.Name))]]
+					else
+						warn("[PhotoTargetController] PhotoTargetService or PhotoTargetScanned signal not found")
+					end
+				end
 			end
 		end
 		
@@ -958,6 +1033,22 @@ end
 function PhotoTargetController:KnitStart()
 	createTargetUI(self)
 	
+	-- Get PhotoTargetService reference
+	self._photoTargetService = Knit.GetService("PhotoTargetService")
+	
+	-- Pre-load tagged objects in parallel (wait for them to replicate)
+	task.spawn(function()
+		Promise.all({
+			waitForTaggedObjects(self, GRID_CUBE_TAG, 1, 10),
+			waitForTaggedObjects(self, "reservedZoneCube", 1, 10),
+			waitForTaggedObjects(self, PARTICLE_GROUP_TAG, 1, 10),
+		}):andThen(function()
+			print("[PhotoTargetController] Tagged objects loaded and cached")
+		end):catch(function(err)
+			warn("[PhotoTargetController] Some tagged objects failed to load:", err)
+		end)
+	end)
+	
 	-- Initialize gizmo
 	if TARGET_CONFIG.DebugGizmosEnabled then
 		initGizmo()
@@ -983,7 +1074,7 @@ function PhotoTargetController:KnitStart()
 			Gizmo.ScheduleCleaning()
 		end
 		
-		checkPhotoTargetInView(deltaTime)
+		checkPhotoTargetInView(self, deltaTime)
 	end)
 	
 	print("[PhotoTargetController] Initialized with debug gizmos on click")

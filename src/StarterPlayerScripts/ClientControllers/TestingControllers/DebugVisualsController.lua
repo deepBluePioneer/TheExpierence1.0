@@ -48,7 +48,11 @@ end
 --=============================================
 
 function DebugVisualsController:InitializeIris()
-	-- Get controller references
+	-- DISABLED: Iris windows disabled
+	-- Disable Iris completely
+	Iris.Disabled = true
+	
+	-- Get controller references (keep these for potential future use)
 	OctoEntityController = Knit.GetController("OctoEntityController")
 	SplinePathController = Knit.GetController("SplinePathController")
 	PhotoTargetController = Knit.GetController("PhotoTargetController")
@@ -59,14 +63,14 @@ function DebugVisualsController:InitializeIris()
 	end)
 	
 	-- Initialize states from actual controller configs
-	self:InitializeStatesFromControllers()
+	-- self:InitializeStatesFromControllers()
 	
 	-- Connect UI drawing
-	Iris:Connect(function()
-		self:DrawDebugVisualsWindow()
-	end)
+	-- Iris:Connect(function()
+	-- 	self:DrawDebugVisualsWindow()
+	-- end)
 	
-	log("Iris initialized - controlling debug visuals")
+	log("Iris GUI disabled - debug visuals panel not available")
 end
 
 function DebugVisualsController:InitializeStatesFromControllers()
