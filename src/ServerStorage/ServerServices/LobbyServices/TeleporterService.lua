@@ -25,7 +25,7 @@ local IS_STUDIO = RunService:IsStudio()
 
 -- Place IDs
 local LOBBY_PLACE_ID = 116406282300852
-local MAIN_PLACE_ID = 93295390305658
+local MAIN_PLACE_ID = 111394067928168
 
 -- Configuration
 local CONFIG = {

@@ -198,6 +198,37 @@ local function getRandomSpawnPosition()
 	)
 end
 
+-- OPTIMIZED: Cache raycast params (rebuilt only when needed, not per-drop)
+local cachedRayParams = nil
+local rayParamsNeedsRebuild = true
+
+local function rebuildRaycastParams(self)
+	cachedRayParams = RaycastParams.new()
+	cachedRayParams.FilterType = Enum.RaycastFilterType.Exclude
+	
+	-- Build exclude list ONCE
+	local excludeList = {getRainFolder(), Player.Character}
+	
+	-- Use cached tagged objects
+	local gridCubes = self._taggedObjectsCache["gridCube"] or {}
+	local zoneCubes = self._taggedObjectsCache["reservedZoneCube"] or {}
+	local particleGroups = self._taggedObjectsCache["particleGroup"] or {}
+	
+	for _, cube in ipairs(gridCubes) do table.insert(excludeList, cube) end
+	for _, cube in ipairs(zoneCubes) do table.insert(excludeList, cube) end
+	for _, part in ipairs(particleGroups) do table.insert(excludeList, part) end
+	
+	-- Static folders
+	local debugFolder = Workspace:FindFirstChild("ExclusionZoneDebug")
+	if debugFolder then table.insert(excludeList, debugFolder) end
+	
+	local redZonesFolder = Workspace:FindFirstChild("RedZones")
+	if redZonesFolder then table.insert(excludeList, redZonesFolder) end
+	
+	cachedRayParams.FilterDescendantsInstances = excludeList
+	rayParamsNeedsRebuild = false
+end
+
 local function spawnRaindrop(self)
 	if #self.activeDrops >= RAIN_CONFIG.MaxDrops then
 		return
@@ -208,46 +239,12 @@ local function spawnRaindrop(self)
 	
 	local spawnPos = getRandomSpawnPosition()
 	
-	-- Raycast down to find ground
-	local rayParams = RaycastParams.new()
-	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	
-	-- Exclude rain effects, player, grid cells, and particle groups from raycast
-	local excludeList = {getRainFolder(), Player.Character}
-	
-	-- Exclude grid cubes by tag (use cached or wait for replication)
-	local gridCubes = self._taggedObjectsCache["gridCube"] or CollectionService:GetTagged("gridCube")
-	for _, cube in ipairs(gridCubes) do
-		table.insert(excludeList, cube)
+	-- OPTIMIZED: Use cached ray params (rebuild only when flagged)
+	if rayParamsNeedsRebuild or not cachedRayParams then
+		rebuildRaycastParams(self)
 	end
 	
-	-- Exclude reserved zone cubes by tag
-	local zoneCubes = self._taggedObjectsCache["reservedZoneCube"] or CollectionService:GetTagged("reservedZoneCube")
-	for _, cube in ipairs(zoneCubes) do
-		table.insert(excludeList, cube)
-	end
-	
-	-- Exclude all particle group anchors
-	local particleGroups = self._taggedObjectsCache["particleGroup"] or CollectionService:GetTagged("particleGroup")
-	for _, part in ipairs(particleGroups) do
-		table.insert(excludeList, part)
-	end
-	
-	-- Exclude debug visualization
-	local debugFolder = Workspace:FindFirstChild("ExclusionZoneDebug")
-	if debugFolder then
-		table.insert(excludeList, debugFolder)
-	end
-	
-	-- Exclude red zones
-	local redZonesFolder = Workspace:FindFirstChild("RedZones")
-	if redZonesFolder then
-		table.insert(excludeList, redZonesFolder)
-	end
-	
-	rayParams.FilterDescendantsInstances = excludeList
-	
-	local rayResult = Workspace:Raycast(spawnPos, Vector3.new(0, -200, 0), rayParams)
+	local rayResult = Workspace:Raycast(spawnPos, Vector3.new(0, -200, 0), cachedRayParams)
 	local groundY = rayResult and rayResult.Position.Y or (spawnPos.Y - 100)
 	local groundNormal = rayResult and rayResult.Normal or Vector3.yAxis
 	local hitInstance = rayResult and rayResult.Instance or nil
@@ -266,7 +263,7 @@ local function spawnRaindrop(self)
 	})
 end
 
--- === SPLASH EFFECT ===
+-- === SPLASH EFFECT (OPTIMIZED: Uses TweenService instead of polling loop) ===
 
 local function createSplash(self, position, normal)
 	local splash = self.splashCache:GetPart()
@@ -278,30 +275,29 @@ local function createSplash(self, position, normal)
 	splash.CFrame = cf
 	splash.Color = RAIN_CONFIG.SplashColor
 	
-	-- Start size (bigger initial size)
+	-- Start size
 	local startSize = RAIN_CONFIG.SplashSize * 0.4
 	splash.Size = Vector3.new(0.1, startSize, startSize)
 	splash.Transparency = RAIN_CONFIG.SplashTransparency
 	
-	-- Animate splash (expand and fade)
-	task.spawn(function()
-		local startTime = tick()
-		local duration = RAIN_CONFIG.SplashDuration
-		local startTransparency = RAIN_CONFIG.SplashTransparency
-		
-		while tick() - startTime < duration do
-			local progress = (tick() - startTime) / duration
-			-- Expand quickly at first, then slow down
-			local easeProgress = 1 - (1 - progress) ^ 2
-			local size = RAIN_CONFIG.SplashSize * (0.4 + easeProgress * 0.6)
-			splash.Size = Vector3.new(0.1, size, size)
-			-- Fade out gradually
-			splash.Transparency = startTransparency + (1 - startTransparency) * progress
-			task.wait()
-		end
-		
+	-- OPTIMIZED: Use TweenService instead of manual loop
+	local tweenInfo = TweenInfo.new(
+		RAIN_CONFIG.SplashDuration,
+		Enum.EasingStyle.Quad,
+		Enum.EasingDirection.Out
+	)
+	
+	local endSize = RAIN_CONFIG.SplashSize
+	local tween = TweenService:Create(splash, tweenInfo, {
+		Size = Vector3.new(0.1, endSize, endSize),
+		Transparency = 1
+	})
+	
+	tween.Completed:Once(function()
 		self.splashCache:ReturnPart(splash)
 	end)
+	
+	tween:Play()
 end
 
 -- === LIGHTNING BOLT EFFECT ===
@@ -417,6 +413,7 @@ local function storeLightingValues()
 	originalLighting.OutdoorAmbient = Lighting.OutdoorAmbient
 end
 
+-- OPTIMIZED: Uses TweenService instead of step-based loop
 local function flashLighting()
 	if not LIGHTNING_CONFIG.LightingFlashEnabled then return end
 	
@@ -425,32 +422,28 @@ local function flashLighting()
 		storeLightingValues()
 	end
 	
-	-- Flash ON
+	-- Flash ON (instant)
 	Lighting.Brightness = LIGHTNING_CONFIG.FlashBrightness
 	Lighting.Ambient = LIGHTNING_CONFIG.FlashAmbient
 	Lighting.OutdoorAmbient = LIGHTNING_CONFIG.FlashAmbient
 	
-	-- Fade back to original
-	task.spawn(function()
-		local fadeSteps = 10
-		local fadeStepTime = LIGHTNING_CONFIG.FlashFadeTime / fadeSteps
-		
-		for step = 1, fadeSteps do
-			local progress = step / fadeSteps
-			-- Lerp back to original
-			Lighting.Brightness = LIGHTNING_CONFIG.FlashBrightness + (originalLighting.Brightness - LIGHTNING_CONFIG.FlashBrightness) * progress
-			Lighting.Ambient = originalLighting.Ambient:Lerp(LIGHTNING_CONFIG.FlashAmbient, 1 - progress)
-			Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient:Lerp(LIGHTNING_CONFIG.FlashAmbient, 1 - progress)
-			task.wait(fadeStepTime)
-		end
-		
-		-- Ensure we're back to original
-		Lighting.Brightness = originalLighting.Brightness
-		Lighting.Ambient = originalLighting.Ambient
-		Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient
-	end)
+	-- OPTIMIZED: Fade back using TweenService
+	local tweenInfo = TweenInfo.new(
+		LIGHTNING_CONFIG.FlashFadeTime,
+		Enum.EasingStyle.Quad,
+		Enum.EasingDirection.Out
+	)
+	
+	local tween = TweenService:Create(Lighting, tweenInfo, {
+		Brightness = originalLighting.Brightness,
+		Ambient = originalLighting.Ambient,
+		OutdoorAmbient = originalLighting.OutdoorAmbient
+	})
+	
+	tween:Play()
 end
 
+-- OPTIMIZED: Uses TweenService for fade-out instead of step-based loop
 local function animateLightningBolt(allSegments, folder)
 	-- Create all parts
 	for _, segData in ipairs(allSegments) do
@@ -469,7 +462,8 @@ local function animateLightningBolt(allSegments, folder)
 		-- Flash lighting when bolt starts
 		flashLighting()
 		
-		for i, segData in ipairs(allSegments) do
+		-- Reveal segments (fast, so minimal impact)
+		for _, segData in ipairs(allSegments) do
 			if segData.part then
 				segData.part.Transparency = 0
 			end
@@ -479,26 +473,30 @@ local function animateLightningBolt(allSegments, folder)
 		-- All segments visible - linger
 		task.wait(LIGHTNING_CONFIG.LingerTime)
 		
-		-- Fade out all at once
-		local fadeSteps = 8
-		local fadeStepTime = LIGHTNING_CONFIG.FadeOutTime / fadeSteps
+		-- OPTIMIZED: Fade out using TweenService (all parts at once)
+		local tweenInfo = TweenInfo.new(
+			LIGHTNING_CONFIG.FadeOutTime,
+			Enum.EasingStyle.Quad,
+			Enum.EasingDirection.Out
+		)
 		
-		for step = 1, fadeSteps do
-			local transparency = step / fadeSteps
-			for _, segData in ipairs(allSegments) do
-				if segData.part then
-					segData.part.Transparency = transparency
-				end
-			end
-			task.wait(fadeStepTime)
-		end
-		
-		-- Cleanup
+		local tweens = {}
 		for _, segData in ipairs(allSegments) do
 			if segData.part then
-				segData.part:Destroy()
+				local tween = TweenService:Create(segData.part, tweenInfo, {Transparency = 1})
+				tween:Play()
+				table.insert(tweens, tween)
 			end
 		end
+		
+		-- Wait for fade to complete then cleanup
+		task.delay(LIGHTNING_CONFIG.FadeOutTime + 0.1, function()
+			for _, segData in ipairs(allSegments) do
+				if segData.part then
+					segData.part:Destroy()
+				end
+			end
+		end)
 	end)
 end
 
@@ -583,30 +581,32 @@ local function initLightning(self)
 	end)
 end
 
-local function startLightningLoop(self)
-	print("[RainController] Lightning loop STARTED")
-	task.spawn(function()
-		while true do
-			-- Random interval between lightning strikes
-			local interval = math.random(
-				LIGHTNING_CONFIG.MinInterval * 10,
-				LIGHTNING_CONFIG.MaxInterval * 10
-			) / 10
-			
-			task.wait(interval)
-			
-			if self.isRaining and self.lightningEnabled then
-				print("[RainController] LIGHTNING STRIKE!")
-				spawnLightningBolt(self)
-			else
-				-- Log every 10 seconds why lightning isn't firing
-				if math.random() < 0.1 then
-					print(string.format("[RainController] Lightning check - isRaining: %s, lightningEnabled: %s", 
-						tostring(self.isRaining), tostring(self.lightningEnabled)))
-				end
-			end
+-- OPTIMIZED: Event-driven lightning instead of constant polling loop
+-- Lightning loop only runs when both rain AND lightning are enabled
+local function scheduleLightningStrike(self)
+	if not self.isRaining or not self.lightningEnabled then
+		return  -- Don't schedule if conditions aren't met
+	end
+	
+	-- Random interval between lightning strikes
+	local interval = math.random(
+		LIGHTNING_CONFIG.MinInterval * 10,
+		LIGHTNING_CONFIG.MaxInterval * 10
+	) / 10
+	
+	task.delay(interval, function()
+		-- Check conditions again when delay completes
+		if self.isRaining and self.lightningEnabled then
+			spawnLightningBolt(self)
+			-- Schedule next strike
+			scheduleLightningStrike(self)
 		end
 	end)
+end
+
+local function startLightningLoop(self)
+	-- Lightning is now event-driven - starts when conditions are met
+	-- Initial check happens in KnitStart after state is set
 end
 
 -- === UPDATE LOOP ===
@@ -640,34 +640,20 @@ local function updateRain(self, deltaTime)
 	end
 end
 
--- === SPAWN LOOP ===
+-- === SPAWN LOOP (OPTIMIZED: Removed polling/logging overhead) ===
 
 local function startSpawnLoop(self)
 	local spawnInterval = 1 / RAIN_CONFIG.SpawnRate
 	local accumulator = 0
-	local logTimer = 0
-	local dropsSpawned = 0
-	
-	print("[RainController] Rain spawn loop STARTED")
 	
 	RunService.RenderStepped:Connect(function(deltaTime)
-		logTimer = logTimer + deltaTime
-		
-		-- Log status every 5 seconds
-		if logTimer >= 5 then
-			print(string.format("[RainController] Rain status - isRaining: %s, drops spawned: %d", 
-				tostring(self.isRaining), dropsSpawned))
-			logTimer = 0
-			dropsSpawned = 0
-		end
-		
+		-- Early exit if not raining (no overhead)
 		if not self.isRaining then return end
 		
-		-- Spawn new drops
+		-- Spawn new drops based on accumulated time
 		accumulator = accumulator + deltaTime
 		while accumulator >= spawnInterval do
 			spawnRaindrop(self)
-			dropsSpawned = dropsSpawned + 1
 			accumulator = accumulator - spawnInterval
 		end
 		
@@ -679,35 +665,23 @@ end
 -- === PUBLIC METHODS ===
 
 function RainController:StartRain()
-	self.isRaining = true
-	print("[RainController] Rain started")
+	self:SetRainEnabled(true)
 end
 
 function RainController:StopRain()
-	self.isRaining = false
-	
-	-- Return all active drops
-	for _, dropData in ipairs(self.activeDrops) do
-		self.rainCache:ReturnPart(dropData.part)
-	end
-	self.activeDrops = {}
-	
-	print("[RainController] Rain stopped")
+	self:SetRainEnabled(false)
 end
 
 function RainController:SetIntensity(dropsPerSecond)
 	RAIN_CONFIG.SpawnRate = math.clamp(dropsPerSecond, 1, 200)
-	print("[RainController] Intensity set to", dropsPerSecond)
 end
 
 function RainController:EnableLightning()
-	self.lightningEnabled = true
-	print("[RainController] Lightning enabled")
+	self:SetLightningEnabled(true)
 end
 
 function RainController:DisableLightning()
-	self.lightningEnabled = false
-	print("[RainController] Lightning disabled")
+	self:SetLightningEnabled(false)
 end
 
 function RainController:TriggerLightning()
@@ -725,38 +699,35 @@ function RainController:KnitInit()
 	
 	self.rainCache = PartCache.new(rainTemplate, RAIN_CONFIG.MaxDrops, folder)
 	self.splashCache = PartCache.new(splashTemplate, RAIN_CONFIG.MaxSplashes, folder)
-	
-	print("[RainController] PartCache initialized with", RAIN_CONFIG.MaxDrops, "drops")
 end
 
 function RainController:SetRainEnabled(enabled)
 	local wasRaining = self.isRaining
 	self.isRaining = enabled
-	print(string.format("[RainController] *** RAIN %s *** (was: %s, now: %s)", 
-		enabled and "ENABLED" or "DISABLED",
-		tostring(wasRaining),
-		tostring(enabled)))
 	
 	-- Clean up rain drops when rain stops
 	if not enabled and wasRaining then
-		print("[RainController] Cleaning up rain drops...")
 		for _, dropData in ipairs(self.activeDrops) do
 			if self.rainCache then
 				self.rainCache:ReturnPart(dropData.part)
 			end
 		end
 		self.activeDrops = {}
-		print(string.format("[RainController] Cleaned up all rain drops"))
+	end
+	
+	-- OPTIMIZED: Start lightning loop if conditions now met
+	if enabled and self.lightningEnabled then
+		scheduleLightningStrike(self)
 	end
 end
 
 function RainController:SetLightningEnabled(enabled)
-	local wasEnabled = self.lightningEnabled
 	self.lightningEnabled = enabled
-	print(string.format("[RainController] *** LIGHTNING %s *** (was: %s, now: %s)", 
-		enabled and "ENABLED" or "DISABLED",
-		tostring(wasEnabled),
-		tostring(enabled)))
+	
+	-- OPTIMIZED: Start lightning loop if conditions now met
+	if enabled and self.isRaining then
+		scheduleLightningStrike(self)
+	end
 end
 
 function RainController:KnitStart()
@@ -772,39 +743,37 @@ function RainController:KnitStart()
 			waitForTaggedObjects(self, "reservedZoneCube", 1, 10),
 			waitForTaggedObjects(self, "particleGroup", 1, 10),
 		}):andThen(function()
-			print("[RainController] Tagged objects loaded and cached")
-		end):catch(function(err)
-			warn("[RainController] Some tagged objects failed to load:", err)
-		end)
+			-- OPTIMIZED: Rebuild raycast params after tags are loaded
+			rayParamsNeedsRebuild = true
+		end):catch(function() end)
 	end)
 	
-	-- Initialize systems (but don't enable yet)
+	-- Rebuild raycast params when character respawns
+	Player.CharacterAdded:Connect(function()
+		rayParamsNeedsRebuild = true
+	end)
+	
+	-- Initialize systems
 	startSpawnLoop(self)
 	initLightning(self)
-	startLightningLoop(self)
 	
-	-- Get WeatherService
-	print("[RainController] Getting WeatherService...")
+	-- Get WeatherService and initial state
 	self._weatherService = Knit.GetService("WeatherService")
-	print("[RainController] WeatherService obtained!")
 	
-	-- Get initial IsNight state from server
-	print("[RainController] Requesting initial IsNight state...")
-	local isNight = self._weatherService:GetIsNight()
-	print(string.format("[RainController] Initial IsNight from server: %s", tostring(isNight)))
+	local rainEnabled = self._weatherService:GetRainEnabled()
+	local lightningEnabled = self._weatherService:GetLightningEnabled()
 	
-	self:SetRainEnabled(isNight)
-	self:SetLightningEnabled(isNight)
+	self:SetRainEnabled(rainEnabled)
+	self:SetLightningEnabled(lightningEnabled)
 	
-	-- Listen for IsNight changes via signal
-	print("[RainController] Connecting to IsNightChanged signal...")
-	self._weatherService.IsNightChanged:Connect(function(newIsNight)
-		print(string.format("[RainController] *** IsNightChanged SIGNAL RECEIVED: %s ***", tostring(newIsNight)))
-		self:SetRainEnabled(newIsNight)
-		self:SetLightningEnabled(newIsNight)
+	-- Listen for rain/lightning state changes (event-driven, no polling)
+	self._weatherService.RainEnabledChanged:Connect(function(enabled)
+		self:SetRainEnabled(enabled)
 	end)
 	
-	print("[RainController] Rain and lightning system initialized")
+	self._weatherService.LightningEnabledChanged:Connect(function(enabled)
+		self:SetLightningEnabled(enabled)
+	end)
 end
 
 return RainController

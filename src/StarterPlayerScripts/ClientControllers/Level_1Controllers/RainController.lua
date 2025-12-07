@@ -726,23 +726,31 @@ function RainController:KnitStart()
 	self._weatherService = Knit.GetService("WeatherService")
 	print("[RainController] WeatherService obtained!")
 	
-	-- Get initial IsNight state from server
-	print("[RainController] Requesting initial IsNight state...")
-	local isNight = self._weatherService:GetIsNight()
-	print(string.format("[RainController] Initial IsNight from server: %s", tostring(isNight)))
+	-- Get initial rain/lightning state from server (independent of day/night)
+	print("[RainController] Requesting initial rain/lightning state...")
+	local rainEnabled = self._weatherService:GetRainEnabled()
+	local lightningEnabled = self._weatherService:GetLightningEnabled()
+	print(string.format("[RainController] Initial state - Rain: %s, Lightning: %s", 
+		tostring(rainEnabled), tostring(lightningEnabled)))
 	
-	self:SetRainEnabled(isNight)
-	self:SetLightningEnabled(isNight)
+	self:SetRainEnabled(rainEnabled)
+	self:SetLightningEnabled(lightningEnabled)
 	
-	-- Listen for IsNight changes via signal
-	print("[RainController] Connecting to IsNightChanged signal...")
-	self._weatherService.IsNightChanged:Connect(function(newIsNight)
-		print(string.format("[RainController] *** IsNightChanged SIGNAL RECEIVED: %s ***", tostring(newIsNight)))
-		self:SetRainEnabled(newIsNight)
-		self:SetLightningEnabled(newIsNight)
+	-- Listen for independent rain state changes (from WeatherService.RandomizeLighting)
+	print("[RainController] Connecting to RainEnabledChanged signal...")
+	self._weatherService.RainEnabledChanged:Connect(function(enabled)
+		print(string.format("[RainController] *** RainEnabledChanged SIGNAL RECEIVED: %s ***", tostring(enabled)))
+		self:SetRainEnabled(enabled)
 	end)
 	
-	print("[RainController] Rain and lightning system initialized")
+	-- Listen for independent lightning state changes
+	print("[RainController] Connecting to LightningEnabledChanged signal...")
+	self._weatherService.LightningEnabledChanged:Connect(function(enabled)
+		print(string.format("[RainController] *** LightningEnabledChanged SIGNAL RECEIVED: %s ***", tostring(enabled)))
+		self:SetLightningEnabled(enabled)
+	end)
+	
+	print("[RainController] Rain and lightning system initialized (independent control)")
 end
 
 return RainController

@@ -36,7 +36,7 @@ local FogOfWarController = Knit.CreateController {
 -- === CONFIGURATION ===
 local FOG_CONFIG = {
 	-- General
-	Enabled = true,
+	Enabled = false,                 -- DISABLED: Fog of war system disabled
 	DebugMode = false,              -- Show debug visuals for cells
 	
 	-- Vision/Reveal settings
@@ -60,20 +60,20 @@ local FOG_CONFIG = {
 	FogEnd = 110,                   -- Where fog becomes solid (will be set dynamically)
 	
 	-- Atmosphere settings
-	UseAtmosphere = true,
+	UseAtmosphere = false,           -- DISABLED: Don't create fog atmosphere
 	AtmosphereDensity = 0.4,
 	AtmosphereColor = Color3.fromRGB(25, 30, 40),
 	AtmosphereOffset = 0.25,
 	
-	-- Fog wall (3D fog planes in the world)
-	UseFogWall = true,
+	-- Fog wall (3D fog planes in the world) - DISABLED: No particle cloud
+	UseFogWall = false,              -- DISABLED: No 3D fog wall with particles
 	FogWallSegments = 24,           -- Number of fog wall segments around player
 	FogWallHeight = 100,            -- Height of fog wall
 	FogWallWidth = 30,              -- Width of each fog segment
 	FogWallTransparency = 0.3,      -- Base transparency of fog wall
 	
 	-- Object culling
-	CullUnrevealed = true,          -- Hide objects in unrevealed areas
+	CullUnrevealed = false,          -- DISABLED: Don't hide objects
 	CullDistance = 130,             -- Distance beyond which unrevealed objects are fully hidden
 	CullTags = {                    -- Tags for objects to cull
 		"FogCullable",

@@ -1006,15 +1006,19 @@ local function generateTrees(self)
 	reportProgress(15, 100, "Growing trees")
 	
 	local totalTrees = #positions
-	local batchSize = 15 -- Create more trees per batch for better performance
+	local batchSize = 30  -- OPTIMIZED: Larger batches for faster regeneration
+	local frameStartTime = tick()
+	local maxFrameTime = 0.008  -- Target ~8ms per frame
 	
 	for i, pos in ipairs(positions) do
 		local tree = createTree(pos, folder)
 		table.insert(self.trees, tree)
 		
-		if i % batchSize == 0 then
+		-- OPTIMIZED: Time-based yielding
+		if i % batchSize == 0 or (tick() - frameStartTime) > maxFrameTime then
 			local treeProgress = 15 + (i / totalTrees) * 80
 			reportProgress(math.floor(treeProgress), 100, string.format("Growing trees (%d/%d)", i, totalTrees))
+			frameStartTime = tick()
 			task.wait()
 		end
 	end
@@ -1113,15 +1117,19 @@ function TreeService:GenerateTreesWithBaseplates(baseplateInfo)
 	reportProgress(15, 100, "Growing trees")
 	
 	local totalTrees = #positions
-	local batchSize = 15
+	local batchSize = 30  -- OPTIMIZED: Larger batches
+	local frameStartTime = tick()
+	local maxFrameTime = 0.008  -- Target ~8ms per frame
 	
 	for i, pos in ipairs(positions) do
 		local tree = createTree(pos, folder)
 		table.insert(self.trees, tree)
 		
-		if i % batchSize == 0 then
+		-- OPTIMIZED: Time-based yielding
+		if i % batchSize == 0 or (tick() - frameStartTime) > maxFrameTime then
 			local treeProgress = 15 + (i / totalTrees) * 80
 			reportProgress(math.floor(treeProgress), 100, string.format("Growing trees (%d/%d)", i, totalTrees))
+			frameStartTime = tick()
 			task.wait()
 		end
 	end

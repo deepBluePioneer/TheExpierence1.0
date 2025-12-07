@@ -34,6 +34,9 @@ local StreamingCullingController = Knit.CreateController {
 
 -- === CONFIGURATION ===
 local CULLING_CONFIG = {
+	-- DISABLED: Entire streaming culling system disabled
+	Enabled = false,
+	
 	-- Core distances (will be overridden by fog settings if available)
 	MinRadius = 32,             -- Minimum distance - always fully visible (reduced for tighter culling)
 	TargetRadius = 180,         -- Maximum distance - fully culled beyond this (tighter default)
@@ -548,6 +551,11 @@ function StreamingCullingController:KnitInit()
 end
 
 function StreamingCullingController:KnitStart()
+	-- Early exit if disabled
+	if not CULLING_CONFIG.Enabled then
+		return
+	end
+	
 	-- Initial sync with fog
 	syncWithFog()
 	

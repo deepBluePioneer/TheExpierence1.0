@@ -53,10 +53,12 @@ local CONFIG = {
 	DetailNoiseAmplitude = 1.5,    -- Amplitude for detail bumps
 	
 	-- === SUBDIVISION SETTINGS ===
-	SubdivisionEnabled = true,     -- Enable cell subdivision for more detailed terrain
-	MinSubdivisions = 2,           -- Minimum subdivisions per cell (2 = 2x2 = 4 sub-cubes)
-	MaxSubdivisions = 4,           -- Maximum subdivisions per cell (4 = 4x4 = 16 sub-cubes)
-	SubdivisionRandomness = true,  -- Randomize subdivision count per cell
+	-- OPTIMIZED: Disabled subdivision for better performance
+	-- With 20x20 grid: disabled = 400 cubes, enabled (2-4) = 1,600-6,400 cubes
+	SubdivisionEnabled = false,    -- DISABLED: One cube per grid cell (much faster)
+	MinSubdivisions = 1,           -- Minimum subdivisions per cell (1 = 1x1 = 1 cube)
+	MaxSubdivisions = 1,           -- Maximum subdivisions per cell (1 = no subdivision)
+	SubdivisionRandomness = false, -- No randomization needed when disabled
 	SubHeightVariation = 1.5,      -- Additional height variation within subdivided cells
 	
 	-- Cube appearance
@@ -385,8 +387,10 @@ function CubeTerrainService:GenerateTerrain(gridWidth, gridDepth, cubeSize, cent
 	local totalCells = gridWidth * gridDepth
 	local totalCubesCreated = 0
 	local cellsProcessed = 0
-	local batchSize = 10  -- Lower batch size since each cell creates multiple cubes
+	local batchSize = 40  -- OPTIMIZED: Larger batches for faster generation
 	local batchCount = 0
+	local frameStartTime = tick()
+	local maxFrameTime = 0.008  -- Target ~8ms per frame to maintain 60fps
 	
 	-- Create terrain cubes for each grid cell
 	for x = 1, gridWidth do
@@ -397,9 +401,10 @@ function CubeTerrainService:GenerateTerrain(gridWidth, gridDepth, cubeSize, cent
 			cellsProcessed += 1
 			batchCount += 1
 			
-			-- Yield periodically to prevent lag
-			if batchCount >= batchSize then
+			-- OPTIMIZED: Time-based yielding for smoother performance
+			if batchCount >= batchSize or (tick() - frameStartTime) > maxFrameTime then
 				batchCount = 0
+				frameStartTime = tick()
 				task.wait()
 			end
 		end
@@ -624,7 +629,8 @@ end
 
 -- Flatten terrain cubes within a zone
 -- zonePart: the Part representing the zone bounds
-function CubeTerrainService:FlattenAreaInZone(zonePart, targetHeight)
+-- zoneType: optional - "Building" will apply metallic material
+function CubeTerrainService:FlattenAreaInZone(zonePart, targetHeight, zoneType)
 	if not zonePart then
 		warn("[CubeTerrainService] No zone part provided for flattening")
 		return 0
@@ -648,6 +654,11 @@ function CubeTerrainService:FlattenAreaInZone(zonePart, targetHeight)
 	local halfX = zoneSize.X / 2
 	local halfZ = zoneSize.Z / 2
 	
+	-- Building zone gets metallic floor appearance
+	local isBuilding = zoneType == "Building"
+	local buildingMaterial = Enum.Material.Metal
+	local buildingColor = Color3.fromRGB(85, 85, 95)  -- Dark metallic gray
+	
 	-- Iterate through ALL terrain cubes
 	for key, cube in pairs(self._terrainCubes) do
 		local cubePos = cube.Position
@@ -657,6 +668,12 @@ function CubeTerrainService:FlattenAreaInZone(zonePart, targetHeight)
 		   cubePos.Z >= (zonePos.Z - halfZ) and cubePos.Z <= (zonePos.Z + halfZ) then
 			-- Flatten this cube
 			cube.Position = Vector3.new(cubePos.X, flatY, cubePos.Z)
+			
+			-- Apply metallic material for Building zone
+			if isBuilding then
+				cube.Material = buildingMaterial
+				cube.Color = buildingColor
+			end
 			
 			-- Update height map
 			self._heightMap[key] = 0
@@ -771,6 +788,110 @@ function CubeTerrainService:ModifyAreaHeight(centerX, centerZ, radiusCells, heig
 	end
 	
 	return modifiedCount
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║                   RESHUFFLE TERRAIN (OPTIMIZED - NO RECREATE)               ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- OPTIMIZED: Reshuffle existing terrain cubes outside a protected zone
+-- Instead of destroying and recreating cubes, just update their heights and colors
+-- This is MUCH faster than the old clear + regenerate approach
+function CubeTerrainService:ReshuffleTerrainOutsideZone(protectedZonePart, baseY)
+	if not protectedZonePart then
+		warn("[CubeTerrainService] No protected zone part provided")
+		return 0
+	end
+	
+	local startTime = tick()
+	
+	local zonePos = protectedZonePart.Position
+	local zoneSize = protectedZonePart.Size
+	local halfX = zoneSize.X / 2
+	local halfZ = zoneSize.Z / 2
+	
+	-- Helper to check if a world position is inside the protected zone
+	local function isInsideProtectedZone(worldX, worldZ)
+		return worldX >= (zonePos.X - halfX) and worldX <= (zonePos.X + halfX) and
+		       worldZ >= (zonePos.Z - halfZ) and worldZ <= (zonePos.Z + halfZ)
+	end
+	
+	local reshuffledCount = 0
+	local preservedCount = 0
+	local batchSize = 100  -- Process many cubes per batch (just updating properties is fast)
+	local batchCount = 0
+	local frameStartTime = tick()
+	local maxFrameTime = 0.010  -- 10ms budget per frame
+	
+	-- Iterate through ALL existing terrain cubes
+	for key, cube in pairs(self._terrainCubes) do
+		local cubePos = cube.Position
+		local worldX = cubePos.X
+		local worldZ = cubePos.Z
+		
+		-- Skip cubes inside the protected zone (Building zone floor)
+		if isInsideProtectedZone(worldX, worldZ) then
+			preservedCount += 1
+		else
+			-- Parse the key to get grid coordinates (format: "gridX_gridZ_subX_subZ" or "gridX_gridZ")
+			local parts = string.split(key, "_")
+			local gridX = tonumber(parts[1]) or 0
+			local gridZ = tonumber(parts[2]) or 0
+			
+			-- Calculate new height using current noise seed
+			local baseHeight = calculateTerrainHeight(gridX, gridZ)
+			
+			-- Add micro-variation for sub-cubes
+			local microNoise = math.noise(
+				worldX * 0.3 + CONFIG.NoiseSeed * 0.1, 
+				worldZ * 0.3
+			)
+			local subHeightOffset = microNoise * CONFIG.SubHeightVariation
+			
+			local newHeightOffset = baseHeight + subHeightOffset
+			newHeightOffset = math.clamp(newHeightOffset, CONFIG.MinHeightOffset, CONFIG.MaxHeightOffset)
+			
+			-- Calculate new Y position
+			local newY = baseY + (CONFIG.CubeThickness / 2) + newHeightOffset
+			
+			-- Update cube position (just Y changes, X and Z stay the same)
+			cube.Position = Vector3.new(worldX, newY, worldZ)
+			
+			-- Update color based on new height
+			cube.Color = calculateTerrainColor(worldX, worldZ, newHeightOffset)
+			
+			-- Update height map
+			self._heightMap[key] = newHeightOffset
+			
+			reshuffledCount += 1
+		end
+		
+		-- Batch yielding to prevent lag
+		batchCount += 1
+		if batchCount >= batchSize or (tick() - frameStartTime) > maxFrameTime then
+			batchCount = 0
+			frameStartTime = tick()
+			task.wait()
+		end
+	end
+	
+	local elapsed = tick() - startTime
+	print(string.format("[CubeTerrainService] Reshuffled %d terrain cubes (preserved %d in building zone) in %.2fs", 
+		reshuffledCount, preservedCount, elapsed))
+	
+	return reshuffledCount
+end
+
+-- Legacy function kept for compatibility - now just calls reshuffle
+function CubeTerrainService:ClearTerrainOutsideZone(protectedZonePart)
+	-- No longer needed - reshuffle handles everything
+	return 0, 0
+end
+
+-- Legacy function kept for compatibility - now just calls reshuffle  
+function CubeTerrainService:RegenerateTerrainOutsideZone(protectedZonePart, gridWidth, gridDepth, cubeSize, centerX, centerZ, baseY)
+	-- Redirect to optimized reshuffle function
+	return self:ReshuffleTerrainOutsideZone(protectedZonePart, baseY)
 end
 
 return CubeTerrainService

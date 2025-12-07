@@ -209,7 +209,16 @@ local function createCubeFast(x, z, folder, gridData)
 	return cube
 end
 
+-- NOTE: Zones are NO LONGER attached to every grid cell
+-- Zones are only created by ReservedZoneService for reserved zones (Building, Radiation, AudioLog, etc.)
+-- Grid cells are now just for position tracking and cell management, not Zone detection
+-- This was changed because creating zones for every cell is expensive and unnecessary
+
+-- Legacy function kept for reference but no longer called
 local function attachZone(cube, x, z, zonesTable, mapReplica)
+	-- DISABLED: Don't create zones for regular grid cells
+	-- Zones should only be created for reserved zones in ReservedZoneService
+	--[[
 	local zone = Zone.new(cube)
 	
 	zone.playerEntered:Connect(function(player)
@@ -253,6 +262,7 @@ local function attachZone(cube, x, z, zonesTable, mapReplica)
 	end)
 	
 	zonesTable[cube.Name] = zone
+	]]
 end
 
 local function generateGrid(self)
@@ -324,39 +334,21 @@ local function generateGrid(self)
 	end
 	
 	local partTime = tick()
-	print(string.format("[GridService] Created %d zone cubes in %.2fs", #allCubes, partTime - startTime))
-	reportProgress("Grid cells created", 60, 100)
+	print(string.format("[GridService] Created %d grid cells in %.2fs", #allCubes, partTime - startTime))
+	reportProgress("Grid cells created", 90, 100)
 	
-	-- PHASE 2: Attach zones in batches
-	reportProgress("Attaching zones", 65, 100)
+	-- NOTE: Zones are NO LONGER attached to grid cells
+	-- Zones are only created for reserved zones by ReservedZoneService
+	-- This significantly reduces memory usage and improves performance
 	
-	task.spawn(function()
-		local zoneCount = 0
-		local totalZones = #allCubes
-		for _, data in ipairs(allCubes) do
-			attachZone(data.cube, data.x, data.z, self.zones, self.mapReplica)
-			
-			zoneCount += 1
-			if zoneCount % BATCH_SIZE == 0 then
-				local zoneProgress = 65 + (zoneCount / totalZones) * 30
-				reportProgress("Attaching zones", math.floor(zoneProgress), 100)
-				task.wait()
-			end
-		end
-		
-		local totalTime = tick()
-		print(string.format("[GridService] Attached %d zones in %.2fs (total: %.2fs)", 
-			zoneCount, totalTime - partTime, totalTime - startTime))
-		
-		reportProgress("Grid complete", 100, 100)
-		
-		-- Mark GridService step as complete in LoadingService
-		if LoadingService then
-			LoadingService:MarkStepComplete("GridService")
-		end
-	end)
+	reportProgress("Grid complete", 100, 100)
 	
-	print(string.format("[GridService] Generated %dx%d grid (%d cells, size %.1f each)", 
+	-- Mark GridService step as complete in LoadingService
+	if LoadingService then
+		LoadingService:MarkStepComplete("GridService")
+	end
+	
+	print(string.format("[GridService] Generated %dx%d grid (%d cells, size %.1f each) - NO zones attached (reserved zones only)", 
 		GRID_WIDTH, GRID_DEPTH, #allCubes, CUBE_SIZE))
 end
 
@@ -559,35 +551,17 @@ function GridService:GenerateGridNow()
 	end
 	
 	local partTime = tick()
-	print(string.format("[GridService] Created %d zone cubes in %.2fs", #allCubes, partTime - startTime))
-	reportProgress("Grid cells created", 55, 100)
+	print(string.format("[GridService] Created %d grid cells in %.2fs", #allCubes, partTime - startTime))
+	reportProgress("Grid cells created", 90, 100)
 	
-	-- Attach zones in background
-	reportProgress("Attaching zones", 60, 100)
+	-- NOTE: Zones are NO LONGER attached to grid cells
+	-- Zones are only created for reserved zones by ReservedZoneService
+	-- This significantly reduces memory usage and improves performance
 	
-	task.spawn(function()
-		local zoneCount = 0
-		local totalZones = #allCubes
-		for _, data in ipairs(allCubes) do
-			attachZone(data.cube, data.x, data.z, self.zones, self.mapReplica)
-			
-			zoneCount += 1
-			if zoneCount % BATCH_SIZE == 0 then
-				local zoneProgress = 60 + (zoneCount / totalZones) * 35
-				reportProgress("Attaching zones", math.floor(zoneProgress), 100)
-				task.wait()
-			end
-		end
-		
-		local totalTime = tick()
-		print(string.format("[GridService] Attached %d zones in %.2fs (total: %.2fs)", 
-			zoneCount, totalTime - partTime, totalTime - startTime))
-		
-		reportProgress("Grid complete", 100, 100)
-		self._isGridReady = true
-	end)
+	reportProgress("Grid complete", 100, 100)
+	self._isGridReady = true
 	
-	print(string.format("[GridService] Generated %dx%d grid (%d cells, size %.1f each)", 
+	print(string.format("[GridService] Generated %dx%d grid (%d cells, size %.1f each) - NO zones attached (reserved zones only)", 
 		GRID_WIDTH, GRID_DEPTH, #allCubes, CUBE_SIZE))
 end
 
@@ -620,6 +594,29 @@ function GridService:ClearGrid()
 	if self._cubeTerrainService then
 		self._cubeTerrainService:ClearTerrain()
 	end
+end
+
+-- Cleanup grid cell cubes (the invisible detection cubes) but keep:
+-- - Reserved zone cubes (managed by ReservedZoneService)
+-- - Terrain cubes (managed by CubeTerrainService)
+-- Called by ReservedZoneService after reserved zones are created
+function GridService:CleanupGridCellsAndMap()
+	print("[GridService] Cleaning up grid cell cubes...")
+	
+	-- Remove grid cubes folder (these are the invisible detection cubes)
+	local gridFolder = Workspace:FindFirstChild(GRID_FOLDER_NAME)
+	if gridFolder then
+		gridFolder:Destroy()
+		print("[GridService] Removed GridCubes folder")
+	end
+	
+	-- Clear cell references (cubes are now destroyed)
+	-- Keep the cell data structure for position queries but clear cube references
+	for key, cellData in pairs(self._gridData.cells) do
+		cellData.cube = nil
+	end
+	
+	print("[GridService] Grid cells cleaned up - reserved zones and terrain remain")
 end
 
 function GridService:StartTimer()

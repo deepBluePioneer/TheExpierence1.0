@@ -245,22 +245,19 @@ local function updateCamera(deltaTime)
 	-- Set camera CFrame
 	camera.CFrame = CFrame.new(cameraPosition) * cameraRotation * shakeCFrame
 	
-	-- Character rotation
-	local characterRotSpeed = CAMERA_CONFIG.CharacterRotationSpeed * deltaTime
+	-- Character rotation (smoothed)
 	local targetCharacterYaw = cameraState.yaw
-	
 	local yawDiff = targetCharacterYaw - cameraState.lastCharacterYaw
-	if yawDiff > math.pi then
-		yawDiff = yawDiff - 2 * math.pi
-	elseif yawDiff < -math.pi then
-		yawDiff = yawDiff + 2 * math.pi
-	end
+	-- Normalize angle difference
+	while yawDiff > math.pi do yawDiff = yawDiff - math.pi * 2 end
+	while yawDiff < -math.pi do yawDiff = yawDiff + math.pi * 2 end
 	
-	local newCharacterYaw = cameraState.lastCharacterYaw + yawDiff * math.min(characterRotSpeed, 1)
-	cameraState.lastCharacterYaw = newCharacterYaw
+	local rotationSpeed = CAMERA_CONFIG.CharacterRotationSpeed * deltaTime
+	local newYaw = cameraState.lastCharacterYaw + math.clamp(yawDiff, -rotationSpeed, rotationSpeed)
+	cameraState.lastCharacterYaw = newYaw
 	
 	local currentPos = humanoidRootPart.Position
-	humanoidRootPart.CFrame = CFrame.new(currentPos) * CFrame.Angles(0, newCharacterYaw, 0)
+	humanoidRootPart.CFrame = CFrame.new(currentPos) * CFrame.Angles(0, newYaw, 0)
 end
 
 -- === INITIALIZATION ===

@@ -1019,6 +1019,175 @@ function ConsoleService:CascadeWallsDown()
 	self._wallsDeployed = true
 	self._animating = false
 	print("[ConsoleService] Walls deployed")
+	
+	-- Trigger world regeneration outside building zone after walls close
+	task.spawn(function()
+		task.wait(0.5)  -- Small delay after walls finish
+		self:RegenerateWorldOutsideBuildingZone()
+	end)
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║               WORLD REGENERATION (OUTSIDE BUILDING ZONE)                    ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- Regenerate everything outside the building zone
+-- Called after walls cascade down (close in)
+-- Preserves: Building zone, ship structure, console, spawn locations
+-- Regenerates: Terrain, trees, formations, other zones, audio logs, photo targets, lighting/atmosphere
+-- OPTIMIZED: Uses parallel processing and reduced yields for better performance
+function ConsoleService:RegenerateWorldOutsideBuildingZone()
+	print("[ConsoleService] ========== REGENERATING WORLD (OPTIMIZED) ==========")
+	local startTime = tick()
+	
+	-- Get the building zone cube (to know what to preserve)
+	local buildingZone = self._reservedZoneService and self._reservedZoneService:GetZone("Building")
+	if not buildingZone or not buildingZone.zoneCube then
+		warn("[ConsoleService] Cannot regenerate: Building zone not found")
+		return false
+	end
+	
+	local buildingZoneCube = buildingZone.zoneCube
+	
+	-- Get all required services (cache references)
+	local CubeTerrainService = nil
+	local TreeService = nil
+	local FormationService = nil
+	local ParticleService = nil
+	local WorldInitService = nil
+	local WeatherService = nil
+	
+	pcall(function() CubeTerrainService = Knit.GetService("CubeTerrainService") end)
+	pcall(function() TreeService = Knit.GetService("TreeService") end)
+	pcall(function() FormationService = Knit.GetService("FormationService") end)
+	pcall(function() ParticleService = Knit.GetService("ParticleService") end)
+	pcall(function() WorldInitService = Knit.GetService("WorldInitService") end)
+	pcall(function() WeatherService = Knit.GetService("WeatherService") end)
+	
+	-- === PHASE 1: PARALLEL CLEAR (trees, formations, particles, zones - NOT terrain) ===
+	print("[ConsoleService] Phase 1: Clearing vegetation & zones (parallel)...")
+	local clearPhaseStart = tick()
+	
+	-- Run all clears in parallel using task.spawn (terrain is reshuffled, not cleared)
+	local clearComplete = {trees = false, formations = false, particles = false, zones = false}
+	
+	task.spawn(function()
+		if TreeService and TreeService.ClearTrees then
+			TreeService:ClearTrees()
+		end
+		clearComplete.trees = true
+	end)
+	
+	task.spawn(function()
+		if FormationService and FormationService.ClearFormations then
+			FormationService:ClearFormations()
+		end
+		clearComplete.formations = true
+	end)
+	
+	task.spawn(function()
+		if ParticleService and ParticleService.ClearParticles then
+			ParticleService:ClearParticles()
+		end
+		clearComplete.particles = true
+	end)
+	
+	task.spawn(function()
+		if self._reservedZoneService then
+			local zonesToClear = {"AudioLog", "PhotoTarget", "Radiation", "HumanEnemy"}
+			for _, zoneType in ipairs(zonesToClear) do
+				if self._reservedZoneService:GetZone(zoneType) then
+					self._reservedZoneService:ClearZone(zoneType)
+				end
+			end
+		end
+		clearComplete.zones = true
+	end)
+	
+	-- Wait for all clears to complete (with timeout)
+	local clearTimeout = tick() + 5
+	while not (clearComplete.trees and clearComplete.formations and clearComplete.particles and clearComplete.zones) do
+		if tick() > clearTimeout then
+			warn("[ConsoleService] Clear phase timed out!")
+			break
+		end
+		task.wait()
+	end
+	
+	print(string.format("[ConsoleService] Clear phase: %.2fs", tick() - clearPhaseStart))
+	
+	-- === PHASE 2: RESHUFFLE terrain (OPTIMIZED - just update heights, no recreate) ===
+	print("[ConsoleService] Phase 2: Reshuffling terrain heights...")
+	local terrainPhaseStart = tick()
+	
+	if CubeTerrainService and CubeTerrainService.ReshuffleTerrainOutsideZone and self._gridService then
+		local gridData = self._gridService:GetGridData()
+		if gridData then
+			-- Set new random seed for different terrain
+			local newSeed = math.random(1, 999999)
+			CubeTerrainService:SetConfig("NoiseSeed", newSeed)
+			
+			-- OPTIMIZED: Just reshuffle existing cube heights (no destroy/create)
+			CubeTerrainService:ReshuffleTerrainOutsideZone(buildingZoneCube, gridData.topY)
+		end
+	end
+	
+	print(string.format("[ConsoleService] Terrain phase: %.2fs", tick() - terrainPhaseStart))
+	
+	-- === PHASE 3: PARALLEL REGENERATION (trees, formations, particles) ===
+	print("[ConsoleService] Phase 3: Regenerating vegetation & particles (parallel)...")
+	local regenPhaseStart = tick()
+	
+	local regenComplete = {trees = false, formations = false, particles = false}
+	local baseplateInfo = WorldInitService and WorldInitService:GetBaseplateInfo()
+	
+	-- Trees and formations in parallel
+	task.spawn(function()
+		if baseplateInfo and TreeService and TreeService.GenerateTreesWithBaseplates then
+			TreeService:GenerateTreesWithBaseplates(baseplateInfo)
+		end
+		regenComplete.trees = true
+	end)
+	
+	task.spawn(function()
+		if baseplateInfo and FormationService and FormationService.GenerateFormationsWithBaseplates then
+			FormationService:GenerateFormationsWithBaseplates(baseplateInfo)
+		end
+		regenComplete.formations = true
+	end)
+	
+	task.spawn(function()
+		if ParticleService and ParticleService.RegenerateParticles then
+			ParticleService:RegenerateParticles()
+		end
+		regenComplete.particles = true
+	end)
+	
+	-- Wait for all regeneration to complete (with timeout)
+	local regenTimeout = tick() + 15
+	while not (regenComplete.trees and regenComplete.formations and regenComplete.particles) do
+		if tick() > regenTimeout then
+			warn("[ConsoleService] Regeneration phase timed out!")
+			break
+		end
+		task.wait()
+	end
+	
+	print(string.format("[ConsoleService] Vegetation phase: %.2fs", tick() - regenPhaseStart))
+	
+	-- === PHASE 4: Apply new lighting (quick operation) ===
+	print("[ConsoleService] Phase 4: Applying new atmosphere...")
+	
+	if WeatherService and WeatherService.RandomizeLighting then
+		local profile = WeatherService:RandomizeLighting(2)  -- 2 second transition (faster)
+		print(string.format("[ConsoleService] Atmosphere: %s (Rain: %s)", 
+			profile.Name or "Unknown", tostring(profile.RainEnabled)))
+	end
+	
+	local elapsed = tick() - startTime
+	print(string.format("[ConsoleService] ========== REGENERATION COMPLETE (%.2fs) ==========", elapsed))
+	
+	return true
 end
 
 -- Animate walls cascading up (retracting) - bottom segments first
@@ -1337,6 +1506,12 @@ function ConsoleService:RetractWalls()
 	if self._wallsDeployed and not self._animating then
 		self:CascadeWallsUp()
 	end
+end
+
+-- Manually trigger world regeneration outside building zone
+-- Useful for testing or scripting purposes
+function ConsoleService:RegenerateOutsideWorld()
+	return self:RegenerateWorldOutsideBuildingZone()
 end
 
 -- Remove console, ship, and spawn locations

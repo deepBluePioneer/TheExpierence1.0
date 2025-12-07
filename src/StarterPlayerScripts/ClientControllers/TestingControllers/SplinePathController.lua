@@ -22,12 +22,15 @@ local SplinePathController = Knit.CreateController {
 
 -- === CONFIGURATION ===
 local PATH_CONFIG = {
+	-- DISABLED: Spline path system disabled
+	Enabled = false,
+	
 	-- Path generation
 	DefaultTension = 0.5,         -- Spline tension (0 = sharp, 1 = loose)
 	PathSegments = 100,           -- Number of segments to draw the path
 	
 	-- Visualization
-	DebugEnabled = true,
+	DebugEnabled = false,         -- DISABLED: No debug visualization
 	PathColor = Color3.fromRGB(255, 150, 0),    -- Orange path
 	PointColor = Color3.fromRGB(255, 255, 0),   -- Yellow control points
 	PointRadius = 1,
@@ -254,28 +257,18 @@ end
 -- === KNIT LIFECYCLE ===
 
 function SplinePathController:KnitInit()
+	-- Early exit if disabled
+	if not PATH_CONFIG.Enabled then
+		return
+	end
 	initGizmo()
 end
 
 function SplinePathController:KnitStart()
-	-- Render loop for visualization
-	RunService.RenderStepped:Connect(function()
-		if PATH_CONFIG.DebugEnabled then
-			Gizmo.ScheduleCleaning()
-			visualizeAllPaths()
-		end
-	end)
-	
-	print("[SplinePathController] Started - ready to create paths!")
-	
-	-- TEST: Create a circular path around the origin
-	task.delay(3, function()
-		-- Get baseplate center if it exists
-		local baseplate = Workspace:FindFirstChild("Baseplate")
-		local center = baseplate and baseplate.Position or Vector3.new(0, 0, 0)
-		
-		self:CreateCircularPath(center, 80, 10, "MainPath")
-	end)
+	-- Early exit if disabled
+	if not PATH_CONFIG.Enabled then
+		return
+	end
 end
 
 -- Expose config for external access (DebugVisualsController)

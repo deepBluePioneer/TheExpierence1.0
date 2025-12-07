@@ -1124,15 +1124,19 @@ local function generateFormations(self)
 	reportProgress(15, 100, "Generating formations")
 	
 	local totalFormations = #positions
-	local batchSize = 10
+	local batchSize = 25  -- OPTIMIZED: Larger batches
+	local frameStartTime = tick()
+	local maxFrameTime = 0.008  -- Target ~8ms per frame
 	
 	for i, pos in ipairs(positions) do
 		local formation = createFormation(pos, folder)
 		table.insert(self.formations, formation)
 		
-		if i % batchSize == 0 then
+		-- OPTIMIZED: Time-based yielding
+		if i % batchSize == 0 or (tick() - frameStartTime) > maxFrameTime then
 			local progress = 15 + (i / totalFormations) * 80
 			reportProgress(math.floor(progress), 100, string.format("Creating formations (%d/%d)", i, totalFormations))
+			frameStartTime = tick()
 			task.wait()
 		end
 	end
@@ -1231,15 +1235,19 @@ function FormationService:GenerateFormationsWithBaseplates(baseplateInfo)
 	reportProgress(15, 100, "Generating formations")
 	
 	local totalFormations = #positions
-	local batchSize = 10
+	local batchSize = 25  -- OPTIMIZED: Larger batches
+	local frameStartTime = tick()
+	local maxFrameTime = 0.008  -- Target ~8ms per frame
 	
 	for i, pos in ipairs(positions) do
 		local formation = createFormation(pos, folder)
 		table.insert(self.formations, formation)
 		
-		if i % batchSize == 0 then
+		-- OPTIMIZED: Time-based yielding
+		if i % batchSize == 0 or (tick() - frameStartTime) > maxFrameTime then
 			local progress = 15 + (i / totalFormations) * 80
 			reportProgress(math.floor(progress), 100, string.format("Creating formations (%d/%d)", i, totalFormations))
+			frameStartTime = tick()
 			task.wait()
 		end
 	end

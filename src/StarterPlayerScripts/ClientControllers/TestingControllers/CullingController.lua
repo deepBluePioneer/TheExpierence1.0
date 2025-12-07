@@ -32,7 +32,7 @@ local CullingController = Knit.CreateController {
 -- === CONFIGURATION ===
 local CULLING_CONFIG = {
 	-- General
-	Enabled = true,
+	Enabled = false,            -- DISABLED: Culling system disabled
 	DebugMode = false,          -- Show culling debug visuals
 	
 	-- Update frequency (stagger updates for performance)
@@ -575,6 +575,11 @@ function CullingController:KnitInit()
 end
 
 function CullingController:KnitStart()
+	-- Early exit if disabled
+	if not CULLING_CONFIG.Enabled then
+		return
+	end
+	
 	-- Register default tagged objects
 	for _, tag in ipairs(CULLING_CONFIG.CullTags) do
 		self:RegisterTaggedObjects(tag)
@@ -584,15 +589,6 @@ function CullingController:KnitStart()
 	self._updateConnection = RunService.Heartbeat:Connect(function()
 		updateCulling()
 	end)
-	
-	-- Print initialization
-	print("[CullingController] Initialized with config:")
-	print(string.format("  - Near: %d, Medium: %d, Far: %d, Cull: %d",
-		CULLING_CONFIG.NearDistance,
-		CULLING_CONFIG.MediumDistance,
-		CULLING_CONFIG.FarDistance,
-		CULLING_CONFIG.CullDistance
-	))
 end
 
 -- Expose CullLevel enum for external use

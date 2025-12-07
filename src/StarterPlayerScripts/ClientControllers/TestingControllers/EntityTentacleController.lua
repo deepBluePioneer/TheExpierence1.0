@@ -19,6 +19,7 @@ local EntityTentacleController = Knit.CreateController {
 
 -- === CONFIG ===
 local TENTACLE_CONFIG = {
+	Enabled = false,                -- DISABLED: Don't create tentacles on entity heads
 	EntityTag = "entity",           -- Tag to find entities
 	TentacleCount = 12,             -- Number of tentacles
 	TentacleSegments = 8,           -- Segments per tentacle
@@ -306,6 +307,11 @@ function EntityTentacleController:KnitInit()
 end
 
 function EntityTentacleController:KnitStart()
+	-- Early exit if disabled
+	if not TENTACLE_CONFIG.Enabled then
+		return
+	end
+	
 	-- Wait a bit for entities to be spawned and tagged
 	task.wait(10)
 	
@@ -339,8 +345,6 @@ function EntityTentacleController:KnitStart()
 			updateTentacleAnimation(entityData, currentTime)
 		end
 	end)
-	
-	print("[EntityTentacleController] Started!")
 end
 
 return EntityTentacleController

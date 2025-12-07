@@ -32,21 +32,21 @@ local ZONE_TYPES = {
 	Building = {
 		name = "Building",
 		cellTransparency = 1.0,  -- Fully transparent cells
-		zoneCubeTransparency = 0.7,
+		zoneCubeTransparency = 1.0,  -- Fully transparent (invisible)
 		zoneCubeColor = Color3.fromRGB(255, 255, 0),  -- Yellow
 		flattenTerrain = true,
 	},
 	Radiation = {
 		name = "Radiation",
 		cellTransparency = 1.0,  -- Fully transparent cells
-		zoneCubeTransparency = 0.7,
+		zoneCubeTransparency = 1.0,  -- Fully transparent (invisible)
 		zoneCubeColor = Color3.fromRGB(128, 0, 128),  -- Purple
 		flattenTerrain = false,
 	},
 	AudioLog = {
 		name = "AudioLog",
 		cellTransparency = 1.0,  -- Fully transparent cells
-		zoneCubeTransparency = 0.85,
+		zoneCubeTransparency = 1.0,  -- Fully transparent (invisible)
 		zoneCubeColor = Color3.fromRGB(50, 150, 255),  -- Blue
 		flattenTerrain = false,
 		spawnAudioLog = true,  -- Special flag to spawn audio log in zone
@@ -54,7 +54,7 @@ local ZONE_TYPES = {
 	HumanEnemy = {
 		name = "HumanEnemy",
 		cellTransparency = 1.0,  -- Fully transparent cells
-		zoneCubeTransparency = 0.8,
+		zoneCubeTransparency = 1.0,  -- Fully transparent (invisible)
 		zoneCubeColor = Color3.fromRGB(255, 80, 80),  -- Red
 		flattenTerrain = false,
 		spawnEnemies = true,  -- Special flag to spawn enemies in zone
@@ -63,7 +63,7 @@ local ZONE_TYPES = {
 	PhotoTarget = {
 		name = "PhotoTarget",
 		cellTransparency = 1.0,  -- Fully transparent cells
-		zoneCubeTransparency = 0.85,
+		zoneCubeTransparency = 1.0,  -- Fully transparent (invisible)
 		zoneCubeColor = Color3.fromRGB(255, 255, 0),  -- Yellow
 		flattenTerrain = false,
 		spawnPhotoTarget = true,  -- Special flag to spawn photo target in zone
@@ -118,7 +118,8 @@ local function flattenTerrainUnderZone(self, zoneCube, zoneType)
 	--[[print(string.format("[ReservedZoneService] Flattening terrain cubes within %s zone", zoneType))]]
 	
 	-- Flatten terrain cubes within the zone bounds
-	CubeTerrainService:FlattenAreaInZone(zoneCube, flatHeight)
+	-- Pass zoneType so Building zones get metallic floor material
+	CubeTerrainService:FlattenAreaInZone(zoneCube, flatHeight, zoneType)
 	
 	--("[ReservedZoneService] Terrain cubes flattened under " .. zoneType .. " zone")
 end

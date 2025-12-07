@@ -15,11 +15,17 @@ local WeatherService = Knit.CreateService {
 	Client = {
 		-- Signal fired when day/night changes: (isNight: boolean)
 		IsNightChanged = Knit.CreateSignal(),
+		-- Signal fired when rain state changes: (rainEnabled: boolean)
+		RainEnabledChanged = Knit.CreateSignal(),
+		-- Signal fired when lightning state changes: (lightningEnabled: boolean)
+		LightningEnabledChanged = Knit.CreateSignal(),
 	},
 	weatherReplica = nil,
 	_dayNightEnabled = true,
 	_currentTime = 10,  -- Start at 6 AM
 	_isNight = false,
+	_rainEnabled = false,  -- Independent rain control
+	_lightningEnabled = false,  -- Independent lightning control
 }
 
 -- === DAY/NIGHT CYCLE CONFIG ===
@@ -118,6 +124,8 @@ local function initReplica(self)
 			ClockTime = 6,  -- Current in-game hour
 			IsNight = false,
 			DayNightEnabled = true,
+			RainEnabled = false,  -- Independent rain control
+			LightningEnabled = false,  -- Independent lightning control
 		},
 		Replication = "All",
 	})
@@ -181,21 +189,27 @@ local function startDayNightCycle(self)
 	self._currentTime = DAY_NIGHT_CONFIG.NightStart  -- Start at 8 PM (night)
 	self._isNight = true
 	self._dayNightEnabled = false  -- Disable day/night cycle - stay in night
+	self._rainEnabled = false  -- Start without rain
+	self._lightningEnabled = false  -- Start without lightning
 	Lighting.ClockTime = self._currentTime
 	
-	-- Set initial IsNight state in replica
+	-- Set initial state in replica
 	self.weatherReplica:SetValue({"IsNight"}, self._isNight)
 	self.weatherReplica:SetValue({"ClockTime"}, self._currentTime)
 	self.weatherReplica:SetValue({"DayNightEnabled"}, self._dayNightEnabled)
+	self.weatherReplica:SetValue({"RainEnabled"}, self._rainEnabled)
+	self.weatherReplica:SetValue({"LightningEnabled"}, self._lightningEnabled)
 	
-	-- Fire initial signal to all clients
+	-- Fire initial signals to all clients
 	self.Client.IsNightChanged:FireAll(self._isNight)
+	self.Client.RainEnabledChanged:FireAll(self._rainEnabled)
+	self.Client.LightningEnabledChanged:FireAll(self._lightningEnabled)
 	
-	print(string.format("[WeatherService] Initial state - IsNight: %s, Time: %.1f, CycleEnabled: %s", 
-		tostring(self._isNight), self._currentTime, tostring(self._dayNightEnabled)))
+	print(string.format("[WeatherService] Initial state - IsNight: %s, Time: %.1f, Rain: %s", 
+		tostring(self._isNight), self._currentTime, tostring(self._rainEnabled)))
 	
-	-- Set initial weather to night (stormy)
-	self:SetWeather(DAY_NIGHT_CONFIG.NightWeather, 0)
+	-- Set initial weather to night but WITHOUT rain (use Night preset instead of StormyNight)
+	self:SetWeather("Night", 0)
 	
 	-- Update loop (only advances time if cycle is enabled)
 	RunService.Heartbeat:Connect(function(deltaTime)
@@ -293,6 +307,49 @@ end
 
 function WeatherService:SkipToDay()
 	self:SetTime(DAY_NIGHT_CONFIG.DayStart)
+end
+
+-- === RAIN/LIGHTNING CONTROL (Independent of day/night) ===
+
+function WeatherService:SetRainEnabled(enabled)
+	local wasEnabled = self._rainEnabled
+	self._rainEnabled = enabled
+	self.weatherReplica:SetValue({"RainEnabled"}, enabled)
+	
+	-- Fire signal if state changed
+	if enabled ~= wasEnabled then
+		print(string.format("[WeatherService] Rain %s", enabled and "ENABLED" or "DISABLED"))
+		self.Client.RainEnabledChanged:FireAll(enabled)
+	end
+end
+
+function WeatherService:SetLightningEnabled(enabled)
+	local wasEnabled = self._lightningEnabled
+	self._lightningEnabled = enabled
+	self.weatherReplica:SetValue({"LightningEnabled"}, enabled)
+	
+	-- Fire signal if state changed
+	if enabled ~= wasEnabled then
+		print(string.format("[WeatherService] Lightning %s", enabled and "ENABLED" or "DISABLED"))
+		self.Client.LightningEnabledChanged:FireAll(enabled)
+	end
+end
+
+function WeatherService:IsRainEnabled()
+	return self._rainEnabled
+end
+
+function WeatherService:IsLightningEnabled()
+	return self._lightningEnabled
+end
+
+-- Client-callable methods for rain/lightning
+function WeatherService.Client:GetRainEnabled()
+	return self.Server._rainEnabled
+end
+
+function WeatherService.Client:GetLightningEnabled()
+	return self.Server._lightningEnabled
 end
 
 -- === KNIT LIFECYCLE ===
