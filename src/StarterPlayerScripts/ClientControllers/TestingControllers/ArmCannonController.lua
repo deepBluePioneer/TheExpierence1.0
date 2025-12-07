@@ -521,12 +521,17 @@ function ArmCannonController:UpdateArmCannon(dt)
 	local camera = Workspace.CurrentCamera
 	if not camera then return end
 	
-	-- Match viewport camera to world camera
-	self._viewportCamera.CFrame = camera.CFrame
-	self._viewportCamera.FieldOfView = self._cannonFOV
-	
+	-- OPTIMIZATION: Cache camera CFrame to avoid multiple property reads
 	local cameraCF = camera.CFrame
 	local aimDir = cameraCF.LookVector
+	
+	-- Match viewport camera to world camera (only if changed significantly)
+	-- OPTIMIZATION: Skip if camera hasn't moved much
+	local cameraChanged = not self._lastCameraCF or (cameraCF.Position - self._lastCameraCF.Position).Magnitude > 0.01
+	if cameraChanged then
+		self._viewportCamera.CFrame = cameraCF
+		self._lastCameraCF = cameraCF
+	end
 	
 	-- Calculate motion offsets
 	local posOffset, rotOffset = self:CalculateMotionOffset(dt)
@@ -547,8 +552,10 @@ function ArmCannonController:UpdateArmCannon(dt)
 	-- Update viewport cannon
 	self:UpdateCannonParts(self._cannonParts, cannonBaseCF, aimDir, recoilVector)
 	
-	-- Update world-space cannon (for hit detection)
-	if self._worldCannonParts and #self._worldCannonParts > 0 and self._hrp then
+	-- OPTIMIZATION: Update world-space cannon less frequently (only when needed for shooting)
+	-- World cannon is only used for raycasting, so we can update it less often
+	self._worldCannonUpdateCounter = (self._worldCannonUpdateCounter or 0) + 1
+	if self._worldCannonParts and #self._worldCannonParts > 0 and self._hrp and (self._worldCannonUpdateCounter % 3 == 0) then
 		local hrpCF = self._hrp.CFrame
 		local worldShoulderPos = hrpCF.Position + hrpCF.RightVector * 0.8 + Vector3.new(0, 1.3, 0)
 		local worldBaseCF = CFrame.new(worldShoulderPos)

@@ -975,6 +975,11 @@ local function cleanupTreesNearReservedCells(self)
 end
 
 local function generateTrees(self)
+	-- DISABLED: Tree generation is disabled (TreeCount = 0)
+	if TREE_CONFIG.TreeCount <= 0 then
+		return
+	end
+	
 	local startTime = tick()
 	
 	local LoadingService = nil
@@ -1079,6 +1084,11 @@ end
 function TreeService:GenerateTreesWithBaseplates(baseplateInfo)
 	if not baseplateInfo then
 		warn("[TreeService] No baseplate info provided!")
+		return false
+	end
+	
+	-- DISABLED: Tree generation is disabled (TreeCount = 0)
+	if TREE_CONFIG.TreeCount <= 0 then
 		return false
 	end
 	

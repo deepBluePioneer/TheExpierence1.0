@@ -306,6 +306,7 @@ function LocomotionController:UpdateLocomotion(dt)
 	local rightPhase = (self._walkPhase + 0.5) % 1
 	
 	-- === FOOT PLACEMENT ===
+	-- OPTIMIZATION: Reduce raycast frequency - only raycast when needed
 	local hipOffset = 0.5
 	local leftHipPos = hrpPos + hrpCF.RightVector * -hipOffset
 	local rightHipPos = hrpPos + hrpCF.RightVector * hipOffset
@@ -315,13 +316,28 @@ function LocomotionController:UpdateLocomotion(dt)
 	local leftFootProgress = leftPhase
 	local leftGrounded = leftFootProgress < CONFIG.FootPlantDuration or leftFootProgress > (1 - CONFIG.FootPlantDuration)
 	
+	-- OPTIMIZATION: Only raycast when foot is moving or just planted
+	local leftNeedsRaycast = false
 	if isIdle then
-		local leftRestPos = leftHipPos + Vector3.new(0, -2.5, 0) + hrpCF.RightVector * -0.2
-		local groundPos, _, _ = raycastGround(leftRestPos + Vector3.new(0, 2, 0), self._character)
-		self._leftFootTarget = CFrame.new(groundPos + Vector3.new(0, CONFIG.FootGroundOffset, 0))
+		-- Idle: raycast less frequently (only every few frames)
+		self._idleRaycastCounter = (self._idleRaycastCounter or 0) + 1
+		leftNeedsRaycast = (self._idleRaycastCounter % 10 == 0)  -- Every 10 frames when idle
+	else
+		-- Moving: only raycast when foot is swinging (not planted)
+		leftNeedsRaycast = not leftGrounded or (self._leftFootPlanted == false)
+	end
+	
+	if isIdle then
+		if leftNeedsRaycast then
+			local leftRestPos = leftHipPos + Vector3.new(0, -2.5, 0) + hrpCF.RightVector * -0.2
+			local groundPos, _, _ = raycastGround(leftRestPos + Vector3.new(0, 2, 0), self._character)
+			self._lastLeftFootPos = groundPos + Vector3.new(0, CONFIG.FootGroundOffset, 0)
+		end
+		self._leftFootTarget = CFrame.new(self._lastLeftFootPos) * CFrame.Angles(0, math.atan2(moveDir.X, moveDir.Z), 0)
 	else
 		if leftGrounded then
 			if self._leftFootPlanted == false then
+				-- Just planted - raycast once
 				local plantPos = leftHipPos + moveDir * -strideOffset + Vector3.new(0, -2, 0)
 				local groundPos, _, _ = raycastGround(plantPos + Vector3.new(0, 2, 0), self._character)
 				self._lastLeftFootPos = groundPos + Vector3.new(0, CONFIG.FootGroundOffset, 0)
@@ -333,11 +349,14 @@ function LocomotionController:UpdateLocomotion(dt)
 			local swingProgress = (leftFootProgress - CONFIG.FootPlantDuration) / (1 - 2 * CONFIG.FootPlantDuration)
 			swingProgress = math.clamp(swingProgress, 0, 1)
 			
-			local targetPos = leftHipPos + moveDir * strideOffset + Vector3.new(0, -2, 0)
-			local groundPos, _, _ = raycastGround(targetPos + Vector3.new(0, 2, 0), self._character)
-			targetPos = groundPos + Vector3.new(0, CONFIG.FootGroundOffset, 0)
+			-- OPTIMIZATION: Only raycast every few frames during swing
+			if leftNeedsRaycast or (swingProgress > 0.5 and swingProgress < 0.7) then
+				local targetPos = leftHipPos + moveDir * strideOffset + Vector3.new(0, -2, 0)
+				local groundPos, _, _ = raycastGround(targetPos + Vector3.new(0, 2, 0), self._character)
+				self._lastLeftFootPos = groundPos + Vector3.new(0, CONFIG.FootGroundOffset, 0)
+			end
 			
-			local arcPos = calculateFootArc(self._lastLeftFootPos, targetPos, swingProgress, stepHeight)
+			local arcPos = calculateFootArc(self._lastLeftFootPos, leftHipPos + moveDir * strideOffset + Vector3.new(0, -2, 0), swingProgress, stepHeight)
 			self._leftFootTarget = CFrame.new(arcPos) * CFrame.Angles(
 				math.sin(swingProgress * math.pi) * 0.3,
 				math.atan2(moveDir.X, moveDir.Z),
@@ -346,14 +365,24 @@ function LocomotionController:UpdateLocomotion(dt)
 		end
 	end
 	
-	-- Right foot
+	-- Right foot (same optimizations)
 	local rightFootProgress = rightPhase
 	local rightGrounded = rightFootProgress < CONFIG.FootPlantDuration or rightFootProgress > (1 - CONFIG.FootPlantDuration)
 	
+	local rightNeedsRaycast = false
 	if isIdle then
-		local rightRestPos = rightHipPos + Vector3.new(0, -2.5, 0) + hrpCF.RightVector * 0.2
-		local groundPos, _, _ = raycastGround(rightRestPos + Vector3.new(0, 2, 0), self._character)
-		self._rightFootTarget = CFrame.new(groundPos + Vector3.new(0, CONFIG.FootGroundOffset, 0))
+		rightNeedsRaycast = (self._idleRaycastCounter % 10 == 0)
+	else
+		rightNeedsRaycast = not rightGrounded or (self._rightFootPlanted == false)
+	end
+	
+	if isIdle then
+		if rightNeedsRaycast then
+			local rightRestPos = rightHipPos + Vector3.new(0, -2.5, 0) + hrpCF.RightVector * 0.2
+			local groundPos, _, _ = raycastGround(rightRestPos + Vector3.new(0, 2, 0), self._character)
+			self._lastRightFootPos = groundPos + Vector3.new(0, CONFIG.FootGroundOffset, 0)
+		end
+		self._rightFootTarget = CFrame.new(self._lastRightFootPos) * CFrame.Angles(0, math.atan2(moveDir.X, moveDir.Z), 0)
 	else
 		if rightGrounded then
 			if self._rightFootPlanted == false then
@@ -368,11 +397,13 @@ function LocomotionController:UpdateLocomotion(dt)
 			local swingProgress = (rightFootProgress - CONFIG.FootPlantDuration) / (1 - 2 * CONFIG.FootPlantDuration)
 			swingProgress = math.clamp(swingProgress, 0, 1)
 			
-			local targetPos = rightHipPos + moveDir * strideOffset + Vector3.new(0, -2, 0)
-			local groundPos, _, _ = raycastGround(targetPos + Vector3.new(0, 2, 0), self._character)
-			targetPos = groundPos + Vector3.new(0, CONFIG.FootGroundOffset, 0)
+			if rightNeedsRaycast or (swingProgress > 0.5 and swingProgress < 0.7) then
+				local targetPos = rightHipPos + moveDir * strideOffset + Vector3.new(0, -2, 0)
+				local groundPos, _, _ = raycastGround(targetPos + Vector3.new(0, 2, 0), self._character)
+				self._lastRightFootPos = groundPos + Vector3.new(0, CONFIG.FootGroundOffset, 0)
+			end
 			
-			local arcPos = calculateFootArc(self._lastRightFootPos, targetPos, swingProgress, stepHeight)
+			local arcPos = calculateFootArc(self._lastRightFootPos, rightHipPos + moveDir * strideOffset + Vector3.new(0, -2, 0), swingProgress, stepHeight)
 			self._rightFootTarget = CFrame.new(arcPos) * CFrame.Angles(
 				math.sin(swingProgress * math.pi) * 0.3,
 				math.atan2(moveDir.X, moveDir.Z),

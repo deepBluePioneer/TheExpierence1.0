@@ -312,26 +312,30 @@ end
 -- === RAIN/LIGHTNING CONTROL (Independent of day/night) ===
 
 function WeatherService:SetRainEnabled(enabled)
+	-- DISABLED: Rain is totally disabled, ignore all requests
+	enabled = false
 	local wasEnabled = self._rainEnabled
-	self._rainEnabled = enabled
-	self.weatherReplica:SetValue({"RainEnabled"}, enabled)
+	self._rainEnabled = false  -- Force to false
+	self.weatherReplica:SetValue({"RainEnabled"}, false)
 	
-	-- Fire signal if state changed
+	-- Fire signal if state changed (only to notify it's disabled)
 	if enabled ~= wasEnabled then
-		print(string.format("[WeatherService] Rain %s", enabled and "ENABLED" or "DISABLED"))
-		self.Client.RainEnabledChanged:FireAll(enabled)
+		print(string.format("[WeatherService] Rain DISABLED (rain effects are totally disabled)"))
+		self.Client.RainEnabledChanged:FireAll(false)
 	end
 end
 
 function WeatherService:SetLightningEnabled(enabled)
+	-- DISABLED: Lightning is totally disabled, ignore all requests
+	enabled = false
 	local wasEnabled = self._lightningEnabled
-	self._lightningEnabled = enabled
-	self.weatherReplica:SetValue({"LightningEnabled"}, enabled)
+	self._lightningEnabled = false  -- Force to false
+	self.weatherReplica:SetValue({"LightningEnabled"}, false)
 	
-	-- Fire signal if state changed
+	-- Fire signal if state changed (only to notify it's disabled)
 	if enabled ~= wasEnabled then
-		print(string.format("[WeatherService] Lightning %s", enabled and "ENABLED" or "DISABLED"))
-		self.Client.LightningEnabledChanged:FireAll(enabled)
+		print(string.format("[WeatherService] Lightning DISABLED (lightning effects are totally disabled)"))
+		self.Client.LightningEnabledChanged:FireAll(false)
 	end
 end
 
@@ -375,9 +379,9 @@ function WeatherService:GenerateRandomLightingProfile()
 		)
 	end
 	
-	-- Randomly decide if it should rain (30% chance)
-	local shouldRain = math.random() < 0.30
-	local shouldLightning = shouldRain and math.random() < 0.50  -- 50% of rainy times have lightning
+	-- DISABLED: Rain and lightning are totally disabled
+	local shouldRain = false  -- Never rain
+	local shouldLightning = false  -- Never lightning
 	
 	-- Generate fully randomized profile
 	local profile = {

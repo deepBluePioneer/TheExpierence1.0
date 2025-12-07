@@ -1093,6 +1093,11 @@ local function cleanupFormationsNearReservedCells(self)
 end
 
 local function generateFormations(self)
+	-- DISABLED: Formation generation is disabled (FormationCount = 0)
+	if CONFIG.FormationCount <= 0 then
+		return
+	end
+	
 	local startTime = tick()
 	
 	local LoadingService = nil
@@ -1197,6 +1202,11 @@ end
 function FormationService:GenerateFormationsWithBaseplates(baseplateInfo)
 	if not baseplateInfo then
 		warn("[FormationService] No baseplate info provided!")
+		return false
+	end
+	
+	-- DISABLED: Formation generation is disabled (FormationCount = 0)
+	if CONFIG.FormationCount <= 0 then
 		return false
 	end
 	

@@ -19,10 +19,11 @@ local RainController = Knit.CreateController {
 	rainCache = nil,
 	splashCache = nil,
 	activeDrops = {},
-	isRaining = false,        -- Start with no rain (will enable at night)
-	lightningEnabled = false, -- Start with no lightning (will enable at night)
+	isRaining = false,        -- DISABLED: Rain is totally disabled
+	lightningEnabled = false, -- DISABLED: Lightning is totally disabled
 	_weatherService = nil,    -- Reference to WeatherService
 	_taggedObjectsCache = {},  -- Cache for tagged objects to avoid repeated waiting
+	_disabled = true,         -- Master disable flag
 }
 
 -- === CONFIG ===
@@ -702,6 +703,12 @@ function RainController:KnitInit()
 end
 
 function RainController:SetRainEnabled(enabled)
+	-- DISABLED: Rain effects are totally disabled
+	if self._disabled then
+		self.isRaining = false
+		return
+	end
+	
 	local wasRaining = self.isRaining
 	self.isRaining = enabled
 	
@@ -722,6 +729,12 @@ function RainController:SetRainEnabled(enabled)
 end
 
 function RainController:SetLightningEnabled(enabled)
+	-- DISABLED: Lightning effects are totally disabled
+	if self._disabled then
+		self.lightningEnabled = false
+		return
+	end
+	
 	self.lightningEnabled = enabled
 	
 	-- OPTIMIZED: Start lightning loop if conditions now met
@@ -731,6 +744,11 @@ function RainController:SetLightningEnabled(enabled)
 end
 
 function RainController:KnitStart()
+	-- DISABLED: Rain and lightning are totally disabled
+	if self._disabled then
+		return
+	end
+	
 	-- Wait for character
 	if not Player.Character then
 		Player.CharacterAdded:Wait()
@@ -767,12 +785,17 @@ function RainController:KnitStart()
 	self:SetLightningEnabled(lightningEnabled)
 	
 	-- Listen for rain/lightning state changes (event-driven, no polling)
+	-- DISABLED: Ignore all signals - rain effects are totally disabled
 	self._weatherService.RainEnabledChanged:Connect(function(enabled)
-		self:SetRainEnabled(enabled)
+		if not self._disabled then
+			self:SetRainEnabled(enabled)
+		end
 	end)
 	
 	self._weatherService.LightningEnabledChanged:Connect(function(enabled)
-		self:SetLightningEnabled(enabled)
+		if not self._disabled then
+			self:SetLightningEnabled(enabled)
+		end
 	end)
 end
 

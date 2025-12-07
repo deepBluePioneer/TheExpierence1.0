@@ -36,7 +36,10 @@ local TERRAIN_CUBE_TAG = "terrainCube"
 
 -- === TERRAIN CONFIG ===
 local CONFIG = {
-	-- Height variation settings
+	-- === SIMPLIFIED MODE: One large part instead of cubes ===
+	UseSinglePart = true,          -- TRUE: Create one large part (much faster)
+	
+	-- Height variation settings (only used if UseSinglePart = false)
 	HeightVariationEnabled = true,
 	MinHeightOffset = -4,          -- Minimum height offset (studs)
 	MaxHeightOffset = 6,           -- Maximum height offset (studs)
@@ -374,16 +377,49 @@ end
 function CubeTerrainService:GenerateTerrain(gridWidth, gridDepth, cubeSize, centerX, centerZ, baseY)
 	local startTime = tick()
 	
-	local subdivisionInfo = ""
-	if CONFIG.SubdivisionEnabled then
-		subdivisionInfo = string.format(" (subdivided %d-%d per cell)", CONFIG.MinSubdivisions, CONFIG.MaxSubdivisions)
-	end
-	--[[print(string.format("[CubeTerrainService] Generating %dx%d terrain cells%s...", gridWidth, gridDepth, subdivisionInfo))]]
-	
 	-- Clear existing terrain
 	clearTerrainCubes(self)
 	
 	local folder = getTerrainFolder()
+	
+	-- === SINGLE PART MODE: Create one large flat terrain part ===
+	if CONFIG.UseSinglePart then
+		local totalWidth = gridWidth * cubeSize
+		local totalDepth = gridDepth * cubeSize
+		
+		local terrainPart = Instance.new("Part")
+		terrainPart.Name = "TerrainFloor"
+		terrainPart.Anchored = true
+		terrainPart.CanCollide = true
+		terrainPart.CastShadow = true
+		terrainPart.Size = Vector3.new(totalWidth, CONFIG.CubeThickness, totalDepth)
+		terrainPart.Position = Vector3.new(centerX, baseY + CONFIG.CubeThickness / 2, centerZ)
+		terrainPart.Color = CONFIG.BaseColor
+		terrainPart.Material = CONFIG.Material
+		terrainPart.TopSurface = Enum.SurfaceType.Smooth
+		terrainPart.BottomSurface = Enum.SurfaceType.Smooth
+		
+		CollectionService:AddTag(terrainPart, TERRAIN_CUBE_TAG)
+		terrainPart.Parent = folder
+		
+		-- Store reference
+		self._terrainCubes["single"] = terrainPart
+		self._heightMap["single"] = 0
+		self._isTerrainGenerated = true
+		
+		local elapsed = tick() - startTime
+		print(string.format("[CubeTerrainService] Generated single terrain part (%dx%d studs) in %.3fs", 
+			totalWidth, totalDepth, elapsed))
+		
+		return 1
+	end
+	
+	-- === CUBE MODE: Original cube generation ===
+	local subdivisionInfo = ""
+	if CONFIG.SubdivisionEnabled then
+		subdivisionInfo = string.format(" (subdivided %d-%d per cell)", CONFIG.MinSubdivisions, CONFIG.MaxSubdivisions)
+	end
+	
 	local totalCells = gridWidth * gridDepth
 	local totalCubesCreated = 0
 	local cellsProcessed = 0
@@ -414,10 +450,6 @@ function CubeTerrainService:GenerateTerrain(gridWidth, gridDepth, cubeSize, cent
 	
 	local elapsed = tick() - startTime
 	local avgSubdivisions = totalCubesCreated / totalCells
-	--[[print(string.format("[CubeTerrainService] Generated %d terrain cubes from %d cells (avg %.1f cubes/cell) in %.2fs", 
-		totalCubesCreated, totalCells, avgSubdivisions, elapsed))]]
-	--[[print(string.format("[CubeTerrainService] Height range: %.1f to %.1f studs", 
-		CONFIG.MinHeightOffset, CONFIG.MaxHeightOffset))]]
 	
 	return totalCubesCreated
 end
@@ -543,6 +575,12 @@ end
 
 -- Get terrain surface height at world position (NO raycast - direct cube lookup)
 function CubeTerrainService:GetSurfaceHeightAt(worldX, worldZ)
+	-- Single part mode - return flat height
+	if CONFIG.UseSinglePart and self._terrainCubes["single"] then
+		local terrainPart = self._terrainCubes["single"]
+		return terrainPart.Position.Y + (terrainPart.Size.Y / 2)
+	end
+	
 	local cube = self:GetCubeAtWorldPosition(worldX, worldZ)
 	
 	if cube then
