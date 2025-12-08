@@ -10,11 +10,13 @@ local ServerServices = ServerStorage.Source.ServerServices
 local Level_1PlaceID = 93295390305658
 local LobbyPlaceID = 116406282300852
 local TestingPlaceID = 111394067928168
+local NewGamePlaceID = 110712408304598
 
 -- Define service directories based on game type
 local LobbyServices = ServerServices.LobbyServices
 local Level_1Services = ServerServices.Level_1Services
 local TestingServices = ServerServices.TestingServices
+local NewGameServices = ServerServices.NewGameServices
 
 -- Function to require services recursively
 local function requireServices(directory)
@@ -36,6 +38,8 @@ local function loadServicesForPlace(placeId)
         serviceDirectory = Level_1Services
     elseif placeId == TestingPlaceID then
         serviceDirectory = TestingServices
+    elseif placeId == NewGamePlaceID then
+        serviceDirectory = NewGameServices
     else
         warn("Unrecognized Place ID, no services loaded")
         return
