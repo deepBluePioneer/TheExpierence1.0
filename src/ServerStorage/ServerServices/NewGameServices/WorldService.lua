@@ -118,3 +118,4 @@ end
 
 return WorldService
 
+addcommand				
