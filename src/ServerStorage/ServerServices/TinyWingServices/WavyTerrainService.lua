@@ -41,17 +41,10 @@ local CONFIG = {
 	StepSize = 4,                   -- How often to sample height (smaller = smoother but slower)
 	BaseHeight = 50,                -- Base Y position of terrain (elevated so we can have valleys)
 	
-	-- Wave parameters for hill generation
-	-- Multiple sine waves are combined for natural-looking terrain
+	-- Wave parameters for hill generation - Pure sine wave
+	-- Single wave = perfectly uniform, gradual, rounded hills
 	Waves = {
-		-- Primary hills (large rolling hills) - the main "Tiny Wings" feel
-		{ Frequency = 0.012, Amplitude = 40, Phase = 0 },
-		-- Secondary hills (medium variation)
-		{ Frequency = 0.028, Amplitude = 20, Phase = 1.5 },
-		-- Tertiary detail (gentle bumps)
-		{ Frequency = 0.06, Amplitude = 10, Phase = 3.2 },
-		-- Micro detail (very subtle)
-		{ Frequency = 0.12, Amplitude = 4, Phase = 0.7 },
+		{ Frequency = 0.015, Amplitude = 40, Phase = 0 },      -- Single pure sine wave
 	},
 	
 	-- Terrain depth (how far below the surface to fill)

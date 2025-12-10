@@ -36,20 +36,18 @@ local CONFIG = {
 	GuideTransparency = 0.5,
 	GuideMaterial = Enum.Material.Neon,
 	
-	-- Guide physics (fake gravity & momentum)
-	-- Speed is in "spline units per second" (0-1 range over spline length)
-	GuideBaseSpeed = 0.15,                    -- Minimum speed (always moving forward)
-	GuideMaxSpeed = 0.8,                      -- Maximum speed
-	GuideGravity = 0.8,                       -- How much slope affects speed
-	GuideDiveBoost = 1.2,                     -- Extra speed boost when diving on downhill
-	GuideFriction = 0.992,                    -- Speed decay per frame (lower = more drag)
+	-- Guide physics (heightfield-based, world units)
+	GuideBaseSpeed = 15,                      -- Minimum horizontal speed (studs/sec)
+	GuideMaxSpeed = 150,                      -- Maximum horizontal speed
+	GuideSlopeAccel = 300,                    -- How slope affects horizontal acceleration
+	GuideDiveBoost = 600,                     -- Extra accel when diving on downhill (BOOSTED!)
+	GuideFriction = 0.995,                    -- Horizontal speed decay per frame
 	
-	-- Guide air/launch physics (more realistic)
-	GuideLaunchThreshold = 0.35,              -- Min speed to launch off hills
-	GuideLaunchMultiplier = 15,               -- How much speed converts to launch (lower = realistic)
-	GuideAirGravity = 60,                     -- Realistic gravity (higher = falls faster)
-	GuideAirDiveBoost = 40,                   -- Extra fall speed when diving in air
-	GuideMaxAirHeight = 25,                   -- Max height above spline (lower = realistic)
+	
+	-- Terrain bounds
+	GuideStartX = -200,                       -- Start of terrain
+	GuideEndX = 1800,                         -- End of terrain
+	GuideHeightOffset = 3,                    -- Height above terrain surface
 	
 	-- AlignPosition settings (pulls player toward guide)
 	AlignMaxForce = 500000,                   -- Max force to pull player (very strong!)
@@ -64,21 +62,17 @@ local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
 local ballService = nil
 local terrainController = nil
-local splineController = nil
+local splineController = nil  -- Keep for visualization only
 local myBall = nil
 local myGuide = nil
 local isDiving = false
 local isInAir = false
-local guideT = 0  -- Guide position on spline (0-1)
-local guideDirection = 1  -- 1 = forward, -1 = reverse
-local guideVelocity = 0.2  -- Current speed of guide (studs/sec), has momentum
-local guideInAir = false  -- Is guide currently airborne?
-local lastSlope = 0  -- Track slope for launch detection
 
--- Air trajectory (world position when airborne)
-local guideAirPos = Vector3.new(0, 0, 0)  -- World position while in air
-local guideAirVelX = 0  -- Horizontal velocity in air
-local guideAirVelY = 0  -- Vertical velocity in air
+-- Guide ball state (simple heightfield physics)
+local guideX = 0           -- World X position
+local guideY = 0           -- World Y position  
+local guideVX = 20         -- Horizontal velocity (studs/sec)
+local guideDirection = 1   -- 1 = forward, -1 = reverse
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
 -- ║                         INPUT HANDLING                                      ║
@@ -193,15 +187,16 @@ end
 -- ║                         CAMERA CONTROL                                      ║
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
-local function updateCamera(ball)
-	if not ball then return end
+local function updateCamera()
+	-- Follow the guide ball instead of player ball
+	if not myGuide then return end
 	
-	local ballPos = ball.Position
-	local targetPos = ballPos + CONFIG.CameraOffset
+	local guidePos = myGuide.Position
+	local targetPos = guidePos + CONFIG.CameraOffset
 	local currentPos = camera.CFrame.Position
 	local newPos = currentPos:Lerp(targetPos, CONFIG.CameraSmoothing)
 	
-	camera.CFrame = CFrame.new(newPos, ballPos)
+	camera.CFrame = CFrame.new(newPos, guidePos)
 end
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -267,160 +262,63 @@ function BallController:KnitStart()
 		
 		-- Update
 		if myBall and myBall.Parent then
-			-- Camera
-			updateCamera(myBall)
+			-- Camera follows guide ball
+			updateCamera()
 			
 			-- Check air state (for future use)
 			isInAir = checkIfInAir(myBall)
 			
-			-- Move guide sphere with PHYSICS (gravity, momentum, launch, air trajectory)
-			if myGuide and myGuide.Parent and splineController then
-				local splineLength = splineController:GetLength()
+			-- ═══════════════════════════════════════════════════════════════════════
+			-- GUIDE PHYSICS - Sub-stepped for smooth movement at any speed
+			-- ═══════════════════════════════════════════════════════════════════════
+			if myGuide and myGuide.Parent and terrainController then
+				-- Sub-step physics: more steps at higher speeds to prevent skipping
+				local maxStepDistance = 2  -- Maximum distance per substep (studs)
+				local frameDistance = guideVX * deltaTime
+				local numSteps = math.max(1, math.ceil(frameDistance / maxStepDistance))
+				local stepDelta = deltaTime / numSteps
 				
-				if splineLength > 0 then
+				for step = 1, numSteps do
+					-- Get terrain info at current position
+					local slope = terrainController:GetSlopeAtX(guideX) * guideDirection
 					
-					-- ═══════════════════════════════════════════════════════════
-					-- AIR PHYSICS - Follow ballistic trajectory (not spline!)
-					-- ═══════════════════════════════════════════════════════════
-					if guideInAir then
-						-- Apply gravity to Y velocity
-						guideAirVelY = guideAirVelY - (CONFIG.GuideAirGravity * deltaTime)
-						
-						-- Dive in air - press space to fall faster
+					-- Acceleration based on slope
+					local slopeAccel = 0
+					if slope < 0 then
+						-- Downhill: gain speed
+						slopeAccel = -slope * CONFIG.GuideSlopeAccel
 						if isDiving then
-							guideAirVelY = guideAirVelY - (CONFIG.GuideAirDiveBoost * deltaTime)
-						end
-						
-						-- Update world position based on velocity
-						guideAirPos = guideAirPos + Vector3.new(
-							guideAirVelX * deltaTime * guideDirection,
-							guideAirVelY * deltaTime,
-							0
-						)
-						
-						-- Cap max height
-						local splinePosAtX = splineController:GetPositionAtWorldX(guideAirPos.X)
-						local maxY = splinePosAtX and (splinePosAtX.Y + CONFIG.GuideMaxAirHeight) or (guideAirPos.Y)
-						if guideAirPos.Y > maxY then
-							guideAirPos = Vector3.new(guideAirPos.X, maxY, guideAirPos.Z)
-							guideAirVelY = 0
-						end
-						
-						-- Check if we've landed (guide Y below spline Y at current X)
-						if splinePosAtX then
-							if guideAirPos.Y <= splinePosAtX.Y then
-								-- LAND! Snap back to spline
-								guideInAir = false
-								
-								-- Update guideT to match where we landed
-								guideT = splineController:WorldXToSplineT(guideAirPos.X)
-								
-								-- Get landing slope to determine speed adjustment
-								local landingDerivative = splineController:GetDerivativeAt(guideT)
-								local landingSlope = 0
-								if landingDerivative then
-									landingSlope = landingDerivative.Unit.Y * guideDirection
-								end
-								
-								-- Simple landing: resume with stored velocity
-								-- Slight adjustment based on landing slope
-								if landingSlope < -0.1 then
-									-- Landing on downslope - small speed boost
-									guideVelocity = guideVelocity * 1.1
-								elseif landingSlope > 0.1 then
-									-- Landing on upslope - lose some speed
-									guideVelocity = guideVelocity * 0.85
-								end
-								-- Flat landing = no change
-								
-								guideVelocity = math.clamp(guideVelocity, CONFIG.GuideBaseSpeed, CONFIG.GuideMaxSpeed)
-								
-								guideAirVelX = 0
-								guideAirVelY = 0
-							end
-						end
-						
-						-- Set guide position to air trajectory position
-						myGuide.Position = guideAirPos
-						
-					-- ═══════════════════════════════════════════════════════════
-					-- GROUND PHYSICS - Follow spline
-					-- ═══════════════════════════════════════════════════════════
-					else
-						-- Get slope at current position
-						local derivative = splineController:GetDerivativeAt(guideT)
-						local slope = 0
-						if derivative then
-							local normalizedDir = derivative.Unit
-							slope = normalizedDir.Y * guideDirection
-						end
-						
-						-- Check for launch: need significant slope change AND high speed
-						local slopeChange = slope - lastSlope
-						-- Only launch if: big slope change, steep uphill, AND fast enough
-						local isLaunchRamp = slopeChange > 0.05 and slope > 0.15 and lastSlope < 0
-						
-						if isLaunchRamp and guideVelocity >= CONFIG.GuideLaunchThreshold then
-							-- LAUNCH! Start ballistic trajectory
-							local currentPos = splineController:GetPositionAt(guideT)
-							if currentPos then
-								guideInAir = true
-								guideAirPos = currentPos + Vector3.new(0, 0.5, 0)
-								
-								-- Convert spline velocity to world velocity (scaled down)
-								local worldSpeed = guideVelocity * splineLength * 0.05
-								guideAirVelX = worldSpeed
-								
-								-- Vertical launch based on speed and slope
-								local launchAngle = math.min(slope, 0.5)
-								guideAirVelY = worldSpeed * launchAngle * CONFIG.GuideLaunchMultiplier * 0.05
-								
-								guideVelocity = guideVelocity * 0.7
-							end
-						else
-							-- Normal ground physics (no launch)
-							local gravityAccel = -slope * CONFIG.GuideGravity
-							
-							-- Dive boost on ground - ONLY works on downhill or flat
-							if isDiving then
-								if slope <= 0 then
-									gravityAccel = gravityAccel + CONFIG.GuideDiveBoost * math.abs(slope + 0.5)
-								end
-							end
-							
-							guideVelocity = guideVelocity + (gravityAccel * deltaTime)
-							guideVelocity = guideVelocity * CONFIG.GuideFriction
-						end
-						
-						lastSlope = slope
-						
-						-- Clamp velocity
-						guideVelocity = math.clamp(guideVelocity, CONFIG.GuideBaseSpeed, CONFIG.GuideMaxSpeed)
-						
-						-- Advance along spline
-						local tIncrement = (guideVelocity * deltaTime) / splineLength
-						guideT = guideT + (tIncrement * guideDirection)
-						
-						-- Reverse direction at ends
-						if guideT >= 1 then
-							guideT = 1
-							guideDirection = -1
-							guideVelocity = CONFIG.GuideBaseSpeed
-							guideInAir = false
-						elseif guideT <= 0 then
-							guideT = 0
-							guideDirection = 1
-							guideVelocity = CONFIG.GuideBaseSpeed
-							guideInAir = false
-						end
-						
-						-- Get position from spline
-						local splinePos = splineController:GetPositionAt(guideT)
-						if splinePos then
-							myGuide.Position = splinePos
+							slopeAccel = slopeAccel + CONFIG.GuideDiveBoost
 						end
 					end
+					
+					-- Apply physics
+					guideVX = guideVX + slopeAccel * stepDelta
+					guideVX = guideVX * math.pow(CONFIG.GuideFriction, stepDelta * 60)
+					guideVX = math.clamp(guideVX, CONFIG.GuideBaseSpeed, CONFIG.GuideMaxSpeed)
+					
+					-- Move along terrain
+					guideX = guideX + guideVX * stepDelta * guideDirection
+					
+					-- Follow terrain surface
+					guideY = terrainController:GetHeightAtX(guideX) + CONFIG.GuideHeightOffset
+					
+					-- Bounds check - reverse at ends
+					if guideX >= CONFIG.GuideEndX then
+						guideX = CONFIG.GuideEndX
+						guideDirection = -1
+						guideVX = CONFIG.GuideBaseSpeed
+						break
+					elseif guideX <= CONFIG.GuideStartX then
+						guideX = CONFIG.GuideStartX
+						guideDirection = 1
+						guideVX = CONFIG.GuideBaseSpeed
+						break
+					end
 				end
+				
+				-- Update guide position
+				myGuide.Position = Vector3.new(guideX, guideY, 0)
 			end
 		else
 			myBall = nil
@@ -449,12 +347,14 @@ function BallController:KnitStart()
 						waited = waited + 0.2
 					end
 					
-					if splineController:GetLength() > 0 then
-						myGuide = createGuideSphere(myBall, ballModel)
-						print("[BallController] Guide sphere ready")
-					else
-						warn("[BallController] Spline not ready, guide disabled")
-					end
+					-- Initialize guide position at terrain start
+					guideX = CONFIG.GuideStartX + 50  -- Start a bit into the terrain
+					guideY = terrainController:GetHeightAtX(guideX) + CONFIG.GuideHeightOffset
+					guideVX = CONFIG.GuideBaseSpeed
+					guideOnGround = true
+					
+					myGuide = createGuideSphere(myBall, ballModel)
+					print("[BallController] Guide sphere ready (heightfield mode)")
 				end)
 			end
 			
@@ -481,30 +381,24 @@ function BallController:IsDiving()
 	return isDiving
 end
 
-function BallController:IsJumping()
-	return isJumping
-end
-
 function BallController:IsInAir()
 	return isInAir
 end
 
 function BallController:IsGuideInAir()
-	return guideInAir
+	return false  -- Guide always follows terrain now
 end
 
 function BallController:GetGuideAirHeight()
-	if guideInAir and splineController then
-		local splinePos = splineController:GetPositionAtWorldX(guideAirPos.X)
-		if splinePos then
-			return guideAirPos.Y - splinePos.Y
-		end
-	end
-	return 0
+	return 0  -- Guide always follows terrain now
 end
 
 function BallController:GetGuideVelocity()
-	return guideVelocity
+	return guideVX
+end
+
+function BallController:GetGuidePosition()
+	return Vector3.new(guideX, guideY, 0)
 end
 
 function BallController:SetCameraOffset(offset)

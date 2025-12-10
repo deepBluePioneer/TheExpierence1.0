@@ -27,12 +27,9 @@ local CONFIG = {
 	TerrainStart = -200,
 	BaseHeight = 50,
 	
-	-- Wave parameters (same as server)
+	-- Wave parameters (same as server) - Pure sine wave: uniform smooth hills
 	Waves = {
-		{ Frequency = 0.012, Amplitude = 40, Phase = 0 },
-		{ Frequency = 0.028, Amplitude = 20, Phase = 1.5 },
-		{ Frequency = 0.06, Amplitude = 10, Phase = 3.2 },
-		{ Frequency = 0.12, Amplitude = 4, Phase = 0.7 },
+		{ Frequency = 0.015, Amplitude = 40, Phase = 0 },      -- Single pure sine wave
 	},
 	
 	-- Seed for reproducible terrain
