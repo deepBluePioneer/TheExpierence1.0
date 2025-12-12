@@ -35,6 +35,10 @@ local HubService = Knit.CreateService {
 	
 	-- Player timers: { [player] = { timer = Timer, replica = Replica, startTime = number } }
 	_playerTimers = {},
+	
+	-- Track geometry for building collision avoidance
+	-- Each entry: { center = Vector3, halfSize = Vector3 } (axis-aligned bounding box)
+	_trackGeometry = {},
 }
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -139,6 +143,42 @@ local CONFIG = {
 	StartZoneSize = Vector3.new(120, 20, 5),     -- Wide wall at slide edge
 	StartZoneColor = Color3.fromRGB(100, 200, 255),
 	StartZoneTransparency = 0.7,
+	
+	-- Sky City Buildings (massive scale)
+	BuildingsEnabled = true,
+	BuildingsPerSlide = {8, 15},                 -- More buildings per slide
+	BuildingDistanceFromTrack = {150, 1000},     -- Can be closer now with collision detection
+	BuildingHeightRange = {400, 1200},           -- MASSIVE towers
+	BuildingWidthRange = {60, 200},              -- Wide buildings
+	BuildingBaseY = -500,                        -- All buildings extend down to this Y (deep below track)
+	TrackCollisionBuffer = 50,                   -- Extra buffer around track geometry
+	
+	-- Building styles
+	BuildingColors = {
+		Color3.fromRGB(35, 40, 50),      -- Dark steel
+		Color3.fromRGB(50, 55, 65),      -- Medium gray
+		Color3.fromRGB(40, 45, 60),      -- Blue-gray
+		Color3.fromRGB(55, 50, 48),      -- Warm gray
+		Color3.fromRGB(38, 42, 52),      -- Cool gray
+		Color3.fromRGB(60, 58, 55),      -- Light concrete
+		Color3.fromRGB(30, 35, 45),      -- Very dark
+		Color3.fromRGB(45, 48, 58),      -- Slate
+	},
+	BuildingMaterials = {
+		Enum.Material.SmoothPlastic,
+		Enum.Material.Concrete,
+		Enum.Material.Metal,
+		Enum.Material.DiamondPlate,
+	},
+	BuildingWindowChance = 0.8,                  -- More windows
+	BuildingWindowColor = Color3.fromRGB(150, 200, 255),
+	BuildingWindowSpacing = 25,                  -- Space between window rows
+	
+	-- Extra distant background buildings
+	BackgroundBuildingsEnabled = true,
+	BackgroundBuildingDistance = {800, 1500},    -- Very far away
+	BackgroundBuildingsPerSlide = {4, 8},
+	BackgroundBuildingScale = {1.5, 3},          -- Even larger scale multiplier
 }
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -172,6 +212,346 @@ local function getMachinePrefabs()
 	end
 	table.sort(prefabs, function(a, b) return a.Name < b.Name end)
 	return prefabs
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║                         TRACK GEOMETRY TRACKING                             ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- Store track geometry for collision detection
+local trackGeometry = {}  -- Module-level storage
+
+local function clearTrackGeometry()
+	trackGeometry = {}
+end
+
+-- Add a box to the track geometry (for platforms)
+local function addTrackBox(centerX, centerZ, halfWidth, halfDepth)
+	table.insert(trackGeometry, {
+		type = "box",
+		centerX = centerX,
+		centerZ = centerZ,
+		halfWidth = halfWidth + CONFIG.TrackCollisionBuffer,
+		halfDepth = halfDepth + CONFIG.TrackCollisionBuffer,
+	})
+end
+
+-- Add a line segment to the track geometry (for slides)
+local function addTrackSegment(startX, startZ, endX, endZ, width)
+	table.insert(trackGeometry, {
+		type = "segment",
+		startX = startX,
+		startZ = startZ,
+		endX = endX,
+		endZ = endZ,
+		halfWidth = width / 2 + CONFIG.TrackCollisionBuffer,
+	})
+end
+
+-- Check if a building position (with size) would collide with track geometry
+local function wouldCollideWithTrack(buildingX, buildingZ, buildingHalfWidth, buildingHalfDepth)
+	for _, geo in ipairs(trackGeometry) do
+		if geo.type == "box" then
+			-- Box vs Box collision (AABB)
+			local dx = math.abs(buildingX - geo.centerX)
+			local dz = math.abs(buildingZ - geo.centerZ)
+			local overlapX = (buildingHalfWidth + geo.halfWidth) - dx
+			local overlapZ = (buildingHalfDepth + geo.halfDepth) - dz
+			
+			if overlapX > 0 and overlapZ > 0 then
+				return true  -- Collision!
+			end
+			
+		elseif geo.type == "segment" then
+			-- Point to line segment distance check
+			local segDirX = geo.endX - geo.startX
+			local segDirZ = geo.endZ - geo.startZ
+			local segLength = math.sqrt(segDirX * segDirX + segDirZ * segDirZ)
+			
+			if segLength > 0 then
+				-- Normalize segment direction
+				segDirX = segDirX / segLength
+				segDirZ = segDirZ / segLength
+				
+				-- Vector from segment start to building
+				local toPointX = buildingX - geo.startX
+				local toPointZ = buildingZ - geo.startZ
+				
+				-- Project onto segment
+				local projection = toPointX * segDirX + toPointZ * segDirZ
+				projection = math.clamp(projection, 0, segLength)
+				
+				-- Closest point on segment
+				local closestX = geo.startX + segDirX * projection
+				local closestZ = geo.startZ + segDirZ * projection
+				
+				-- Distance from building center to closest point
+				local distX = buildingX - closestX
+				local distZ = buildingZ - closestZ
+				local distance = math.sqrt(distX * distX + distZ * distZ)
+				
+				-- Check if within collision range
+				local collisionRadius = math.max(buildingHalfWidth, buildingHalfDepth) + geo.halfWidth
+				if distance < collisionRadius then
+					return true  -- Collision!
+				end
+			end
+		end
+	end
+	
+	return false  -- No collision
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║                         SKY CITY BUILDING GENERATOR                         ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- Create a massive skyscraper that extends from the base up
+local function createSkyscraper(xPos, zPos, topY, scaleMultiplier, parent)
+	scaleMultiplier = scaleMultiplier or 1
+	
+	-- Random building dimensions (scaled)
+	local baseWidth = math.random(CONFIG.BuildingWidthRange[1], CONFIG.BuildingWidthRange[2])
+	local width = baseWidth * scaleMultiplier
+	local depth = math.random(CONFIG.BuildingWidthRange[1], CONFIG.BuildingWidthRange[2]) * scaleMultiplier
+	
+	-- Building extends from CONFIG.BuildingBaseY up to topY (or higher)
+	local extraHeight = math.random(0, 200) * scaleMultiplier  -- Some buildings poke above track level
+	local buildingTopY = topY + extraHeight
+	local height = buildingTopY - CONFIG.BuildingBaseY
+	
+	-- Random style
+	local color = CONFIG.BuildingColors[math.random(1, #CONFIG.BuildingColors)]
+	local material = CONFIG.BuildingMaterials[math.random(1, #CONFIG.BuildingMaterials)]
+	
+	-- Create building model
+	local buildingModel = Instance.new("Model")
+	buildingModel.Name = "Skyscraper"
+	
+	-- Main tower (extends from base to top)
+	local tower = Instance.new("Part")
+	tower.Name = "Tower"
+	tower.Size = Vector3.new(width, height, depth)
+	tower.Position = Vector3.new(xPos, CONFIG.BuildingBaseY + height / 2, zPos)
+	tower.Color = color
+	tower.Material = material
+	tower.Anchored = true
+	tower.CanCollide = false
+	tower.CastShadow = true
+	tower.Parent = buildingModel
+	
+	-- Add window strips (glowing horizontal bands)
+	if math.random() < CONFIG.BuildingWindowChance then
+		local windowSpacing = CONFIG.BuildingWindowSpacing * scaleMultiplier
+		local windowRows = math.floor(height / windowSpacing)
+		
+		-- Limit windows on very tall buildings for performance
+		local maxWindows = 30
+		local windowStep = math.max(1, math.floor(windowRows / maxWindows))
+		
+		for row = windowStep, windowRows - 1, windowStep do
+			local windowY = CONFIG.BuildingBaseY + row * windowSpacing
+			local windowHeight = 4 * scaleMultiplier
+			
+			-- Front/back windows
+			for _, zOffset in ipairs({depth/2 + 1, -depth/2 - 1}) do
+				local window = Instance.new("Part")
+				window.Name = "Window"
+				window.Size = Vector3.new(width * 0.85, windowHeight, 2)
+				window.Position = Vector3.new(xPos, windowY, zPos + zOffset)
+				window.Color = CONFIG.BuildingWindowColor
+				window.Material = Enum.Material.Neon
+				window.Anchored = true
+				window.CanCollide = false
+				window.Transparency = 0.2
+				window.Parent = buildingModel
+			end
+			
+			-- Left/right windows
+			for _, xOffset in ipairs({width/2 + 1, -width/2 - 1}) do
+				local window = Instance.new("Part")
+				window.Name = "Window"
+				window.Size = Vector3.new(2, windowHeight, depth * 0.85)
+				window.Position = Vector3.new(xPos + xOffset, windowY, zPos)
+				window.Color = CONFIG.BuildingWindowColor
+				window.Material = Enum.Material.Neon
+				window.Anchored = true
+				window.CanCollide = false
+				window.Transparency = 0.2
+				window.Parent = buildingModel
+			end
+		end
+	end
+	
+	-- Rooftop structure
+	local roofWidth = width * 0.4
+	local roofHeight = math.random(20, 60) * scaleMultiplier
+	local roof = Instance.new("Part")
+	roof.Name = "Roof"
+	roof.Size = Vector3.new(roofWidth, roofHeight, roofWidth)
+	roof.Position = Vector3.new(xPos, buildingTopY + roofHeight / 2, zPos)
+	roof.Color = color:Lerp(Color3.new(0, 0, 0), 0.3)
+	roof.Material = material
+	roof.Anchored = true
+	roof.CanCollide = false
+	roof.Parent = buildingModel
+	
+	-- Antenna/spire on tall buildings
+	if math.random() < 0.5 then
+		local antennaHeight = math.random(30, 100) * scaleMultiplier
+		local antenna = Instance.new("Part")
+		antenna.Name = "Antenna"
+		antenna.Size = Vector3.new(4 * scaleMultiplier, antennaHeight, 4 * scaleMultiplier)
+		antenna.Position = Vector3.new(xPos, buildingTopY + roofHeight + antennaHeight / 2, zPos)
+		antenna.Color = Color3.fromRGB(80, 80, 90)
+		antenna.Material = Enum.Material.Metal
+		antenna.Anchored = true
+		antenna.CanCollide = false
+		antenna.Parent = buildingModel
+		
+		-- Warning light at top
+		local light = Instance.new("Part")
+		light.Name = "WarningLight"
+		light.Size = Vector3.new(6, 6, 6) * scaleMultiplier
+		light.Shape = Enum.PartType.Ball
+		light.Position = antenna.Position + Vector3.new(0, antennaHeight / 2 + 3, 0)
+		light.Color = Color3.fromRGB(255, 60, 60)
+		light.Material = Enum.Material.Neon
+		light.Anchored = true
+		light.CanCollide = false
+		light.Parent = buildingModel
+	end
+	
+	buildingModel.Parent = parent
+	return buildingModel
+end
+
+-- Generate sky city buildings along a slide path
+local function generateBuildingsAlongPath(startPos, endPos, trackY, direction, parent)
+	if not CONFIG.BuildingsEnabled then return end
+	
+	-- Get perpendicular direction for offsetting buildings to the sides
+	local perpendicular
+	if direction == "z+" or direction == "z-" then
+		perpendicular = Vector3.new(1, 0, 0)
+	else
+		perpendicular = Vector3.new(0, 0, 1)
+	end
+	
+	-- Main buildings
+	local numBuildings = math.random(CONFIG.BuildingsPerSlide[1], CONFIG.BuildingsPerSlide[2])
+	for i = 1, numBuildings do
+		local t = math.random() * 100 / 100
+		local pathPos = startPos:Lerp(endPos, t)
+		
+		local distance = math.random(CONFIG.BuildingDistanceFromTrack[1], CONFIG.BuildingDistanceFromTrack[2])
+		local side = math.random() < 0.5 and 1 or -1
+		local offset = perpendicular * distance * side
+		
+		createSkyscraper(
+			pathPos.X + offset.X,
+			pathPos.Z + offset.Z,
+			trackY + math.random(-50, 150),
+			1,
+			parent
+		)
+	end
+	
+	-- Background buildings (farther, larger)
+	if CONFIG.BackgroundBuildingsEnabled then
+		local numBackground = math.random(CONFIG.BackgroundBuildingsPerSlide[1], CONFIG.BackgroundBuildingsPerSlide[2])
+		for i = 1, numBackground do
+			local t = math.random() * 100 / 100
+			local pathPos = startPos:Lerp(endPos, t)
+			
+			local side = math.random() < 0.5 and 1 or -1
+			local distance = math.random(CONFIG.BackgroundBuildingDistance[1], CONFIG.BackgroundBuildingDistance[2])
+			local offset = perpendicular * distance * side
+			
+			local scale = CONFIG.BackgroundBuildingScale[1] + math.random() * (CONFIG.BackgroundBuildingScale[2] - CONFIG.BackgroundBuildingScale[1])
+			
+			createSkyscraper(
+				pathPos.X + offset.X,
+				pathPos.Z + offset.Z,
+				trackY + math.random(-100, 300),
+				scale,
+				parent
+			)
+		end
+	end
+end
+
+-- Remove buildings that intersect with track or each other
+local function removeCollidingBuildings(hubFolder)
+	local buildingsFolder = hubFolder:FindFirstChild("Buildings")
+	if not buildingsFolder then
+		-- Create buildings folder and move all skyscrapers into it
+		buildingsFolder = Instance.new("Folder")
+		buildingsFolder.Name = "Buildings"
+		buildingsFolder.Parent = hubFolder
+		
+		for _, child in ipairs(hubFolder:GetChildren()) do
+			if child:IsA("Model") and child.Name == "Skyscraper" then
+				child.Parent = buildingsFolder
+			end
+		end
+	end
+	
+	local buildings = buildingsFolder:GetChildren()
+	local toRemove = {}
+	
+	-- Check each building against track geometry and other buildings
+	for i, building in ipairs(buildings) do
+		local tower = building:FindFirstChild("Tower")
+		if tower then
+			local pos = tower.Position
+			local halfWidth = tower.Size.X / 2
+			local halfDepth = tower.Size.Z / 2
+			
+			-- Check against track
+			if wouldCollideWithTrack(pos.X, pos.Z, halfWidth, halfDepth) then
+				toRemove[building] = true
+			else
+				-- Check against other buildings (only check buildings with higher index to avoid double-checking)
+				for j = i + 1, #buildings do
+					local otherBuilding = buildings[j]
+					if not toRemove[otherBuilding] then
+						local otherTower = otherBuilding:FindFirstChild("Tower")
+						if otherTower then
+							local otherPos = otherTower.Position
+							local otherHalfWidth = otherTower.Size.X / 2
+							local otherHalfDepth = otherTower.Size.Z / 2
+							
+							-- AABB collision check
+							local dx = math.abs(pos.X - otherPos.X)
+							local dz = math.abs(pos.Z - otherPos.Z)
+							local overlapX = (halfWidth + otherHalfWidth) - dx
+							local overlapZ = (halfDepth + otherHalfDepth) - dz
+							
+							if overlapX > 0 and overlapZ > 0 then
+								-- Collision! Remove the smaller building
+								if tower.Size.X * tower.Size.Z < otherTower.Size.X * otherTower.Size.Z then
+									toRemove[building] = true
+								else
+									toRemove[otherBuilding] = true
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+	
+	-- Remove colliding buildings
+	local removedCount = 0
+	for building, _ in pairs(toRemove) do
+		building:Destroy()
+		removedCount = removedCount + 1
+	end
+	
+	local remainingCount = #buildingsFolder:GetChildren()
+	print(string.format("[HubService] Removed %d colliding buildings, %d remaining", removedCount, remainingCount))
 end
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -425,6 +805,15 @@ local function generateWavySlide(params)
 	
 	print(string.format("[HubService] Generated %d segments + %d rail segments for %s", numSegments, numRailSegments * 2, name))
 	
+	-- Register slide as a track segment for building collision avoidance
+	addTrackSegment(
+		startPos.X,
+		startPos.Z,
+		endPos.X,
+		endPos.Z,
+		width
+	)
+	
 	-- Return the TOP surface Y (add back thickness offset) for platform placement
 	return {
 		endPos = endPos,
@@ -446,6 +835,9 @@ function HubService:CreateHub()
 	self._hubFolder.Name = "Hub"
 	self._hubFolder.Parent = Workspace
 	
+	-- Clear track geometry for fresh collision detection
+	clearTrackGeometry()
+	
 	-- ══════════════════════════════════════════════════════════════════════
 	-- 1. START PLATFORM (where players spawn and machines wait)
 	-- ══════════════════════════════════════════════════════════════════════
@@ -460,6 +852,14 @@ function HubService:CreateHub()
 	
 	local startPlatformTopY = CONFIG.StartPlatformPosition.Y + CONFIG.StartPlatformSize.Y / 2
 	local startPlatformFrontZ = CONFIG.StartPlatformPosition.Z + CONFIG.StartPlatformSize.Z / 2
+	
+	-- Register start platform in track geometry
+	addTrackBox(
+		CONFIG.StartPlatformPosition.X,
+		CONFIG.StartPlatformPosition.Z,
+		CONFIG.StartPlatformSize.X / 2,
+		CONFIG.StartPlatformSize.Z / 2
+	)
 	
 	-- Start platform rails (on sides without slides - back, left, right)
 	local startRailY = startPlatformTopY + CONFIG.RailHeight / 2
@@ -636,6 +1036,15 @@ function HubService:CreateHub()
 		
 		lastSlideResult = slideResult
 		
+		-- Generate floating buildings along this slide
+		generateBuildingsAlongPath(
+			currentPos, 
+			slideResult.endPos, 
+			(currentTopY + slideResult.endY) / 2,  -- Average height
+			currentDirection, 
+			self._hubFolder
+		)
+		
 		print(string.format("[HubService] Slide %d: %s %s, %d studs, Y: %.0f -> %.0f", 
 			i, slideType, currentDirection, slideLength, currentTopY, slideResult.endY))
 		
@@ -657,6 +1066,14 @@ function HubService:CreateHub()
 			platformColor,
 			CONFIG.PlatformMaterial,
 			self._hubFolder
+		)
+		
+		-- Register intermediate platform in track geometry
+		addTrackBox(
+			platformPos.X,
+			platformPos.Z,
+			CONFIG.MiddlePlatformSize / 2,
+			CONFIG.MiddlePlatformSize / 2
 		)
 		
 		-- Pick random direction for next slide (excluding where we came from)
@@ -993,6 +1410,10 @@ function HubService:KnitStart()
 		task.wait(0.5)
 		
 		self:CreateHub()
+		
+		-- Remove any buildings that collide with track or each other
+		removeCollidingBuildings(self._hubFolder)
+		
 		self:SpawnMachinesOnEdge()
 		
 		print("[HubService] Hub ready! Players spawn behind machines, ride down the slide!")
