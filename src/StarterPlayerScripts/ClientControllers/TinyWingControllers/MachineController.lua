@@ -29,50 +29,250 @@ local MachineController = Knit.CreateController {
 -- ║                         CONFIGURATION                                       ║
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
-local CONFIG = {
+-- Default handling values (applied when no vehicle profile matches)
+local DEFAULT_CONFIG = {
 	-- Movement speeds
-	BaseMoveSpeed = 80,          -- Base movement speed (studs/sec)
-	BaseTurnSpeed = 3,           -- Base turn speed (rad/sec)
-	BoostMultiplier = 1.5,       -- Speed multiplier when boosting
+	BaseMoveSpeed = 80,
+	BaseTurnSpeed = 3,
+	BoostMultiplier = 1.5,
 	
 	-- Physics tuning
-	AccelerationTime = 0.3,      -- Time to reach full speed
-	DecelerationTime = 0.5,      -- Time to stop
+	AccelerationTime = 0.3,
+	DecelerationTime = 0.5,
 	
-	-- Surface alignment (uses GroundSensor's HitNormal)
-	AlignToSurface = true,       -- Align machine to surface normal
-	AlignmentSpeed = 8,          -- How fast to align when grounded (higher = snappier)
-	LandingAlignmentSpeed = 3,   -- Slower alignment when landing (smoother transition)
-	LandingSmoothTime = 0.5,     -- How long to use landing speed after touching ground
+	-- Surface alignment
+	AlignToSurface = true,
+	AlignmentSpeed = 8,
+	LandingAlignmentSpeed = 3,
+	LandingSmoothTime = 0.5,
 	
-	-- Air arc alignment (align to velocity trajectory when airborne)
-	ArcAlignmentEnabled = true,  -- Align to velocity arc when in air
-	ArcAlignmentSpeed = 5,       -- How fast to align to arc (lower = smoother)
-	MinArcSpeed = 10,            -- Minimum speed to apply arc alignment
+	-- Air arc alignment
+	ArcAlignmentEnabled = true,
+	ArcAlignmentSpeed = 5,
+	MinArcSpeed = 10,
 	
-	-- ════════════════════════════════════════════════════════════════════
-	-- TWO-SEGMENT POGO SUSPENSION (Tiny Wings style)
-	-- ════════════════════════════════════════════════════════════════════
-	-- Segment 1: Fixed hover offset (rigid, never changes)
-	HoverHeight = 3,             -- Fixed visual height above terrain (studs)
-	
-	-- Segment 2: Dynamic spring (compresses/extends)
-	SpringStiffness = 10,       -- Spring force multiplier (lower = softer/bouncier)
-	SpringDamping = 20,          -- Damping to prevent oscillation (lower = more bounce)
-	SpringRestLength = 30,        -- Rest length of spring segment
-	MaxSpringExtension = 1,      -- Max extension before "airborne" (no force)
+	-- Suspension
+	HoverHeight = 3,
+	SpringStiffness = 10,
+	SpringDamping = 20,
+	SpringRestLength = 30,
+	MaxSpringExtension = 1,
 	
 	-- Dive mechanics
-	DiveDownforce = 500,         -- Extra downward force when diving
-	DiveStiffnessMultiplier = 1.5, -- Spring gets stiffer when diving (slams harder)
+	DiveDownforce = 500,
+	DiveStiffnessMultiplier = 1.5,
 	
-	-- Debug visualization
-	DebugMode = false,           -- Print debug info
-	DebugGizmos = true,          -- Draw suspension gizmos with imgizmo
-	
-	-- World settings when driving
-	DrivingGravity = 100,        -- Workspace gravity when in machine
+	-- World settings
+	DrivingGravity = 100,
 }
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║                    VEHICLE PROFILES (Unique Handling)                       ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+-- Each vehicle can have custom handling. Values override DEFAULT_CONFIG.
+-- Vehicle name should match the model name in ReplicatedStorage.Prefabs.Machines
+
+local VEHICLE_PROFILES = {
+	-- ═══════════════════════════════════════════════════════════════════════
+	-- MACHINE 1 - Balanced Starter
+	-- ═══════════════════════════════════════════════════════════════════════
+	["machine_1"] = {
+		Name = "Starter",
+		Description = "Well-balanced. Perfect for beginners.",
+		
+		BaseMoveSpeed = 80,
+		BaseTurnSpeed = 3,
+		BoostMultiplier = 1.5,
+		
+		HoverHeight = 3,
+		SpringStiffness = 12,
+		SpringDamping = 22,
+		
+		DiveDownforce = 500,
+	},
+	
+	-- ═══════════════════════════════════════════════════════════════════════
+	-- MACHINE 3 - Speeder (Fast & Agile)
+	-- ═══════════════════════════════════════════════════════════════════════
+	["machine_3"] = {
+		Name = "Speeder",
+		Description = "Fast and nimble. Light suspension for quick response.",
+		
+		BaseMoveSpeed = 120,
+		BaseTurnSpeed = 4,
+		BoostMultiplier = 1.8,
+		AccelerationTime = 0.2,
+		
+		HoverHeight = 2.5,
+		SpringStiffness = 15,
+		SpringDamping = 25,
+		
+		DiveDownforce = 400,
+		ArcAlignmentSpeed = 7,
+	},
+	
+	-- ═══════════════════════════════════════════════════════════════════════
+	-- MACHINE 5 - Tank (Heavy & Bouncy)
+	-- ═══════════════════════════════════════════════════════════════════════
+	["machine_5"] = {
+		Name = "Tank",
+		Description = "Heavy and powerful. Bouncy suspension, slow but strong.",
+		
+		BaseMoveSpeed = 60,
+		BaseTurnSpeed = 2,
+		BoostMultiplier = 1.3,
+		AccelerationTime = 0.5,
+		DecelerationTime = 0.8,
+		
+		HoverHeight = 4,
+		SpringStiffness = 6,
+		SpringDamping = 12,
+		SpringRestLength = 35,
+		
+		DiveDownforce = 800,
+		DiveStiffnessMultiplier = 2,
+		ArcAlignmentSpeed = 3,
+		
+		DrivingGravity = 120,
+	},
+	
+	-- ═══════════════════════════════════════════════════════════════════════
+	-- MACHINE 7 - Glider (Floaty Air Control)
+	-- ═══════════════════════════════════════════════════════════════════════
+	["machine_7"] = {
+		Name = "Glider",
+		Description = "Floaty with excellent air control. Low gravity feel.",
+		
+		BaseMoveSpeed = 75,
+		BaseTurnSpeed = 3.5,
+		BoostMultiplier = 1.4,
+		
+		HoverHeight = 3.5,
+		SpringStiffness = 8,
+		SpringDamping = 15,
+		MaxSpringExtension = 2,
+		
+		DiveDownforce = 300,
+		ArcAlignmentSpeed = 8,
+		MinArcSpeed = 5,
+		
+		DrivingGravity = 70,
+	},
+	
+	-- ═══════════════════════════════════════════════════════════════════════
+	-- MACHINE 8 - Racer (Pure Speed)
+	-- ═══════════════════════════════════════════════════════════════════════
+	["machine_8"] = {
+		Name = "Racer",
+		Description = "Built for speed. Stiff suspension, precise control.",
+		
+		BaseMoveSpeed = 140,
+		BaseTurnSpeed = 3.5,
+		BoostMultiplier = 2.0,
+		AccelerationTime = 0.15,
+		
+		HoverHeight = 2,
+		SpringStiffness = 20,
+		SpringDamping = 30,
+		SpringRestLength = 25,
+		
+		DiveDownforce = 600,
+		AlignmentSpeed = 12,
+		ArcAlignmentSpeed = 10,
+		
+		DrivingGravity = 110,
+	},
+	
+	-- ═══════════════════════════════════════════════════════════════════════
+	-- MACHINE 10 - Bouncer (Super Bouncy)
+	-- ═══════════════════════════════════════════════════════════════════════
+	["machine_10"] = {
+		Name = "Bouncer",
+		Description = "Super bouncy! Hard to control but fun.",
+		
+		BaseMoveSpeed = 70,
+		BaseTurnSpeed = 4,
+		BoostMultiplier = 1.6,
+		
+		HoverHeight = 4,
+		SpringStiffness = 4,
+		SpringDamping = 5,
+		SpringRestLength = 40,
+		MaxSpringExtension = 0.5,
+		
+		DiveDownforce = 700,
+		DiveStiffnessMultiplier = 2.5,
+		ArcAlignmentSpeed = 4,
+		
+		DrivingGravity = 90,
+	},
+	
+	-- ═══════════════════════════════════════════════════════════════════════
+	-- MACHINE 12 - Drifter (Loose Handling)
+	-- ═══════════════════════════════════════════════════════════════════════
+	["machine_12"] = {
+		Name = "Drifter",
+		Description = "Loose handling. Slides through turns, great for tricks.",
+		
+		BaseMoveSpeed = 95,
+		BaseTurnSpeed = 5,
+		BoostMultiplier = 1.7,
+		AccelerationTime = 0.25,
+		DecelerationTime = 0.7,
+		
+		HoverHeight = 3,
+		SpringStiffness = 9,
+		SpringDamping = 14,
+		
+		DiveDownforce = 550,
+		ArcAlignmentSpeed = 6,
+		
+		DrivingGravity = 95,
+	},
+}
+
+-- Active config (merged DEFAULT + current vehicle profile)
+local CONFIG = {}
+for k, v in pairs(DEFAULT_CONFIG) do
+	CONFIG[k] = v
+end
+
+-- Debug visualization (always from default, not per-vehicle)
+CONFIG.DebugMode = false
+CONFIG.DebugGizmos = true
+
+-- Current vehicle profile name
+local currentVehicleProfile = "Default"
+
+-- Function to apply a vehicle profile
+local function applyVehicleProfile(vehicleName)
+	-- Reset to defaults first
+	for k, v in pairs(DEFAULT_CONFIG) do
+		CONFIG[k] = v
+	end
+	
+	-- Find matching profile
+	local profile = VEHICLE_PROFILES[vehicleName]
+	if profile then
+		-- Apply profile overrides
+		for k, v in pairs(profile) do
+			if k ~= "Name" and k ~= "Description" then
+				CONFIG[k] = v
+			end
+		end
+		currentVehicleProfile = profile.Name or vehicleName
+		print(string.format("[MachineController] Applied vehicle profile: %s - %s", 
+			currentVehicleProfile, profile.Description or ""))
+	else
+		currentVehicleProfile = "Default"
+		print(string.format("[MachineController] No profile for '%s', using defaults", vehicleName))
+	end
+	
+	-- Apply gravity immediately if in a machine
+	if currentMachine then
+		Workspace.Gravity = CONFIG.DrivingGravity
+	end
+end
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
 -- ║                         STATE                                               ║
@@ -101,6 +301,23 @@ local lastGroundDistance = CONFIG.SpringRestLength  -- For velocity calculation
 local isAirborne = false                             -- True when spring fully extended
 local wasAirborne = false                            -- Previous frame's airborne state
 local landingTimer = 0                               -- Time since landing (for smooth transition)
+
+-- Crystal particle settings (synced with server)
+local crystalParticleSettings = {
+	BurstSize = 6,
+	BurstLifetimeMin = 1.5,
+	BurstLifetimeMax = 3,
+	BurstSpeed = 50,
+	BurstCount = 35,
+	BurstGravity = -20,
+	BurstDrag = 1.5,
+	GlowSize = 10,
+	GlowLifetimeMin = 1,
+	GlowLifetimeMax = 2,
+	GlowSpeed = 25,
+	GlowCount = 15,
+}
+local hubService = nil  -- Will be set in KnitStart
 
 -- World state (saved when entering machine)
 local originalGravity = 196.2                        -- Default Roblox gravity
@@ -182,6 +399,10 @@ end
 
 local function setupMachine(machine)
 	currentMachine = machine
+	
+	-- Apply vehicle-specific handling profile based on machine name
+	local machineName = machine.Name
+	applyVehicleProfile(machineName)
 	
 	-- Find ControllerManager
 	controllerManager = machine:FindFirstChild("ControllerManager")
@@ -536,6 +757,20 @@ end
 function MachineController:KnitStart()
 	print("[MachineController] Started")
 	
+	-- Get HubService for crystal particle settings
+	hubService = Knit.GetService("HubService")
+	
+	-- Fetch initial crystal particle settings from server
+	task.spawn(function()
+		local success, settings = pcall(function()
+			return hubService:GetCrystalParticleSettings()
+		end)
+		if success and settings then
+			crystalParticleSettings = settings
+			print("[MachineController] Loaded crystal particle settings from server")
+		end
+	end)
+	
 	-- Input listeners
 	UserInputService.InputBegan:Connect(onInputBegan)
 	UserInputService.InputEnded:Connect(onInputEnded)
@@ -697,6 +932,88 @@ function MachineController:KnitStart()
 		
 		Iris.End() -- Tree
 		
+		-- Crystal Particle Settings
+		Iris.Tree({"✨ Crystal Particles"})
+		
+		Iris.Text({"Burst Particles:"})
+		
+		local burstSize = Iris.SliderNum({"Burst Size", 0.5, 1, 20}, {number = crystalParticleSettings.BurstSize})
+		if burstSize.numberChanged() then
+			crystalParticleSettings.BurstSize = burstSize.number.value
+			hubService:UpdateCrystalParticleSettings({BurstSize = burstSize.number.value})
+		end
+		
+		local burstLifeMin = Iris.SliderNum({"Lifetime Min", 0.1, 0.1, 10}, {number = crystalParticleSettings.BurstLifetimeMin})
+		if burstLifeMin.numberChanged() then
+			crystalParticleSettings.BurstLifetimeMin = burstLifeMin.number.value
+			hubService:UpdateCrystalParticleSettings({BurstLifetimeMin = burstLifeMin.number.value})
+		end
+		
+		local burstLifeMax = Iris.SliderNum({"Lifetime Max", 0.1, 0.1, 10}, {number = crystalParticleSettings.BurstLifetimeMax})
+		if burstLifeMax.numberChanged() then
+			crystalParticleSettings.BurstLifetimeMax = burstLifeMax.number.value
+			hubService:UpdateCrystalParticleSettings({BurstLifetimeMax = burstLifeMax.number.value})
+		end
+		
+		local burstSpeed = Iris.SliderNum({"Burst Speed", 5, 5, 200}, {number = crystalParticleSettings.BurstSpeed})
+		if burstSpeed.numberChanged() then
+			crystalParticleSettings.BurstSpeed = burstSpeed.number.value
+			hubService:UpdateCrystalParticleSettings({BurstSpeed = burstSpeed.number.value})
+		end
+		
+		local burstCount = Iris.SliderNum({"Burst Count", 1, 1, 100}, {number = crystalParticleSettings.BurstCount})
+		if burstCount.numberChanged() then
+			crystalParticleSettings.BurstCount = math.floor(burstCount.number.value)
+			hubService:UpdateCrystalParticleSettings({BurstCount = math.floor(burstCount.number.value)})
+		end
+		
+		local burstGravity = Iris.SliderNum({"Gravity", 5, -100, 100}, {number = crystalParticleSettings.BurstGravity})
+		if burstGravity.numberChanged() then
+			crystalParticleSettings.BurstGravity = burstGravity.number.value
+			hubService:UpdateCrystalParticleSettings({BurstGravity = burstGravity.number.value})
+		end
+		
+		local burstDrag = Iris.SliderNum({"Drag", 0.1, 0, 10}, {number = crystalParticleSettings.BurstDrag})
+		if burstDrag.numberChanged() then
+			crystalParticleSettings.BurstDrag = burstDrag.number.value
+			hubService:UpdateCrystalParticleSettings({BurstDrag = burstDrag.number.value})
+		end
+		
+		Iris.Separator()
+		Iris.Text({"Glow Particles:"})
+		
+		local glowSize = Iris.SliderNum({"Glow Size", 0.5, 1, 30}, {number = crystalParticleSettings.GlowSize})
+		if glowSize.numberChanged() then
+			crystalParticleSettings.GlowSize = glowSize.number.value
+			hubService:UpdateCrystalParticleSettings({GlowSize = glowSize.number.value})
+		end
+		
+		local glowLifeMin = Iris.SliderNum({"Glow Life Min", 0.1, 0.1, 10}, {number = crystalParticleSettings.GlowLifetimeMin})
+		if glowLifeMin.numberChanged() then
+			crystalParticleSettings.GlowLifetimeMin = glowLifeMin.number.value
+			hubService:UpdateCrystalParticleSettings({GlowLifetimeMin = glowLifeMin.number.value})
+		end
+		
+		local glowLifeMax = Iris.SliderNum({"Glow Life Max", 0.1, 0.1, 10}, {number = crystalParticleSettings.GlowLifetimeMax})
+		if glowLifeMax.numberChanged() then
+			crystalParticleSettings.GlowLifetimeMax = glowLifeMax.number.value
+			hubService:UpdateCrystalParticleSettings({GlowLifetimeMax = glowLifeMax.number.value})
+		end
+		
+		local glowSpeed = Iris.SliderNum({"Glow Speed", 1, 5, 100}, {number = crystalParticleSettings.GlowSpeed})
+		if glowSpeed.numberChanged() then
+			crystalParticleSettings.GlowSpeed = glowSpeed.number.value
+			hubService:UpdateCrystalParticleSettings({GlowSpeed = glowSpeed.number.value})
+		end
+		
+		local glowCount = Iris.SliderNum({"Glow Count", 1, 1, 50}, {number = crystalParticleSettings.GlowCount})
+		if glowCount.numberChanged() then
+			crystalParticleSettings.GlowCount = math.floor(glowCount.number.value)
+			hubService:UpdateCrystalParticleSettings({GlowCount = math.floor(glowCount.number.value)})
+		end
+		
+		Iris.End() -- Tree
+		
 		-- Debug Toggles
 		Iris.Separator()
 		
@@ -727,6 +1044,16 @@ function MachineController:KnitStart()
 		end
 		if inputState.boost then
 			Iris.Text({"💨 BOOSTING"})
+		end
+		
+		-- Vehicle Profile Info
+		Iris.Separator()
+		Iris.Text({string.format("🚗 Vehicle: %s", currentVehicleProfile)})
+		
+		-- Show profile stats comparison
+		local profile = VEHICLE_PROFILES[currentVehicleProfile]
+		if profile and profile.Description then
+			Iris.Text({profile.Description})
 		end
 		
 		Iris.End() -- Window

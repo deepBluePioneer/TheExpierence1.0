@@ -39,6 +39,13 @@ local HubService = Knit.CreateService {
 	-- Track geometry for building collision avoidance
 	-- Each entry: { center = Vector3, halfSize = Vector3 } (axis-aligned bounding box)
 	_trackGeometry = {},
+	
+	-- Master collections for Powers system (togglable elements)
+	_collections = {
+		Crystals = nil,     -- Folder containing all crystals
+		Blockades = nil,    -- Folder containing all blockades
+		Rails = nil,        -- Folder containing all rails
+	},
 }
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -46,11 +53,19 @@ local HubService = Knit.CreateService {
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
 local CONFIG = {
-	-- Start platform (where players spawn)
-	StartPlatformSize = Vector3.new(100, 5, 60),
+	-- Start platform (where players spawn) - Enhanced design
+	StartPlatformSize = Vector3.new(120, 6, 80),
 	StartPlatformPosition = Vector3.new(0, 50, 0),
-	PlatformColor = Color3.fromRGB(80, 80, 90),
-	PlatformMaterial = Enum.Material.Concrete,
+	PlatformColor = Color3.fromRGB(45, 50, 60),           -- Darker base
+	PlatformMaterial = Enum.Material.SmoothPlastic,
+	
+	-- Start platform decorations
+	StartPlatformAccentColor = Color3.fromRGB(0, 200, 255),  -- Cyan accent
+	StartPlatformEdgeColor = Color3.fromRGB(60, 65, 75),     -- Lighter edge
+	StartPlatformGlowColor = Color3.fromRGB(0, 255, 200),    -- Teal glow
+	StartPlatformHasLights = true,
+	StartPlatformHasStripes = true,
+	StartPlatformHasEdgeTrim = true,
 	
 	-- Machine spawn area
 	MachineEdgeOffset = 25,
@@ -66,7 +81,7 @@ local CONFIG = {
 	-- Wavy Slide settings
 	SlideWidth = 120,
 	SlideColor = Color3.fromRGB(60, 180, 120),
-	SlideMaterial = Enum.Material.Grass,
+	SlideMaterial = Enum.Material.SmoothPlastic,  -- Clean, smooth look (alternatives: Glass, Neon, Ice, Foil)
 	SlideSegmentLength = 6,                      -- Smaller = smoother curves
 	SlideThickness = 4,
 	
@@ -144,6 +159,61 @@ local CONFIG = {
 	StartZoneColor = Color3.fromRGB(100, 200, 255),
 	StartZoneTransparency = 0.7,
 	
+	-- Blockades (obstacles on slides)
+	BlockadesEnabled = true,
+	BlockadesPerSlide = {2, 5},                  -- Min/max blockades per slide
+	BlockadeHeight = {15, 30},                   -- Min/max height of blockade
+	BlockadeWidth = {20, 50},                    -- Min/max width of blockade (across the slide)
+	BlockadeThickness = 6,                       -- How thick the blockade is
+	BlockadeMinSpacing = 100,                    -- Minimum distance between blockades
+	BlockadeEdgeBuffer = 30,                     -- How far from edges blockades can spawn
+	BlockadeColors = {
+		Color3.fromRGB(255, 80, 80),     -- Red warning
+		Color3.fromRGB(255, 150, 50),    -- Orange
+		Color3.fromRGB(80, 80, 90),      -- Dark metal
+		Color3.fromRGB(200, 50, 50),     -- Deep red
+	},
+	BlockadeMaterial = Enum.Material.DiamondPlate,
+	BlockadeHazardStripes = true,                -- Add yellow/black stripes
+	
+	-- Crystals (scattered collectibles/decorations)
+	CrystalsEnabled = true,
+	CrystalsPerSlide = {15, 30},                 -- Min/max crystals per slide
+	CrystalSize = {3, 8},                        -- Min/max size
+	CrystalHeight = 2,                           -- How high above slide surface
+	CrystalColors = {
+		Color3.fromRGB(0, 255, 200),     -- Cyan/teal
+		Color3.fromRGB(255, 100, 255),   -- Pink/magenta
+		Color3.fromRGB(100, 200, 255),   -- Light blue
+		Color3.fromRGB(255, 220, 50),    -- Gold
+		Color3.fromRGB(150, 255, 100),   -- Lime green
+		Color3.fromRGB(255, 150, 100),   -- Peach/orange
+		Color3.fromRGB(200, 150, 255),   -- Lavender
+	},
+	CrystalMaterial = Enum.Material.Neon,        -- Glowing crystals
+	CrystalTransparency = 0.3,                   -- Slightly transparent
+	CrystalClusterChance = 0.3,                  -- 30% chance to spawn as a cluster
+	CrystalClusterSize = {2, 4},                 -- Min/max crystals in a cluster
+	
+	-- Crystal Particle Effects (adjustable via Iris)
+	CrystalParticles = {
+		-- Main burst particles
+		BurstSize = 6,                   -- Starting size of sparkle particles
+		BurstLifetimeMin = 1.5,          -- Minimum lifetime
+		BurstLifetimeMax = 3,            -- Maximum lifetime
+		BurstSpeed = 50,                 -- Particle speed
+		BurstCount = 35,                 -- Number of particles
+		BurstGravity = -20,              -- Downward acceleration
+		BurstDrag = 1.5,                 -- Air resistance
+		
+		-- Glow particles
+		GlowSize = 10,                   -- Size of glow orbs
+		GlowLifetimeMin = 1,             -- Minimum lifetime
+		GlowLifetimeMax = 2,             -- Maximum lifetime
+		GlowSpeed = 25,                  -- Glow particle speed
+		GlowCount = 15,                  -- Number of glow particles
+	},
+	
 	-- Sky City Buildings (massive scale)
 	BuildingsEnabled = true,
 	BuildingsPerSlide = {8, 15},                 -- More buildings per slide
@@ -179,6 +249,18 @@ local CONFIG = {
 	BackgroundBuildingDistance = {800, 1500},    -- Very far away
 	BackgroundBuildingsPerSlide = {4, 8},
 	BackgroundBuildingScale = {1.5, 3},          -- Even larger scale multiplier
+	
+	-- Cloud formations (large sky coverage)
+	CloudsEnabled = true,
+	CloudsPerSlide = {10, 20},                   -- Many more clouds per slide
+	CloudHeight = {150, 800},                    -- Higher up in the sky
+	CloudDistance = {0, 1200},                   -- Can be anywhere, even over track
+	CloudFormationSpread = {30, 80},             -- How spread out spheres are in formation (tight blobs)
+	CloudSphereCount = {3, 6},                   -- Fewer spheres per blob (tight clusters)
+	CloudSphereSize = {80, 250},                 -- MUCH larger spheres
+	CloudColor = Color3.fromRGB(255, 255, 255),  -- White clouds
+	CloudTransparency = 0.4,                     -- Slightly more see-through
+	CloudMaterial = Enum.Material.SmoothPlastic, -- Soft look
 }
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -555,6 +637,557 @@ local function removeCollidingBuildings(hubFolder)
 end
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║                         CLOUD GENERATOR                                     ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- Create a single cloud formation made of overlapping spheres (tight blob)
+local function createCloudFormation(centerPosition, parent)
+	local cloudModel = Instance.new("Model")
+	cloudModel.Name = "CloudFormation"
+	
+	local numSpheres = math.random(CONFIG.CloudSphereCount[1], CONFIG.CloudSphereCount[2])
+	local spread = math.random(CONFIG.CloudFormationSpread[1], CONFIG.CloudFormationSpread[2])
+	
+	for i = 1, numSpheres do
+		local sphere = Instance.new("Part")
+		sphere.Name = "CloudSphere_" .. i
+		sphere.Shape = Enum.PartType.Ball
+		
+		-- Large random size for each sphere
+		local sphereSize = math.random(CONFIG.CloudSphereSize[1], CONFIG.CloudSphereSize[2])
+		sphere.Size = Vector3.new(sphereSize, sphereSize * 0.5, sphereSize)  -- Very flattened for cloud look
+		
+		-- Tight clustering - spheres overlap significantly
+		local offsetX = (math.random() - 0.5) * spread
+		local offsetY = (math.random() - 0.5) * spread * 0.3  -- Very little vertical spread
+		local offsetZ = (math.random() - 0.5) * spread
+		sphere.Position = centerPosition + Vector3.new(offsetX, offsetY, offsetZ)
+		
+		-- Cloud appearance
+		sphere.Color = CONFIG.CloudColor
+		sphere.Material = CONFIG.CloudMaterial
+		sphere.Transparency = CONFIG.CloudTransparency + math.random() * 0.15  -- Slight variation
+		sphere.Anchored = true
+		sphere.CanCollide = false
+		sphere.CanQuery = false
+		sphere.CanTouch = false
+		sphere.CastShadow = false  -- Clouds shouldn't cast harsh shadows
+		
+		sphere.Parent = cloudModel
+	end
+	
+	cloudModel.Parent = parent
+	return cloudModel
+end
+
+-- Generate clouds along a slide path
+local function generateCloudsAlongPath(startPos, endPos, trackY, direction, parent)
+	if not CONFIG.CloudsEnabled then return end
+	
+	-- Get perpendicular direction for offsetting clouds to the sides
+	local perpendicular
+	if direction == "z+" or direction == "z-" then
+		perpendicular = Vector3.new(1, 0, 0)
+	else
+		perpendicular = Vector3.new(0, 0, 1)
+	end
+	
+	-- Create clouds folder (clouds stay visible, not part of powers system)
+	local cloudsFolder = parent:FindFirstChild("Clouds")
+	if not cloudsFolder then
+		cloudsFolder = Instance.new("Folder")
+		cloudsFolder.Name = "Clouds"
+		cloudsFolder.Parent = parent
+	end
+	
+	local numClouds = math.random(CONFIG.CloudsPerSlide[1], CONFIG.CloudsPerSlide[2])
+	
+	for i = 1, numClouds do
+		-- Random position along path
+		local t = math.random() * 100 / 100
+		local pathPos = startPos:Lerp(endPos, t)
+		
+		-- Random distance and side (can be over track too)
+		local distance = math.random(CONFIG.CloudDistance[1], CONFIG.CloudDistance[2])
+		local side = math.random() < 0.5 and 1 or -1
+		local offset = perpendicular * distance * side
+		
+		-- Random height above track
+		local height = trackY + math.random(CONFIG.CloudHeight[1], CONFIG.CloudHeight[2])
+		
+		-- Cloud position
+		local cloudPos = Vector3.new(
+			pathPos.X + offset.X,
+			height,
+			pathPos.Z + offset.Z
+		)
+		
+		createCloudFormation(cloudPos, cloudsFolder)
+	end
+	
+	print(string.format("[HubService] Generated %d cloud formations", numClouds))
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║                         BLOCKADE GENERATOR                                  ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- Create a single blockade obstacle
+local function createBlockade(position, size, rotation, slideColor, parent)
+	local blockade = Instance.new("Model")
+	blockade.Name = "Blockade"
+	
+	-- Main blockade part
+	local mainPart = Instance.new("Part")
+	mainPart.Name = "BlockadeMain"
+	mainPart.Size = size
+	mainPart.CFrame = CFrame.new(position) * rotation
+	mainPart.Color = CONFIG.BlockadeColors[math.random(1, #CONFIG.BlockadeColors)]
+	mainPart.Material = CONFIG.BlockadeMaterial
+	mainPart.Anchored = true
+	mainPart.Parent = blockade
+	
+	-- Add hazard stripes if enabled
+	if CONFIG.BlockadeHazardStripes then
+		local stripeTexture = Instance.new("Texture")
+		stripeTexture.Name = "HazardStripes"
+		stripeTexture.Texture = "rbxassetid://6372755229"  -- Hazard stripes texture
+		stripeTexture.Face = Enum.NormalId.Front
+		stripeTexture.StudsPerTileU = 4
+		stripeTexture.StudsPerTileV = 4
+		stripeTexture.Parent = mainPart
+		
+		local stripeTexture2 = stripeTexture:Clone()
+		stripeTexture2.Face = Enum.NormalId.Back
+		stripeTexture2.Parent = mainPart
+	end
+	
+	-- Add warning light on top
+	local light = Instance.new("Part")
+	light.Name = "WarningLight"
+	light.Shape = Enum.PartType.Ball
+	light.Size = Vector3.new(4, 4, 4)
+	light.Position = position + Vector3.new(0, size.Y / 2 + 2, 0)
+	light.Color = Color3.fromRGB(255, 200, 0)
+	light.Material = Enum.Material.Neon
+	light.Anchored = true
+	light.CanCollide = false
+	light.Parent = blockade
+	
+	-- Add a base/support
+	local base = Instance.new("Part")
+	base.Name = "Base"
+	base.Size = Vector3.new(size.X + 4, 3, size.Z + 4)
+	base.CFrame = CFrame.new(position - Vector3.new(0, size.Y / 2 - 1, 0)) * rotation
+	base.Color = Color3.fromRGB(50, 50, 55)
+	base.Material = Enum.Material.Concrete
+	base.Anchored = true
+	base.Parent = blockade
+	
+	blockade.Parent = parent
+	return blockade
+end
+
+-- Generate blockades along a slide
+-- Returns the blockade positions so rails can avoid them (optional)
+local function generateBlockades(params)
+	if not CONFIG.BlockadesEnabled then return {} end
+	
+	local startPos = params.startPos
+	local startY = params.startY
+	local direction = params.direction
+	local length = params.length
+	local dropRate = params.dropRate
+	local width = params.width
+	local slideColor = params.color
+	local parent = params.parent
+	local getHeightFunc = params.getHeight  -- Function to get Y at distance
+	local getWidthFunc = params.getWidth    -- Function to get width at distance
+	
+	-- Direction vectors
+	local forwardVec, rightVec
+	if direction == "z+" then
+		forwardVec = Vector3.new(0, 0, 1)
+		rightVec = Vector3.new(1, 0, 0)
+	elseif direction == "z-" then
+		forwardVec = Vector3.new(0, 0, -1)
+		rightVec = Vector3.new(-1, 0, 0)
+	elseif direction == "x+" then
+		forwardVec = Vector3.new(1, 0, 0)
+		rightVec = Vector3.new(0, 0, -1)
+	elseif direction == "x-" then
+		forwardVec = Vector3.new(-1, 0, 0)
+		rightVec = Vector3.new(0, 0, 1)
+	end
+	
+	-- Rotation to face along the slide
+	local rotation = CFrame.Angles(0, math.atan2(forwardVec.X, forwardVec.Z), 0)
+	
+	-- Determine number of blockades
+	local numBlockades = math.random(CONFIG.BlockadesPerSlide[1], CONFIG.BlockadesPerSlide[2])
+	
+	-- Generate random positions along the slide (with minimum spacing)
+	local positions = {}
+	local usableLength = length - CONFIG.BlockadeEdgeBuffer * 2  -- Avoid edges
+	local attempts = 0
+	local maxAttempts = 50
+	
+	while #positions < numBlockades and attempts < maxAttempts do
+		attempts = attempts + 1
+		
+		-- Random distance along slide (avoiding edges)
+		local distance = CONFIG.BlockadeEdgeBuffer + math.random() * usableLength
+		
+		-- Check spacing from existing blockades
+		local tooClose = false
+		for _, existingDist in ipairs(positions) do
+			if math.abs(distance - existingDist) < CONFIG.BlockadeMinSpacing then
+				tooClose = true
+				break
+			end
+		end
+		
+		if not tooClose then
+			table.insert(positions, distance)
+		end
+	end
+	
+	-- Sort positions by distance
+	table.sort(positions)
+	
+	-- Get master blockades collection (or create local folder if not available)
+	local blockadeFolder = HubService._collections and HubService._collections.Blockades
+	if not blockadeFolder then
+		blockadeFolder = Instance.new("Folder")
+		blockadeFolder.Name = "Blockades"
+		blockadeFolder.Parent = parent
+	end
+	
+	for _, distance in ipairs(positions) do
+		-- Get Y position using the slide's height function
+		local y = getHeightFunc(distance) + CONFIG.SlideThickness / 2
+		
+		-- Get current width at this position
+		local currentWidth = getWidthFunc(distance)
+		
+		-- Random blockade dimensions
+		local blockadeHeight = math.random(CONFIG.BlockadeHeight[1], CONFIG.BlockadeHeight[2])
+		local blockadeWidth = math.random(CONFIG.BlockadeWidth[1], math.min(CONFIG.BlockadeWidth[2], currentWidth - 20))
+		blockadeWidth = math.max(blockadeWidth, CONFIG.BlockadeWidth[1])  -- Ensure minimum
+		
+		-- Random horizontal offset (can be left, center, or right of slide)
+		local maxOffset = (currentWidth - blockadeWidth) / 2 - 5
+		local horizontalOffset = math.random(-maxOffset, maxOffset)
+		
+		-- Calculate position
+		local basePos = Vector3.new(startPos.X, 0, startPos.Z) + forwardVec * distance
+		local pos = Vector3.new(
+			basePos.X + rightVec.X * horizontalOffset,
+			y + blockadeHeight / 2,
+			basePos.Z + rightVec.Z * horizontalOffset
+		)
+		
+		-- Create the blockade
+		createBlockade(
+			pos,
+			Vector3.new(blockadeWidth, blockadeHeight, CONFIG.BlockadeThickness),
+			rotation,
+			slideColor,
+			blockadeFolder
+		)
+	end
+	
+	print(string.format("[HubService] Generated %d blockades for slide", #positions))
+	return positions
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║                         CRYSTAL GENERATOR                                   ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- Create particle burst effect when crystal is collected (using prefab)
+local function createCrystalBurstEffect(position, color, collisionDirection)
+	print(string.format("[HubService] Crystal collected at (%.1f, %.1f, %.1f) - spawning particles!", position.X, position.Y, position.Z))
+	
+	-- Get the ParticleAttachment prefab from ReplicatedStorage
+	local prefabFolder = ReplicatedStorage:FindFirstChild("Prefabs")
+	if not prefabFolder then
+		warn("[HubService] Prefabs folder not found in ReplicatedStorage!")
+		return
+	end
+	
+	local particlePrefab = prefabFolder:FindFirstChild("ParticleAttachment")
+	if not particlePrefab then
+		warn("[HubService] ParticleAttachment prefab not found in Prefabs folder!")
+		return
+	end
+	
+	-- Create a temporary part to hold the attachment
+	local effectPart = Instance.new("Part")
+	effectPart.Name = "CrystalEffect"
+	effectPart.Size = Vector3.new(0.5, 0.5, 0.5)
+	effectPart.Position = position
+	effectPart.Transparency = 1
+	effectPart.Anchored = true
+	effectPart.CanCollide = false
+	effectPart.CanQuery = false
+	effectPart.CanTouch = false
+	effectPart.Parent = Workspace
+	
+	-- Clone the particle attachment prefab
+	local attachment = particlePrefab:Clone()
+	attachment.Parent = effectPart
+	
+	-- Orient attachment to face the collision direction
+	attachment.CFrame = CFrame.lookAt(Vector3.zero, collisionDirection)
+	
+	-- Update particle colors to match the crystal
+	for _, child in ipairs(attachment:GetDescendants()) do
+		if child:IsA("ParticleEmitter") then
+			-- Update color to crystal color
+			local originalColor = child.Color
+			if originalColor then
+				child.Color = ColorSequence.new({
+					ColorSequenceKeypoint.new(0, color),
+					ColorSequenceKeypoint.new(0.5, Color3.new(1, 1, 1)),
+					ColorSequenceKeypoint.new(1, color),
+				})
+			end
+			
+			-- Emit particles
+			local emitCount = child:GetAttribute("EmitCount") or 25
+			child:Emit(emitCount)
+		end
+	end
+	
+	-- Clean up after particles finish
+	local cleanupTime = 5  -- Default cleanup time
+	task.delay(cleanupTime, function()
+		effectPart:Destroy()
+	end)
+end
+
+-- Check if a part belongs to a player character or machine
+local function isPlayerOrMachine(part)
+	-- Check if it's part of a character
+	local character = part:FindFirstAncestorOfClass("Model")
+	if character then
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			return true, character
+		end
+		
+		-- Check if it's a machine (has ControllerManager)
+		local controllerManager = character:FindFirstChildOfClass("ControllerManager")
+		if controllerManager then
+			return true, character
+		end
+		
+		-- Check for RootPart in the name (machine root parts)
+		if part.Name == "RootPart" or part.Name == "HumanoidRootPart" then
+			return true, character
+		end
+	end
+	
+	return false, nil
+end
+
+-- Create a single crystal
+local function createCrystal(position, size, color, parent)
+	local crystal = Instance.new("Part")
+	crystal.Name = "Crystal"
+	crystal.Shape = Enum.PartType.Ball
+	crystal.Size = Vector3.new(size, size * 1.5, size)
+	crystal.Position = position
+	crystal.Color = color
+	crystal.Material = CONFIG.CrystalMaterial
+	crystal.Transparency = CONFIG.CrystalTransparency
+	crystal.Anchored = true
+	crystal.CanCollide = true   -- Need CanCollide for Touched to work reliably
+	crystal.CanQuery = true
+	crystal.CanTouch = true     -- Explicitly enable touch events
+	
+	-- Add a mesh to make it look like a crystal
+	local mesh = Instance.new("SpecialMesh")
+	mesh.MeshType = Enum.MeshType.Sphere
+	mesh.Scale = Vector3.new(0.6, 1.2, 0.6)
+	mesh.Parent = crystal
+	
+	-- Random rotation for variety
+	crystal.CFrame = CFrame.new(position) * CFrame.Angles(
+		math.rad(math.random(-15, 15)),
+		math.rad(math.random(0, 360)),
+		math.rad(math.random(-15, 15))
+	)
+	
+	-- Add a point light for glow effect
+	local light = Instance.new("PointLight")
+	light.Color = color
+	light.Brightness = 0.5
+	light.Range = size * 3
+	light.Parent = crystal
+	
+	-- Track if already collected (prevent double collection)
+	local collected = false
+	
+	-- Touch detection for collection
+	crystal.Touched:Connect(function(otherPart)
+		if collected then return end
+		
+		local isValid, model = isPlayerOrMachine(otherPart)
+		if isValid and model then
+			collected = true
+			
+			-- Find the root part for position and velocity
+			local rootPart = model:FindFirstChild("RootPart") or model:FindFirstChild("HumanoidRootPart")
+			local collisionDir = Vector3.new(1, 0.5, 0)  -- Default direction
+			local effectPosition = crystal.Position  -- Fallback to crystal position
+			
+			if rootPart then
+				-- Use machine/player position for the effect
+				effectPosition = rootPart.Position
+				
+				-- Direction based on player's velocity (where they're going)
+				local velocity = rootPart.AssemblyLinearVelocity
+				
+				if velocity.Magnitude > 1 then
+					-- Particles scatter in the direction of movement
+					collisionDir = velocity.Unit
+				else
+					-- If not moving, scatter upward and outward from crystal
+					collisionDir = (rootPart.Position - crystal.Position).Unit
+				end
+				
+				-- Add some upward bias for a satisfying arc
+				collisionDir = (collisionDir + Vector3.new(0, 0.5, 0)).Unit
+			end
+			
+			-- Store crystal color before destroying
+			local crystalColor = crystal.Color
+			
+			-- Create burst effect at the machine's position
+			task.spawn(function()
+				createCrystalBurstEffect(effectPosition, crystalColor, collisionDir)
+			end)
+			
+			-- Destroy the crystal
+			crystal:Destroy()
+		end
+	end)
+	
+	crystal.Parent = parent
+	return crystal
+end
+
+-- Create a cluster of crystals
+local function createCrystalCluster(centerPosition, baseSize, color, parent)
+	local clusterFolder = Instance.new("Model")
+	clusterFolder.Name = "CrystalCluster"
+	
+	local numCrystals = math.random(CONFIG.CrystalClusterSize[1], CONFIG.CrystalClusterSize[2])
+	
+	for i = 1, numCrystals do
+		local offsetX = math.random(-baseSize, baseSize)
+		local offsetZ = math.random(-baseSize, baseSize)
+		local offsetY = math.random(0, baseSize / 2)
+		
+		local crystalSize = baseSize * (0.5 + math.random() * 0.8)
+		local crystalPos = centerPosition + Vector3.new(offsetX, offsetY, offsetZ)
+		
+		-- Slightly vary the color for each crystal in cluster
+		local hue, sat, val = color:ToHSV()
+		local variedColor = Color3.fromHSV(
+			(hue + math.random(-5, 5) / 100) % 1,
+			math.clamp(sat + math.random(-10, 10) / 100, 0.3, 1),
+			math.clamp(val + math.random(-10, 10) / 100, 0.5, 1)
+		)
+		
+		createCrystal(crystalPos, crystalSize, variedColor, clusterFolder)
+	end
+	
+	clusterFolder.Parent = parent
+	return clusterFolder
+end
+
+-- Generate crystals scattered along a slide
+local function generateCrystals(params)
+	if not CONFIG.CrystalsEnabled then return end
+	
+	local startPos = params.startPos
+	local startY = params.startY
+	local direction = params.direction
+	local length = params.length
+	local width = params.width
+	local parent = params.parent
+	local getHeightFunc = params.getHeight
+	local getWidthFunc = params.getWidth
+	
+	-- Direction vectors
+	local forwardVec, rightVec
+	if direction == "z+" then
+		forwardVec = Vector3.new(0, 0, 1)
+		rightVec = Vector3.new(1, 0, 0)
+	elseif direction == "z-" then
+		forwardVec = Vector3.new(0, 0, -1)
+		rightVec = Vector3.new(-1, 0, 0)
+	elseif direction == "x+" then
+		forwardVec = Vector3.new(1, 0, 0)
+		rightVec = Vector3.new(0, 0, -1)
+	elseif direction == "x-" then
+		forwardVec = Vector3.new(-1, 0, 0)
+		rightVec = Vector3.new(0, 0, 1)
+	end
+	
+	-- Get master crystals collection (or create local folder if not available)
+	local crystalFolder = HubService._collections and HubService._collections.Crystals
+	if not crystalFolder then
+		crystalFolder = Instance.new("Folder")
+		crystalFolder.Name = "Crystals"
+		crystalFolder.Parent = parent
+	end
+	
+	-- Generate random crystal positions
+	local numCrystals = math.random(CONFIG.CrystalsPerSlide[1], CONFIG.CrystalsPerSlide[2])
+	local crystalsCreated = 0
+	
+	for i = 1, numCrystals do
+		-- Random distance along slide
+		local distance = math.random(20, length - 20)
+		
+		-- Get Y position and width at this point
+		local y = getHeightFunc(distance) + CONFIG.SlideThickness / 2 + CONFIG.CrystalHeight
+		local currentWidth = getWidthFunc(distance)
+		
+		-- Random horizontal offset (within slide width, with some edge buffer)
+		local maxOffset = (currentWidth / 2) - 10
+		local horizontalOffset = math.random(-maxOffset, maxOffset)
+		
+		-- Calculate position
+		local basePos = Vector3.new(startPos.X, 0, startPos.Z) + forwardVec * distance
+		local pos = Vector3.new(
+			basePos.X + rightVec.X * horizontalOffset,
+			y,
+			basePos.Z + rightVec.Z * horizontalOffset
+		)
+		
+		-- Random crystal properties
+		local size = math.random(CONFIG.CrystalSize[1] * 10, CONFIG.CrystalSize[2] * 10) / 10
+		local color = CONFIG.CrystalColors[math.random(1, #CONFIG.CrystalColors)]
+		
+		-- Decide if cluster or single crystal
+		if math.random() < CONFIG.CrystalClusterChance then
+			createCrystalCluster(pos, size, color, crystalFolder)
+			crystalsCreated = crystalsCreated + math.random(CONFIG.CrystalClusterSize[1], CONFIG.CrystalClusterSize[2])
+		else
+			createCrystal(pos, size, color, crystalFolder)
+			crystalsCreated = crystalsCreated + 1
+		end
+	end
+	
+	print(string.format("[HubService] Generated %d crystals for slide", crystalsCreated))
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
 -- ║                         WAVY SLIDE GENERATOR                               ║
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
@@ -753,6 +1386,8 @@ local function generateWavySlide(params)
 	end
 	
 	-- Generate guide rails along edges (follow the width variation)
+	-- Get master rails collection for Powers system
+	local railsCollection = HubService._collections and HubService._collections.Rails
 	
 	for i = 0, numRailSegments - 1 do
 		local d1 = i * railSegmentLength
@@ -789,7 +1424,7 @@ local function generateWavySlide(params)
 		leftRail.Material = CONFIG.RailMaterial
 		leftRail.Anchored = true
 		leftRail.CFrame = CFrame.lookAt(leftPos, leftPos + lookDir) * CFrame.Angles(0, math.pi, 0)
-		leftRail.Parent = slideFolder
+		leftRail.Parent = railsCollection or slideFolder
 		
 		-- Right rail (offset perpendicular to travel direction)
 		local rightPos = basePos + rightVec * railOffset
@@ -800,10 +1435,36 @@ local function generateWavySlide(params)
 		rightRail.Material = CONFIG.RailMaterial
 		rightRail.Anchored = true
 		rightRail.CFrame = CFrame.lookAt(rightPos, rightPos + lookDir) * CFrame.Angles(0, math.pi, 0)
-		rightRail.Parent = slideFolder
+		rightRail.Parent = railsCollection or slideFolder
 	end
 	
 	print(string.format("[HubService] Generated %d segments + %d rail segments for %s", numSegments, numRailSegments * 2, name))
+	
+	-- Generate blockades on this slide
+	generateBlockades({
+		startPos = startPos,
+		startY = startY,
+		direction = direction,
+		length = length,
+		dropRate = dropRate,
+		width = width,
+		color = color,
+		parent = slideFolder,
+		getHeight = getHeight,
+		getWidth = getWidth,
+	})
+	
+	-- Generate crystals scattered on this slide
+	generateCrystals({
+		startPos = startPos,
+		startY = startY,
+		direction = direction,
+		length = length,
+		width = width,
+		parent = slideFolder,
+		getHeight = getHeight,
+		getWidth = getWidth,
+	})
 	
 	-- Register slide as a track segment for building collision avoidance
 	addTrackSegment(
@@ -835,12 +1496,30 @@ function HubService:CreateHub()
 	self._hubFolder.Name = "Hub"
 	self._hubFolder.Parent = Workspace
 	
+	-- Create master collection folders for Powers system
+	self._collections.Crystals = Instance.new("Folder")
+	self._collections.Crystals.Name = "AllCrystals"
+	self._collections.Crystals.Parent = self._hubFolder
+	
+	self._collections.Blockades = Instance.new("Folder")
+	self._collections.Blockades.Name = "AllBlockades"
+	self._collections.Blockades.Parent = self._hubFolder
+	
+	self._collections.Rails = Instance.new("Folder")
+	self._collections.Rails.Name = "AllRails"
+	self._collections.Rails.Parent = self._hubFolder
+	
 	-- Clear track geometry for fresh collision detection
 	clearTrackGeometry()
 	
 	-- ══════════════════════════════════════════════════════════════════════
-	-- 1. START PLATFORM (where players spawn and machines wait)
+	-- 1. START PLATFORM (where players spawn and machines wait) - ENHANCED
 	-- ══════════════════════════════════════════════════════════════════════
+	local startPlatformFolder = Instance.new("Folder")
+	startPlatformFolder.Name = "StartPlatformDecor"
+	startPlatformFolder.Parent = self._hubFolder
+	
+	-- Main platform base
 	local startPlatform = createPart(
 		"StartPlatform",
 		CONFIG.StartPlatformSize,
@@ -852,6 +1531,136 @@ function HubService:CreateHub()
 	
 	local startPlatformTopY = CONFIG.StartPlatformPosition.Y + CONFIG.StartPlatformSize.Y / 2
 	local startPlatformFrontZ = CONFIG.StartPlatformPosition.Z + CONFIG.StartPlatformSize.Z / 2
+	local halfX = CONFIG.StartPlatformSize.X / 2
+	local halfZ = CONFIG.StartPlatformSize.Z / 2
+	
+	-- Edge trim (glowing border around platform)
+	if CONFIG.StartPlatformHasEdgeTrim then
+		local trimHeight = 1
+		local trimWidth = 3
+		
+		-- Front edge trim (facing slide)
+		local frontTrim = Instance.new("Part")
+		frontTrim.Name = "FrontTrim"
+		frontTrim.Size = Vector3.new(CONFIG.StartPlatformSize.X + trimWidth * 2, trimHeight, trimWidth)
+		frontTrim.Position = Vector3.new(CONFIG.StartPlatformPosition.X, startPlatformTopY + trimHeight/2, startPlatformFrontZ + trimWidth/2)
+		frontTrim.Color = CONFIG.StartPlatformAccentColor
+		frontTrim.Material = Enum.Material.Neon
+		frontTrim.Anchored = true
+		frontTrim.CanCollide = false
+		frontTrim.Parent = startPlatformFolder
+		
+		-- Back edge trim
+		local backTrim = frontTrim:Clone()
+		backTrim.Name = "BackTrim"
+		backTrim.Position = Vector3.new(CONFIG.StartPlatformPosition.X, startPlatformTopY + trimHeight/2, CONFIG.StartPlatformPosition.Z - halfZ - trimWidth/2)
+		backTrim.Parent = startPlatformFolder
+		
+		-- Left edge trim
+		local leftTrim = Instance.new("Part")
+		leftTrim.Name = "LeftTrim"
+		leftTrim.Size = Vector3.new(trimWidth, trimHeight, CONFIG.StartPlatformSize.Z)
+		leftTrim.Position = Vector3.new(CONFIG.StartPlatformPosition.X - halfX - trimWidth/2, startPlatformTopY + trimHeight/2, CONFIG.StartPlatformPosition.Z)
+		leftTrim.Color = CONFIG.StartPlatformAccentColor
+		leftTrim.Material = Enum.Material.Neon
+		leftTrim.Anchored = true
+		leftTrim.CanCollide = false
+		leftTrim.Parent = startPlatformFolder
+		
+		-- Right edge trim
+		local rightTrim = leftTrim:Clone()
+		rightTrim.Name = "RightTrim"
+		rightTrim.Position = Vector3.new(CONFIG.StartPlatformPosition.X + halfX + trimWidth/2, startPlatformTopY + trimHeight/2, CONFIG.StartPlatformPosition.Z)
+		rightTrim.Parent = startPlatformFolder
+	end
+	
+	-- Floor stripes (racing lines)
+	if CONFIG.StartPlatformHasStripes then
+		local stripeWidth = 4
+		local stripeSpacing = 15
+		local numStripes = math.floor(CONFIG.StartPlatformSize.X / stripeSpacing)
+		
+		for i = 1, numStripes do
+			local stripeX = CONFIG.StartPlatformPosition.X - halfX + (i * stripeSpacing)
+			
+			local stripe = Instance.new("Part")
+			stripe.Name = "FloorStripe_" .. i
+			stripe.Size = Vector3.new(stripeWidth, 0.2, CONFIG.StartPlatformSize.Z - 10)
+			stripe.Position = Vector3.new(stripeX, startPlatformTopY + 0.1, CONFIG.StartPlatformPosition.Z)
+			stripe.Color = CONFIG.StartPlatformEdgeColor
+			stripe.Material = Enum.Material.SmoothPlastic
+			stripe.Anchored = true
+			stripe.CanCollide = false
+			stripe.Parent = startPlatformFolder
+		end
+		
+		-- Center accent stripe
+		local centerStripe = Instance.new("Part")
+		centerStripe.Name = "CenterStripe"
+		centerStripe.Size = Vector3.new(8, 0.3, CONFIG.StartPlatformSize.Z)
+		centerStripe.Position = Vector3.new(CONFIG.StartPlatformPosition.X, startPlatformTopY + 0.15, CONFIG.StartPlatformPosition.Z)
+		centerStripe.Color = CONFIG.StartPlatformAccentColor
+		centerStripe.Material = Enum.Material.Neon
+		centerStripe.Transparency = 0.3
+		centerStripe.Anchored = true
+		centerStripe.CanCollide = false
+		centerStripe.Parent = startPlatformFolder
+	end
+	
+	-- Corner lights
+	if CONFIG.StartPlatformHasLights then
+		local lightHeight = 12
+		local lightRadius = 2
+		local corners = {
+			Vector3.new(-halfX + 5, 0, -halfZ + 5),
+			Vector3.new(halfX - 5, 0, -halfZ + 5),
+			Vector3.new(-halfX + 5, 0, halfZ - 5),
+			Vector3.new(halfX - 5, 0, halfZ - 5),
+		}
+		
+		for i, offset in ipairs(corners) do
+			-- Light pole
+			local pole = Instance.new("Part")
+			pole.Name = "LightPole_" .. i
+			pole.Size = Vector3.new(1.5, lightHeight, 1.5)
+			pole.Position = CONFIG.StartPlatformPosition + offset + Vector3.new(0, startPlatformTopY - CONFIG.StartPlatformPosition.Y + lightHeight/2, 0)
+			pole.Color = CONFIG.StartPlatformEdgeColor
+			pole.Material = Enum.Material.Metal
+			pole.Anchored = true
+			pole.Parent = startPlatformFolder
+			
+			-- Light orb
+			local lightOrb = Instance.new("Part")
+			lightOrb.Name = "LightOrb_" .. i
+			lightOrb.Shape = Enum.PartType.Ball
+			lightOrb.Size = Vector3.new(lightRadius * 2, lightRadius * 2, lightRadius * 2)
+			lightOrb.Position = pole.Position + Vector3.new(0, lightHeight/2 + lightRadius, 0)
+			lightOrb.Color = CONFIG.StartPlatformGlowColor
+			lightOrb.Material = Enum.Material.Neon
+			lightOrb.Anchored = true
+			lightOrb.CanCollide = false
+			lightOrb.Parent = startPlatformFolder
+			
+			-- Point light
+			local pointLight = Instance.new("PointLight")
+			pointLight.Color = CONFIG.StartPlatformGlowColor
+			pointLight.Brightness = 2
+			pointLight.Range = 30
+			pointLight.Parent = lightOrb
+		end
+	end
+	
+	-- Underside glow (ambient lighting from below)
+	local undersideGlow = Instance.new("Part")
+	undersideGlow.Name = "UndersideGlow"
+	undersideGlow.Size = Vector3.new(CONFIG.StartPlatformSize.X - 10, 2, CONFIG.StartPlatformSize.Z - 10)
+	undersideGlow.Position = Vector3.new(CONFIG.StartPlatformPosition.X, CONFIG.StartPlatformPosition.Y - CONFIG.StartPlatformSize.Y/2 - 1, CONFIG.StartPlatformPosition.Z)
+	undersideGlow.Color = CONFIG.StartPlatformAccentColor
+	undersideGlow.Material = Enum.Material.Neon
+	undersideGlow.Transparency = 0.5
+	undersideGlow.Anchored = true
+	undersideGlow.CanCollide = false
+	undersideGlow.Parent = startPlatformFolder
 	
 	-- Register start platform in track geometry
 	addTrackBox(
@@ -1042,6 +1851,15 @@ function HubService:CreateHub()
 			slideResult.endPos, 
 			(currentTopY + slideResult.endY) / 2,  -- Average height
 			currentDirection, 
+			self._hubFolder
+		)
+		
+		-- Generate cloud formations along this slide
+		generateCloudsAlongPath(
+			currentPos,
+			slideResult.endPos,
+			(currentTopY + slideResult.endY) / 2,
+			currentDirection,
 			self._hubFolder
 		)
 		
@@ -1418,6 +2236,137 @@ function HubService:KnitStart()
 		
 		print("[HubService] Hub ready! Players spawn behind machines, ride down the slide!")
 	end)
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║                         CLIENT API                                          ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- Get current crystal particle settings
+function HubService.Client:GetCrystalParticleSettings(player)
+	return CONFIG.CrystalParticles
+end
+
+-- Update crystal particle settings (from Iris GUI)
+function HubService.Client:UpdateCrystalParticleSettings(player, settings)
+	-- Validate and apply settings
+	if settings.BurstSize then
+		CONFIG.CrystalParticles.BurstSize = math.clamp(settings.BurstSize, 1, 20)
+	end
+	if settings.BurstLifetimeMin then
+		CONFIG.CrystalParticles.BurstLifetimeMin = math.clamp(settings.BurstLifetimeMin, 0.1, 10)
+	end
+	if settings.BurstLifetimeMax then
+		CONFIG.CrystalParticles.BurstLifetimeMax = math.clamp(settings.BurstLifetimeMax, 0.1, 10)
+	end
+	if settings.BurstSpeed then
+		CONFIG.CrystalParticles.BurstSpeed = math.clamp(settings.BurstSpeed, 5, 200)
+	end
+	if settings.BurstCount then
+		CONFIG.CrystalParticles.BurstCount = math.clamp(math.floor(settings.BurstCount), 1, 100)
+	end
+	if settings.BurstGravity then
+		CONFIG.CrystalParticles.BurstGravity = math.clamp(settings.BurstGravity, -100, 100)
+	end
+	if settings.BurstDrag then
+		CONFIG.CrystalParticles.BurstDrag = math.clamp(settings.BurstDrag, 0, 10)
+	end
+	if settings.GlowSize then
+		CONFIG.CrystalParticles.GlowSize = math.clamp(settings.GlowSize, 1, 30)
+	end
+	if settings.GlowLifetimeMin then
+		CONFIG.CrystalParticles.GlowLifetimeMin = math.clamp(settings.GlowLifetimeMin, 0.1, 10)
+	end
+	if settings.GlowLifetimeMax then
+		CONFIG.CrystalParticles.GlowLifetimeMax = math.clamp(settings.GlowLifetimeMax, 0.1, 10)
+	end
+	if settings.GlowSpeed then
+		CONFIG.CrystalParticles.GlowSpeed = math.clamp(settings.GlowSpeed, 5, 100)
+	end
+	if settings.GlowCount then
+		CONFIG.CrystalParticles.GlowCount = math.clamp(math.floor(settings.GlowCount), 1, 50)
+	end
+	
+	print(string.format("[HubService] %s updated crystal particle settings", player.Name))
+	return true
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║                    POWERS API (Collection Toggling)                         ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- Toggle visibility of a collection for all players
+function HubService:ToggleCollection(collectionName, visible)
+	local folder = self._collections[collectionName]
+	if not folder then
+		warn("[HubService] Unknown collection:", collectionName)
+		return false
+	end
+	
+	-- Toggle visibility of all descendants
+	for _, descendant in ipairs(folder:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Transparency = visible and (descendant:GetAttribute("OriginalTransparency") or 0) or 1
+			descendant.CanCollide = visible
+		elseif descendant:IsA("ParticleEmitter") or descendant:IsA("PointLight") then
+			descendant.Enabled = visible
+		end
+	end
+	
+	print(string.format("[HubService] Collection '%s' visibility set to: %s", collectionName, tostring(visible)))
+	return true
+end
+
+-- Store original transparency when hiding
+function HubService:HideCollection(collectionName, duration)
+	local folder = self._collections[collectionName]
+	if not folder then return false end
+	
+	-- Store original transparency values
+	for _, descendant in ipairs(folder:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant:SetAttribute("OriginalTransparency", descendant.Transparency)
+		end
+	end
+	
+	-- Hide
+	self:ToggleCollection(collectionName, false)
+	
+	-- Auto-restore after duration
+	if duration and duration > 0 then
+		task.delay(duration, function()
+			self:ToggleCollection(collectionName, true)
+			print(string.format("[HubService] Collection '%s' restored after %.1fs", collectionName, duration))
+		end)
+	end
+	
+	return true
+end
+
+-- Get available collections
+function HubService.Client:GetCollections(player)
+	local collections = {}
+	for name, folder in pairs(HubService._collections) do
+		if folder then
+			local count = 0
+			for _, _ in ipairs(folder:GetDescendants()) do
+				count = count + 1
+			end
+			collections[name] = {
+				name = name,
+				itemCount = count,
+			}
+		end
+	end
+	return collections
+end
+
+-- Client can request to hide a collection (would be triggered by Developer Product)
+function HubService.Client:RequestHideCollection(player, collectionName, duration)
+	-- This would normally validate a Developer Product purchase
+	-- For now, just execute the hide
+	print(string.format("[HubService] %s requested to hide '%s' for %ds", player.Name, collectionName, duration))
+	return HubService:HideCollection(collectionName, duration)
 end
 
 return HubService
