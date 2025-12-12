@@ -184,6 +184,33 @@ local VEHICLE_PROFILES = {
 	},
 	
 	-- ═══════════════════════════════════════════════════════════════════════
+	-- MACHINE 9 - Stunter (Trick Specialist)
+	-- ═══════════════════════════════════════════════════════════════════════
+	["machine_9"] = {
+		Name = "Stunter",
+		Description = "Trick specialist! Great air control and bouncy landings.",
+		
+		BaseMoveSpeed = 90,
+		BaseTurnSpeed = 4.5,
+		BoostMultiplier = 1.8,
+		AccelerationTime = 0.2,
+		DecelerationTime = 0.4,
+		
+		HoverHeight = 3.5,
+		SpringStiffness = 7,
+		SpringDamping = 12,
+		SpringRestLength = 35,
+		MaxSpringExtension = 0.7,
+		
+		DiveDownforce = 650,
+		DiveStiffnessMultiplier = 2.0,
+		ArcAlignmentSpeed = 8,
+		MinArcSpeed = 8,
+		
+		DrivingGravity = 85,
+	},
+	
+	-- ═══════════════════════════════════════════════════════════════════════
 	-- MACHINE 10 - Bouncer (Super Bouncy)
 	-- ═══════════════════════════════════════════════════════════════════════
 	["machine_10"] = {

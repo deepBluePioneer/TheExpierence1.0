@@ -45,7 +45,12 @@ local HubService = Knit.CreateService {
 		Crystals = nil,     -- Folder containing all crystals
 		Blockades = nil,    -- Folder containing all blockades
 		Rails = nil,        -- Folder containing all rails
+		Gates = nil,        -- Folder containing all kudos gates
 	},
+	
+	-- Player Kudos tracking
+	_playerKudos = {},          -- { [player] = kudosAmount }
+	_kudosReplicas = {},        -- { [player] = replica }
 }
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -73,10 +78,22 @@ local CONFIG = {
 	MachineHeight = 3,
 	MachineFacingAngle = 0,
 	
-	-- Intermediate platform (square, at end of first slide)
+	-- Intermediate platform (square, at end of first slide) - Enhanced design
 	MiddlePlatformSize = 120,                    -- Square size (same width/depth)
 	MiddlePlatformHeight = 5,
-	MiddlePlatformColor = Color3.fromRGB(90, 85, 100),
+	MiddlePlatformColor = Color3.fromRGB(50, 55, 65),
+	MiddlePlatformAccentColors = {               -- Cycling accent colors per platform
+		Color3.fromRGB(255, 100, 100),   -- Red/coral
+		Color3.fromRGB(100, 255, 150),   -- Green/mint  
+		Color3.fromRGB(100, 150, 255),   -- Blue
+		Color3.fromRGB(255, 200, 100),   -- Orange/gold
+		Color3.fromRGB(200, 100, 255),   -- Purple
+		Color3.fromRGB(100, 255, 255),   -- Cyan
+	},
+	MiddlePlatformHasEdgeTrim = true,
+	MiddlePlatformHasCornerLights = true,
+	MiddlePlatformHasUnderglow = true,
+	MiddlePlatformHasCenterMarking = true,
 	
 	-- Wavy Slide settings
 	SlideWidth = 120,
@@ -93,12 +110,14 @@ local CONFIG = {
 	NarrowZoneDuration = 100,                    -- How long the narrow section lasts
 	NarrowZonesPerSlide = {1, 3},                -- Min/max narrow zones per slide
 	
-	-- Guide Rails
-	RailHeight = 8,                              -- How tall the rails are
-	RailThickness = 3,                           -- How thick the rails are
-	RailColor = Color3.fromRGB(70, 70, 80),      -- Dark metal color
+	-- Guide Rails (smooth tubular design)
+	RailHeight = 6,                              -- How tall the rails are
+	RailThickness = 2.5,                         -- Diameter of tubular rails
+	RailColor = Color3.fromRGB(85, 85, 95),      -- Lighter metal color
+	RailAccentColor = Color3.fromRGB(120, 180, 220), -- Accent stripe color
 	RailMaterial = Enum.Material.Metal,
-	RailSegmentLength = 12,                      -- Shorter segments to follow width changes
+	RailSegmentLength = 6,                       -- Match slide segments for smooth curves
+	RailUseJointSpheres = true,                  -- Add spheres at joints for smooth transitions
 	
 	-- Slope settings
 	DownhillDropRate = 0.08,                     -- How steep downhill slides are (positive = down)
@@ -144,9 +163,12 @@ local CONFIG = {
 		Color3.fromRGB(100, 95, 80),   -- Tan
 	},
 	
-	-- Final landing
+	-- Final landing - Enhanced finish line design
 	FinalLandingSize = Vector3.new(150, 3, 150),
-	FinalLandingColor = Color3.fromRGB(100, 90, 80),
+	FinalLandingColor = Color3.fromRGB(40, 45, 55),
+	FinalLandingAccentColor = Color3.fromRGB(255, 215, 0),  -- Gold finish
+	FinalLandingHasCheckerboard = true,
+	FinalLandingHasVictoryArch = true,
 	
 	-- Spawn location
 	SpawnOffset = Vector3.new(0, 3, -20),
@@ -178,8 +200,7 @@ local CONFIG = {
 	
 	-- Crystals (scattered collectibles/decorations)
 	CrystalsEnabled = true,
-	CrystalsPerSlide = {15, 30},                 -- Min/max crystals per slide
-	CrystalSize = {3, 8},                        -- Min/max size
+	CrystalSize = {3, 6},                        -- Min/max size
 	CrystalHeight = 2,                           -- How high above slide surface
 	CrystalColors = {
 		Color3.fromRGB(0, 255, 200),     -- Cyan/teal
@@ -192,8 +213,18 @@ local CONFIG = {
 	},
 	CrystalMaterial = Enum.Material.Neon,        -- Glowing crystals
 	CrystalTransparency = 0.3,                   -- Slightly transparent
-	CrystalClusterChance = 0.3,                  -- 30% chance to spawn as a cluster
-	CrystalClusterSize = {2, 4},                 -- Min/max crystals in a cluster
+	CrystalClusterChance = 0.15,                 -- 15% chance to spawn as a cluster
+	CrystalClusterSize = {2, 3},                 -- Min/max crystals in a cluster
+	
+	-- Crystal Pattern Settings
+	CrystalPattern = "zigzag",                   -- "zigzag", "wave", "lanes", "grid", "random"
+	CrystalSpacing = 25,                         -- Distance between crystal rows
+	CrystalLanes = 3,                            -- Number of lanes for "lanes" pattern
+	CrystalWaveAmplitude = 0.7,                  -- How wide the wave pattern sweeps (0-1 of half-width)
+	CrystalWaveFrequency = 0.03,                 -- Wave oscillation speed
+	CrystalZigzagWidth = 0.6,                    -- How wide zigzag goes (0-1 of half-width)
+	CrystalRowOffset = true,                     -- Offset alternate rows in grid pattern
+	CrystalJitter = 5,                           -- Random position variation (studs)
 	
 	-- Crystal Particle Effects (adjustable via Iris)
 	CrystalParticles = {
@@ -213,6 +244,23 @@ local CONFIG = {
 		GlowSpeed = 25,                  -- Glow particle speed
 		GlowCount = 15,                  -- Number of glow particles
 	},
+	
+	-- Kudos Gates (ride through to earn currency)
+	GatesEnabled = true,
+	GatesPerSlide = {2, 5},                      -- Min/max gates per slide
+	GateWidth = 30,                              -- Width of gate opening
+	GateHeight = 20,                             -- Height of gate arch
+	GatePillarWidth = 4,                         -- Thickness of gate pillars
+	GateMinSpacing = 80,                         -- Minimum distance between gates
+	GateKudosReward = {5, 15},                   -- Min/max kudos per gate
+	GateColors = {
+		Color3.fromRGB(255, 200, 50),    -- Gold (common)
+		Color3.fromRGB(100, 220, 255),   -- Cyan (uncommon)
+		Color3.fromRGB(220, 100, 255),   -- Purple (rare)
+		Color3.fromRGB(255, 100, 150),   -- Pink (epic)
+	},
+	GateGlowColor = Color3.fromRGB(255, 230, 100),  -- Yellow glow
+	GateMaterial = Enum.Material.Neon,
 	
 	-- Sky City Buildings (massive scale)
 	BuildingsEnabled = true,
@@ -277,6 +325,315 @@ local function createPart(name, size, position, color, material, parent)
 	part.Anchored = true
 	part.Parent = parent
 	return part
+end
+
+-- Create a smooth tubular rail along a straight line (for platforms)
+-- startPos, endPos: Vector3 positions for the rail
+-- yOffset: height above platform surface
+-- parent: parent instance
+local function createTubularPlatformRail(name, startPos, endPos, yOffset, parent)
+	local direction = endPos - startPos
+	local length = direction.Magnitude
+	if length < 0.1 then return end
+	
+	local midPos = (startPos + endPos) / 2 + Vector3.new(0, yOffset + CONFIG.RailHeight / 2, 0)
+	local lookDir = direction.Unit
+	
+	-- Main horizontal cylinder
+	local rail = Instance.new("Part")
+	rail.Name = name
+	rail.Shape = Enum.PartType.Cylinder
+	rail.Size = Vector3.new(length, CONFIG.RailThickness, CONFIG.RailThickness)
+	rail.Color = CONFIG.RailColor
+	rail.Material = CONFIG.RailMaterial
+	rail.Anchored = true
+	rail.CanCollide = true
+	local cf = CFrame.lookAt(midPos, midPos + lookDir)
+	rail.CFrame = cf * CFrame.Angles(0, math.pi/2, 0)
+	rail.Parent = parent
+	
+	-- End caps (spheres for smooth termination)
+	local startCap = Instance.new("Part")
+	startCap.Name = name .. "_StartCap"
+	startCap.Shape = Enum.PartType.Ball
+	startCap.Size = Vector3.new(CONFIG.RailThickness, CONFIG.RailThickness, CONFIG.RailThickness)
+	startCap.Color = CONFIG.RailColor
+	startCap.Material = CONFIG.RailMaterial
+	startCap.Anchored = true
+	startCap.CanCollide = false
+	startCap.Position = startPos + Vector3.new(0, yOffset + CONFIG.RailHeight / 2, 0)
+	startCap.Parent = parent
+	
+	local endCap = Instance.new("Part")
+	endCap.Name = name .. "_EndCap"
+	endCap.Shape = Enum.PartType.Ball
+	endCap.Size = Vector3.new(CONFIG.RailThickness, CONFIG.RailThickness, CONFIG.RailThickness)
+	endCap.Color = CONFIG.RailColor
+	endCap.Material = CONFIG.RailMaterial
+	endCap.Anchored = true
+	endCap.CanCollide = false
+	endCap.Position = endPos + Vector3.new(0, yOffset + CONFIG.RailHeight / 2, 0)
+	endCap.Parent = parent
+	
+	-- Support posts at intervals
+	local numPosts = math.max(2, math.floor(length / 40))
+	for i = 0, numPosts - 1 do
+		local t = i / math.max(numPosts - 1, 1)
+		local postPos = startPos:Lerp(endPos, t)
+		
+		local post = Instance.new("Part")
+		post.Name = name .. "_Post_" .. i
+		post.Shape = Enum.PartType.Cylinder
+		post.Size = Vector3.new(CONFIG.RailHeight, CONFIG.RailThickness * 0.5, CONFIG.RailThickness * 0.5)
+		post.Color = CONFIG.RailAccentColor
+		post.Material = CONFIG.RailMaterial
+		post.Anchored = true
+		post.CanCollide = false
+		post.CFrame = CFrame.new(postPos + Vector3.new(0, yOffset, 0)) * CFrame.Angles(0, 0, math.pi/2)
+		post.Parent = parent
+	end
+	
+	return rail
+end
+
+-- Create enhanced platform decorations (edge trim, lights, center marking, underglow)
+-- platformPos: center position of platform
+-- platformSize: Vector3 (X, Y, Z) or number (square platform)
+-- accentColor: Color3 for glowing elements
+-- options: { hasEdgeTrim, hasCornerLights, hasUnderglow, hasCenterMarking, hasCheckerboard, platformIndex }
+local function decoratePlatform(platformPos, platformSize, accentColor, options, parent)
+	options = options or {}
+	
+	-- Normalize size to Vector3
+	local sizeX, sizeY, sizeZ
+	if typeof(platformSize) == "number" then
+		sizeX, sizeY, sizeZ = platformSize, CONFIG.MiddlePlatformHeight, platformSize
+	else
+		sizeX, sizeY, sizeZ = platformSize.X, platformSize.Y, platformSize.Z
+	end
+	
+	local topY = platformPos.Y + sizeY / 2
+	local halfX = sizeX / 2
+	local halfZ = sizeZ / 2
+	local decorFolder = Instance.new("Folder")
+	decorFolder.Name = "PlatformDecor_" .. (options.platformIndex or "0")
+	decorFolder.Parent = parent
+	
+	-- Edge trim (glowing neon border)
+	if options.hasEdgeTrim then
+		local trimHeight = 0.8
+		local trimWidth = 2
+		
+		-- Create trim on all four edges
+		local edges = {
+			{name = "FrontTrim", size = Vector3.new(sizeX + trimWidth * 2, trimHeight, trimWidth), 
+			 pos = Vector3.new(platformPos.X, topY + trimHeight/2, platformPos.Z + halfZ + trimWidth/2)},
+			{name = "BackTrim", size = Vector3.new(sizeX + trimWidth * 2, trimHeight, trimWidth),
+			 pos = Vector3.new(platformPos.X, topY + trimHeight/2, platformPos.Z - halfZ - trimWidth/2)},
+			{name = "LeftTrim", size = Vector3.new(trimWidth, trimHeight, sizeZ),
+			 pos = Vector3.new(platformPos.X - halfX - trimWidth/2, topY + trimHeight/2, platformPos.Z)},
+			{name = "RightTrim", size = Vector3.new(trimWidth, trimHeight, sizeZ),
+			 pos = Vector3.new(platformPos.X + halfX + trimWidth/2, topY + trimHeight/2, platformPos.Z)},
+		}
+		
+		for _, edge in ipairs(edges) do
+			local trim = Instance.new("Part")
+			trim.Name = edge.name
+			trim.Size = edge.size
+			trim.Position = edge.pos
+			trim.Color = accentColor
+			trim.Material = Enum.Material.Neon
+			trim.Anchored = true
+			trim.CanCollide = false
+			trim.Parent = decorFolder
+		end
+	end
+	
+	-- Corner lights (glowing orbs on poles)
+	if options.hasCornerLights then
+		local lightHeight = 8
+		local lightRadius = 1.5
+		local cornerOffset = 0.85  -- How far inside from corners
+		
+		local corners = {
+			Vector3.new(-halfX * cornerOffset, 0, -halfZ * cornerOffset),
+			Vector3.new(halfX * cornerOffset, 0, -halfZ * cornerOffset),
+			Vector3.new(-halfX * cornerOffset, 0, halfZ * cornerOffset),
+			Vector3.new(halfX * cornerOffset, 0, halfZ * cornerOffset),
+		}
+		
+		for i, offset in ipairs(corners) do
+			-- Light pole
+			local pole = Instance.new("Part")
+			pole.Name = "LightPole_" .. i
+			pole.Shape = Enum.PartType.Cylinder
+			pole.Size = Vector3.new(lightHeight, 1, 1)
+			pole.Position = platformPos + offset + Vector3.new(0, topY - platformPos.Y + lightHeight/2, 0)
+			pole.Color = Color3.fromRGB(60, 65, 75)
+			pole.Material = Enum.Material.Metal
+			pole.Anchored = true
+			pole.CanCollide = false
+			pole.CFrame = CFrame.new(pole.Position) * CFrame.Angles(0, 0, math.pi/2)
+			pole.Parent = decorFolder
+			
+			-- Light orb
+			local orb = Instance.new("Part")
+			orb.Name = "LightOrb_" .. i
+			orb.Shape = Enum.PartType.Ball
+			orb.Size = Vector3.new(lightRadius * 2, lightRadius * 2, lightRadius * 2)
+			orb.Position = pole.Position + Vector3.new(0, lightHeight/2 + lightRadius, 0)
+			orb.Color = accentColor
+			orb.Material = Enum.Material.Neon
+			orb.Anchored = true
+			orb.CanCollide = false
+			orb.Parent = decorFolder
+			
+			-- Point light
+			local light = Instance.new("PointLight")
+			light.Color = accentColor
+			light.Brightness = 1.5
+			light.Range = 25
+			light.Parent = orb
+		end
+	end
+	
+	-- Center marking (glowing platform number or design)
+	if options.hasCenterMarking then
+		-- Cross pattern
+		local markingSize = math.min(sizeX, sizeZ) * 0.3
+		local markingThickness = 0.2
+		
+		local crossH = Instance.new("Part")
+		crossH.Name = "CenterCrossH"
+		crossH.Size = Vector3.new(markingSize, markingThickness, markingSize * 0.15)
+		crossH.Position = Vector3.new(platformPos.X, topY + markingThickness/2, platformPos.Z)
+		crossH.Color = accentColor
+		crossH.Material = Enum.Material.Neon
+		crossH.Transparency = 0.2
+		crossH.Anchored = true
+		crossH.CanCollide = false
+		crossH.Parent = decorFolder
+		
+		local crossV = Instance.new("Part")
+		crossV.Name = "CenterCrossV"
+		crossV.Size = Vector3.new(markingSize * 0.15, markingThickness, markingSize)
+		crossV.Position = Vector3.new(platformPos.X, topY + markingThickness/2, platformPos.Z)
+		crossV.Color = accentColor
+		crossV.Material = Enum.Material.Neon
+		crossV.Transparency = 0.2
+		crossV.Anchored = true
+		crossV.CanCollide = false
+		crossV.Parent = decorFolder
+		
+		-- Outer ring
+		local ringSize = markingSize * 0.8
+		local ringParts = 8
+		for i = 1, ringParts do
+			local angle = (i / ringParts) * math.pi * 2
+			local ringPart = Instance.new("Part")
+			ringPart.Name = "CenterRing_" .. i
+			ringPart.Size = Vector3.new(ringSize * 0.15, markingThickness, ringSize * 0.4)
+			ringPart.Position = Vector3.new(
+				platformPos.X + math.cos(angle) * ringSize * 0.5,
+				topY + markingThickness/2,
+				platformPos.Z + math.sin(angle) * ringSize * 0.5
+			)
+			ringPart.Color = accentColor
+			ringPart.Material = Enum.Material.Neon
+			ringPart.Transparency = 0.4
+			ringPart.Anchored = true
+			ringPart.CanCollide = false
+			ringPart.CFrame = CFrame.new(ringPart.Position) * CFrame.Angles(0, angle + math.pi/2, 0)
+			ringPart.Parent = decorFolder
+		end
+	end
+	
+	-- Underglow (glowing plate underneath)
+	if options.hasUnderglow then
+		local glow = Instance.new("Part")
+		glow.Name = "Underglow"
+		glow.Size = Vector3.new(sizeX - 8, 1.5, sizeZ - 8)
+		glow.Position = Vector3.new(platformPos.X, platformPos.Y - sizeY/2 - 0.75, platformPos.Z)
+		glow.Color = accentColor
+		glow.Material = Enum.Material.Neon
+		glow.Transparency = 0.6
+		glow.Anchored = true
+		glow.CanCollide = false
+		glow.Parent = decorFolder
+	end
+	
+	-- Checkerboard pattern (for finish line)
+	if options.hasCheckerboard then
+		local tileSize = 15
+		local tilesX = math.floor(sizeX / tileSize)
+		local tilesZ = math.floor(sizeZ / tileSize)
+		local startX = platformPos.X - (tilesX * tileSize) / 2 + tileSize / 2
+		local startZ = platformPos.Z - (tilesZ * tileSize) / 2 + tileSize / 2
+		
+		for tx = 0, tilesX - 1 do
+			for tz = 0, tilesZ - 1 do
+				local isWhite = (tx + tz) % 2 == 0
+				local tile = Instance.new("Part")
+				tile.Name = string.format("CheckerTile_%d_%d", tx, tz)
+				tile.Size = Vector3.new(tileSize - 0.5, 0.15, tileSize - 0.5)
+				tile.Position = Vector3.new(startX + tx * tileSize, topY + 0.1, startZ + tz * tileSize)
+				tile.Color = isWhite and Color3.fromRGB(240, 240, 240) or Color3.fromRGB(30, 30, 30)
+				tile.Material = Enum.Material.SmoothPlastic
+				tile.Anchored = true
+				tile.CanCollide = false
+				tile.Parent = decorFolder
+			end
+		end
+	end
+	
+	-- Victory arch (for finish line)
+	if options.hasVictoryArch then
+		local archHeight = 25
+		local archWidth = sizeX * 0.6
+		local archThickness = 3
+		
+		-- Left pillar
+		local leftPillar = Instance.new("Part")
+		leftPillar.Name = "VictoryArch_LeftPillar"
+		leftPillar.Size = Vector3.new(archThickness, archHeight, archThickness)
+		leftPillar.Position = Vector3.new(platformPos.X - archWidth/2, topY + archHeight/2, platformPos.Z)
+		leftPillar.Color = accentColor
+		leftPillar.Material = Enum.Material.Metal
+		leftPillar.Anchored = true
+		leftPillar.CanCollide = false
+		leftPillar.Parent = decorFolder
+		
+		-- Right pillar
+		local rightPillar = leftPillar:Clone()
+		rightPillar.Name = "VictoryArch_RightPillar"
+		rightPillar.Position = Vector3.new(platformPos.X + archWidth/2, topY + archHeight/2, platformPos.Z)
+		rightPillar.Parent = decorFolder
+		
+		-- Top bar
+		local topBar = Instance.new("Part")
+		topBar.Name = "VictoryArch_TopBar"
+		topBar.Size = Vector3.new(archWidth + archThickness, archThickness, archThickness)
+		topBar.Position = Vector3.new(platformPos.X, topY + archHeight, platformPos.Z)
+		topBar.Color = accentColor
+		topBar.Material = Enum.Material.Neon
+		topBar.Anchored = true
+		topBar.CanCollide = false
+		topBar.Parent = decorFolder
+		
+		-- "FINISH" text represented by glowing banner
+		local banner = Instance.new("Part")
+		banner.Name = "VictoryArch_Banner"
+		banner.Size = Vector3.new(archWidth * 0.8, 6, 0.5)
+		banner.Position = Vector3.new(platformPos.X, topY + archHeight - 8, platformPos.Z)
+		banner.Color = accentColor
+		banner.Material = Enum.Material.Neon
+		banner.Transparency = 0.3
+		banner.Anchored = true
+		banner.CanCollide = false
+		banner.Parent = decorFolder
+	end
+	
+	return decorFolder
 end
 
 local function getMachinePrefabs()
@@ -1146,35 +1503,39 @@ local function generateCrystals(params)
 		crystalFolder.Parent = parent
 	end
 	
-	-- Generate random crystal positions
-	local numCrystals = math.random(CONFIG.CrystalsPerSlide[1], CONFIG.CrystalsPerSlide[2])
-	local crystalsCreated = 0
+	-- ═══════════════════════════════════════════════════════════════
+	-- PATTERN-BASED CRYSTAL GENERATION
+	-- ═══════════════════════════════════════════════════════════════
 	
-	for i = 1, numCrystals do
-		-- Random distance along slide
-		local distance = math.random(20, length - 20)
-		
-		-- Get Y position and width at this point
+	local crystalsCreated = 0
+	local spacing = CONFIG.CrystalSpacing
+	local numRows = math.floor((length - 40) / spacing)  -- Leave buffer at start/end
+	local pattern = CONFIG.CrystalPattern
+	local jitter = CONFIG.CrystalJitter
+	
+	-- Helper to create a crystal at calculated position
+	local function placeCrystal(distance, laneOffset)
 		local y = getHeightFunc(distance) + CONFIG.SlideThickness / 2 + CONFIG.CrystalHeight
 		local currentWidth = getWidthFunc(distance)
+		local maxOffset = (currentWidth / 2) - 8
 		
-		-- Random horizontal offset (within slide width, with some edge buffer)
-		local maxOffset = (currentWidth / 2) - 10
-		local horizontalOffset = math.random(-maxOffset, maxOffset)
+		-- Clamp lane offset to available width
+		local horizontalOffset = math.clamp(laneOffset, -maxOffset, maxOffset)
 		
-		-- Calculate position
-		local basePos = Vector3.new(startPos.X, 0, startPos.Z) + forwardVec * distance
+		-- Add small random jitter for natural look
+		horizontalOffset = horizontalOffset + math.random(-jitter, jitter)
+		local distanceJitter = math.random(-jitter/2, jitter/2)
+		
+		local basePos = Vector3.new(startPos.X, 0, startPos.Z) + forwardVec * (distance + distanceJitter)
 		local pos = Vector3.new(
 			basePos.X + rightVec.X * horizontalOffset,
 			y,
 			basePos.Z + rightVec.Z * horizontalOffset
 		)
 		
-		-- Random crystal properties
 		local size = math.random(CONFIG.CrystalSize[1] * 10, CONFIG.CrystalSize[2] * 10) / 10
 		local color = CONFIG.CrystalColors[math.random(1, #CONFIG.CrystalColors)]
 		
-		-- Decide if cluster or single crystal
 		if math.random() < CONFIG.CrystalClusterChance then
 			createCrystalCluster(pos, size, color, crystalFolder)
 			crystalsCreated = crystalsCreated + math.random(CONFIG.CrystalClusterSize[1], CONFIG.CrystalClusterSize[2])
@@ -1184,7 +1545,524 @@ local function generateCrystals(params)
 		end
 	end
 	
-	print(string.format("[HubService] Generated %d crystals for slide", crystalsCreated))
+	-- ═══════════════════════════════════════════════════════════════
+	-- ZIGZAG PATTERN - Alternates left/right each row
+	-- ═══════════════════════════════════════════════════════════════
+	if pattern == "zigzag" then
+		local zigzagWidth = CONFIG.CrystalZigzagWidth
+		for i = 0, numRows do
+			local distance = 20 + (i * spacing)
+			local currentWidth = getWidthFunc(distance)
+			local maxOffset = (currentWidth / 2) * zigzagWidth
+			
+			-- Alternate between left and right
+			local side = (i % 2 == 0) and -1 or 1
+			local laneOffset = side * maxOffset
+			
+			placeCrystal(distance, laneOffset)
+		end
+		
+	-- ═══════════════════════════════════════════════════════════════
+	-- WAVE PATTERN - Smooth sine wave across the slide
+	-- ═══════════════════════════════════════════════════════════════
+	elseif pattern == "wave" then
+		local amplitude = CONFIG.CrystalWaveAmplitude
+		local frequency = CONFIG.CrystalWaveFrequency
+		for i = 0, numRows do
+			local distance = 20 + (i * spacing)
+			local currentWidth = getWidthFunc(distance)
+			local maxOffset = (currentWidth / 2) * amplitude
+			
+			-- Sine wave pattern
+			local waveOffset = math.sin(distance * frequency) * maxOffset
+			
+			placeCrystal(distance, waveOffset)
+		end
+		
+	-- ═══════════════════════════════════════════════════════════════
+	-- LANES PATTERN - Multiple parallel lanes
+	-- ═══════════════════════════════════════════════════════════════
+	elseif pattern == "lanes" then
+		local numLanes = CONFIG.CrystalLanes
+		local laneSpacing = spacing * 1.5  -- More space between rows
+		local laneRows = math.floor((length - 40) / laneSpacing)
+		
+		for i = 0, laneRows do
+			local distance = 20 + (i * laneSpacing)
+			local currentWidth = getWidthFunc(distance)
+			local laneWidth = (currentWidth - 20) / numLanes
+			
+			-- Place crystal in each lane (with some randomness about which lanes get crystals)
+			for lane = 1, numLanes do
+				if math.random() > 0.3 then  -- 70% chance each lane gets a crystal
+					local laneCenter = -currentWidth/2 + 10 + (lane - 0.5) * laneWidth
+					placeCrystal(distance, laneCenter)
+				end
+			end
+		end
+		
+	-- ═══════════════════════════════════════════════════════════════
+	-- GRID PATTERN - Evenly spaced grid with row offset
+	-- ═══════════════════════════════════════════════════════════════
+	elseif pattern == "grid" then
+		local numLanes = 3
+		for i = 0, numRows do
+			local distance = 20 + (i * spacing)
+			local currentWidth = getWidthFunc(distance)
+			local laneWidth = (currentWidth - 16) / numLanes
+			
+			-- Offset every other row by half a lane
+			local rowOffset = 0
+			if CONFIG.CrystalRowOffset and (i % 2 == 1) then
+				rowOffset = laneWidth / 2
+			end
+			
+			for lane = 1, numLanes do
+				local laneCenter = -currentWidth/2 + 8 + (lane - 0.5) * laneWidth + rowOffset
+				-- Skip if offset pushes us off the edge
+				if math.abs(laneCenter) < (currentWidth/2 - 8) then
+					placeCrystal(distance, laneCenter)
+				end
+			end
+		end
+		
+	-- ═══════════════════════════════════════════════════════════════
+	-- RANDOM PATTERN - Original random distribution
+	-- ═══════════════════════════════════════════════════════════════
+	else  -- "random" or fallback
+		local numCrystals = math.random(20, 35)
+		for i = 1, numCrystals do
+			local distance = math.random(20, length - 20)
+			local currentWidth = getWidthFunc(distance)
+			local maxOffset = (currentWidth / 2) - 10
+			local horizontalOffset = math.random(-maxOffset * 100, maxOffset * 100) / 100
+			
+			placeCrystal(distance, horizontalOffset)
+		end
+	end
+	
+	print(string.format("[HubService] Generated %d crystals (%s pattern) for slide", crystalsCreated, pattern))
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║                         KUDOS GATE GENERATOR                               ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- Helper: Check if part belongs to a player or machine
+local function getPlayerFromPart(part)
+	-- Check if it's a machine
+	local model = part:FindFirstAncestorOfClass("Model")
+	if model then
+		local seat = model:FindFirstChildOfClass("Seat") or model:FindFirstChildOfClass("VehicleSeat")
+		if seat and seat.Occupant then
+			local character = seat.Occupant.Parent
+			local player = Players:GetPlayerFromCharacter(character)
+			if player then
+				return player, model
+			end
+		end
+		
+		-- Check if the model has a RootPart (machine indicator)
+		if model:FindFirstChild("RootPart") then
+			-- Find player by looking for any occupant
+			for _, desc in ipairs(model:GetDescendants()) do
+				if desc:IsA("Seat") or desc:IsA("VehicleSeat") then
+					if desc.Occupant then
+						local character = desc.Occupant.Parent
+						local player = Players:GetPlayerFromCharacter(character)
+						if player then
+							return player, model
+						end
+					end
+				end
+			end
+		end
+	end
+	
+	-- Check if it's a player character directly
+	local character = part:FindFirstAncestorOfClass("Model")
+	if character then
+		local player = Players:GetPlayerFromCharacter(character)
+		if player then
+			return player, character
+		end
+	end
+	
+	return nil, nil
+end
+
+-- Create a single kudos gate (enhanced visual design)
+local function createKudosGate(position, rotation, gateIndex, kudosReward, color, parent)
+	local gate = Instance.new("Model")
+	gate.Name = string.format("KudosGate_%d", gateIndex)
+	
+	local halfWidth = CONFIG.GateWidth / 2
+	local pillarRadius = CONFIG.GatePillarWidth / 2
+	local gateHeight = CONFIG.GateHeight
+	
+	-- ═══════════════════════════════════════════════════════════════
+	-- LEFT PILLAR (cylindrical with decorative elements)
+	-- ═══════════════════════════════════════════════════════════════
+	local leftPillarPos = position + rotation:VectorToWorldSpace(Vector3.new(-halfWidth, 0, 0))
+	
+	-- Main pillar cylinder
+	local leftPillar = Instance.new("Part")
+	leftPillar.Name = "LeftPillar"
+	leftPillar.Shape = Enum.PartType.Cylinder
+	leftPillar.Size = Vector3.new(gateHeight, CONFIG.GatePillarWidth, CONFIG.GatePillarWidth)
+	leftPillar.CFrame = CFrame.new(leftPillarPos + Vector3.new(0, gateHeight/2, 0)) * CFrame.Angles(0, 0, math.pi/2)
+	leftPillar.Color = color
+	leftPillar.Material = Enum.Material.Metal
+	leftPillar.Anchored = true
+	leftPillar.CanCollide = false
+	leftPillar.Parent = gate
+	
+	-- Left pillar base
+	local leftBase = Instance.new("Part")
+	leftBase.Name = "LeftBase"
+	leftBase.Shape = Enum.PartType.Cylinder
+	leftBase.Size = Vector3.new(2, CONFIG.GatePillarWidth * 1.5, CONFIG.GatePillarWidth * 1.5)
+	leftBase.CFrame = CFrame.new(leftPillarPos + Vector3.new(0, 1, 0)) * CFrame.Angles(0, 0, math.pi/2)
+	leftBase.Color = Color3.fromRGB(60, 60, 70)
+	leftBase.Material = Enum.Material.Metal
+	leftBase.Anchored = true
+	leftBase.CanCollide = false
+	leftBase.Parent = gate
+	
+	-- Left pillar top orb
+	local leftOrb = Instance.new("Part")
+	leftOrb.Name = "LeftOrb"
+	leftOrb.Shape = Enum.PartType.Ball
+	leftOrb.Size = Vector3.new(CONFIG.GatePillarWidth * 1.2, CONFIG.GatePillarWidth * 1.2, CONFIG.GatePillarWidth * 1.2)
+	leftOrb.Position = leftPillarPos + Vector3.new(0, gateHeight + CONFIG.GatePillarWidth * 0.5, 0)
+	leftOrb.Color = color
+	leftOrb.Material = Enum.Material.Neon
+	leftOrb.Anchored = true
+	leftOrb.CanCollide = false
+	leftOrb.Parent = gate
+	
+	-- Left point light
+	local leftLight = Instance.new("PointLight")
+	leftLight.Color = color
+	leftLight.Brightness = 3
+	leftLight.Range = 20
+	leftLight.Parent = leftOrb
+	
+	-- ═══════════════════════════════════════════════════════════════
+	-- RIGHT PILLAR (mirror of left)
+	-- ═══════════════════════════════════════════════════════════════
+	local rightPillarPos = position + rotation:VectorToWorldSpace(Vector3.new(halfWidth, 0, 0))
+	
+	local rightPillar = leftPillar:Clone()
+	rightPillar.Name = "RightPillar"
+	rightPillar.CFrame = CFrame.new(rightPillarPos + Vector3.new(0, gateHeight/2, 0)) * CFrame.Angles(0, 0, math.pi/2)
+	rightPillar.Parent = gate
+	
+	local rightBase = leftBase:Clone()
+	rightBase.Name = "RightBase"
+	rightBase.CFrame = CFrame.new(rightPillarPos + Vector3.new(0, 1, 0)) * CFrame.Angles(0, 0, math.pi/2)
+	rightBase.Parent = gate
+	
+	local rightOrb = leftOrb:Clone()
+	rightOrb.Name = "RightOrb"
+	rightOrb.Position = rightPillarPos + Vector3.new(0, gateHeight + CONFIG.GatePillarWidth * 0.5, 0)
+	rightOrb.Parent = gate
+	
+	-- ═══════════════════════════════════════════════════════════════
+	-- TOP ARCH (curved beam connecting pillars)
+	-- ═══════════════════════════════════════════════════════════════
+	local archSegments = 8
+	local archWidth = CONFIG.GateWidth
+	
+	for i = 0, archSegments do
+		local t = i / archSegments
+		local angle = t * math.pi
+		local x = math.cos(angle) * (archWidth / 2)
+		local y = math.sin(angle) * 4 + gateHeight  -- 4 stud arch height
+		
+		local archPart = Instance.new("Part")
+		archPart.Name = "Arch_" .. i
+		archPart.Shape = Enum.PartType.Ball
+		archPart.Size = Vector3.new(CONFIG.GatePillarWidth * 0.8, CONFIG.GatePillarWidth * 0.8, CONFIG.GatePillarWidth * 0.8)
+		archPart.CFrame = CFrame.new(position + rotation:VectorToWorldSpace(Vector3.new(x, y, 0)))
+		archPart.Color = color
+		archPart.Material = Enum.Material.Neon
+		archPart.Transparency = 0.2
+		archPart.Anchored = true
+		archPart.CanCollide = false
+		archPart.Parent = gate
+	end
+	
+	-- ═══════════════════════════════════════════════════════════════
+	-- PORTAL RING (glowing ring in the center)
+	-- ═══════════════════════════════════════════════════════════════
+	local ringSegments = 16
+	local ringRadius = math.min(halfWidth - 2, gateHeight / 2 - 2)
+	local ringCenter = position + Vector3.new(0, gateHeight / 2 + 2, 0)
+	
+	for i = 1, ringSegments do
+		local angle = (i / ringSegments) * math.pi * 2
+		local nextAngle = ((i + 1) / ringSegments) * math.pi * 2
+		
+		local ringPart = Instance.new("Part")
+		ringPart.Name = "Ring_" .. i
+		ringPart.Shape = Enum.PartType.Cylinder
+		ringPart.Size = Vector3.new(0.8, 2, 2)
+		
+		local x = math.cos(angle) * ringRadius
+		local y = math.sin(angle) * ringRadius
+		local partPos = ringCenter + rotation:VectorToWorldSpace(Vector3.new(x, y, 0))
+		
+		-- Orient cylinder tangent to the ring
+		local tangentAngle = angle + math.pi / 2
+		ringPart.CFrame = CFrame.new(partPos) * rotation * CFrame.Angles(0, tangentAngle, math.pi/2)
+		ringPart.Color = CONFIG.GateGlowColor
+		ringPart.Material = Enum.Material.Neon
+		ringPart.Transparency = 0.3
+		ringPart.Anchored = true
+		ringPart.CanCollide = false
+		ringPart.Parent = gate
+	end
+	
+	-- Center glow (semi-transparent fill)
+	local centerGlow = Instance.new("Part")
+	centerGlow.Name = "CenterGlow"
+	centerGlow.Shape = Enum.PartType.Cylinder
+	centerGlow.Size = Vector3.new(1, ringRadius * 2 - 2, ringRadius * 2 - 2)
+	centerGlow.CFrame = CFrame.new(ringCenter) * rotation * CFrame.Angles(0, math.pi/2, 0)
+	centerGlow.Color = CONFIG.GateGlowColor
+	centerGlow.Material = Enum.Material.Neon
+	centerGlow.Transparency = 0.85
+	centerGlow.Anchored = true
+	centerGlow.CanCollide = false
+	centerGlow.Parent = gate
+	
+	-- Store reference for animation
+	gate:SetAttribute("CenterGlowName", "CenterGlow")
+	
+	-- ═══════════════════════════════════════════════════════════════
+	-- TRIGGER ZONE
+	-- ═══════════════════════════════════════════════════════════════
+	local trigger = Instance.new("Part")
+	trigger.Name = "GateTrigger"
+	trigger.Size = Vector3.new(CONFIG.GateWidth, gateHeight, CONFIG.GatePillarWidth * 3)
+	trigger.CFrame = CFrame.new(position + Vector3.new(0, gateHeight/2, 0)) * rotation
+	trigger.Transparency = 1
+	trigger.Anchored = true
+	trigger.CanCollide = false
+	trigger.CanQuery = true
+	trigger.CanTouch = true
+	trigger.Parent = gate
+	
+	-- ═══════════════════════════════════════════════════════════════
+	-- KUDOS INDICATOR (floating above)
+	-- ═══════════════════════════════════════════════════════════════
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "KudosIndicator"
+	billboard.Size = UDim2.new(0, 120, 0, 50)
+	billboard.StudsOffset = Vector3.new(0, gateHeight + 8, 0)
+	billboard.Adornee = centerGlow
+	billboard.AlwaysOnTop = false
+	billboard.Parent = gate
+	
+	local kudosFrame = Instance.new("Frame")
+	kudosFrame.Name = "KudosFrame"
+	kudosFrame.Size = UDim2.new(1, 0, 1, 0)
+	kudosFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+	kudosFrame.BackgroundTransparency = 0.4
+	kudosFrame.BorderSizePixel = 0
+	kudosFrame.Parent = billboard
+	
+	local kudosCorner = Instance.new("UICorner")
+	kudosCorner.CornerRadius = UDim.new(0, 10)
+	kudosCorner.Parent = kudosFrame
+	
+	local kudosStroke = Instance.new("UIStroke")
+	kudosStroke.Color = color
+	kudosStroke.Thickness = 2
+	kudosStroke.Parent = kudosFrame
+	
+	local kudosLabel = Instance.new("TextLabel")
+	kudosLabel.Name = "KudosLabel"
+	kudosLabel.Size = UDim2.new(1, 0, 1, 0)
+	kudosLabel.BackgroundTransparency = 1
+	kudosLabel.Text = string.format("+%d ⭐", kudosReward)
+	kudosLabel.TextColor3 = CONFIG.GateGlowColor
+	kudosLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+	kudosLabel.TextStrokeTransparency = 0.3
+	kudosLabel.Font = Enum.Font.GothamBold
+	kudosLabel.TextScaled = true
+	kudosLabel.Parent = kudosFrame
+	
+	-- ═══════════════════════════════════════════════════════════════
+	-- ATTRIBUTES & COLLECTION TRACKING
+	-- ═══════════════════════════════════════════════════════════════
+	gate:SetAttribute("KudosReward", kudosReward)
+	gate:SetAttribute("GateIndex", gateIndex)
+	gate:SetAttribute("GateColor", color:ToHex())
+	gate:SetAttribute("Collected", false)
+	
+	local collectedPlayers = {}
+	
+	-- Touch detection
+	trigger.Touched:Connect(function(otherPart)
+		local player, model = getPlayerFromPart(otherPart)
+		if not player then return end
+		
+		-- Check if this player already collected this gate
+		if collectedPlayers[player.UserId] then return end
+		collectedPlayers[player.UserId] = true
+		
+		-- Award kudos
+		HubService:AwardKudos(player, kudosReward)
+		
+		-- Mark gate as collected for this player (client can read this)
+		gate:SetAttribute("LastCollectedBy", player.UserId)
+		gate:SetAttribute("LastCollectedAt", tick())
+		
+		-- Fire remote event to notify client
+		local gateCollectedEvent = ReplicatedStorage:FindFirstChild("GateCollectedEvent")
+		if gateCollectedEvent then
+			gateCollectedEvent:FireClient(player, gate, kudosReward)
+		end
+		
+		-- Server-side visual feedback (visible to all)
+		task.spawn(function()
+			-- Flash all neon parts white
+			local originalColors = {}
+			for _, part in ipairs(gate:GetDescendants()) do
+				if part:IsA("BasePart") and part.Material == Enum.Material.Neon then
+					originalColors[part] = part.Color
+					part.Color = Color3.new(1, 1, 1)
+				end
+			end
+			
+			-- Brighten center
+			if centerGlow then
+				centerGlow.Transparency = 0.5
+			end
+			
+			task.wait(0.15)
+			
+			-- Restore colors
+			for part, originalColor in pairs(originalColors) do
+				if part and part.Parent then
+					part.Color = originalColor
+				end
+			end
+			
+			if centerGlow and centerGlow.Parent then
+				centerGlow.Transparency = 0.85
+			end
+		end)
+		
+		print(string.format("[HubService] Player %s collected gate %d for %d kudos!", 
+			player.Name, gateIndex, kudosReward))
+	end)
+	
+	gate.Parent = parent
+	return gate
+end
+
+-- Generate kudos gates along a slide
+local function generateGates(params)
+	if not CONFIG.GatesEnabled then return end
+	
+	local startPos = params.startPos
+	local startY = params.startY
+	local direction = params.direction
+	local length = params.length
+	local parent = params.parent
+	local getHeightFunc = params.getHeight
+	local getWidthFunc = params.getWidth
+	local slideIndex = params.slideIndex or 1
+	
+	-- Direction vectors for rotation
+	local rotation
+	if direction == "z+" then
+		rotation = CFrame.Angles(0, 0, 0)
+	elseif direction == "z-" then
+		rotation = CFrame.Angles(0, math.pi, 0)
+	elseif direction == "x+" then
+		rotation = CFrame.Angles(0, -math.pi/2, 0)
+	elseif direction == "x-" then
+		rotation = CFrame.Angles(0, math.pi/2, 0)
+	end
+	
+	local forwardVec
+	if direction == "z+" then
+		forwardVec = Vector3.new(0, 0, 1)
+	elseif direction == "z-" then
+		forwardVec = Vector3.new(0, 0, -1)
+	elseif direction == "x+" then
+		forwardVec = Vector3.new(1, 0, 0)
+	elseif direction == "x-" then
+		forwardVec = Vector3.new(-1, 0, 0)
+	end
+	
+	-- Get master gates collection
+	local gatesFolder = HubService._collections and HubService._collections.Gates
+	if not gatesFolder then
+		gatesFolder = Instance.new("Folder")
+		gatesFolder.Name = "Gates"
+		gatesFolder.Parent = parent
+	end
+	
+	-- Determine number of gates for this slide
+	local numGates = math.random(CONFIG.GatesPerSlide[1], CONFIG.GatesPerSlide[2])
+	
+	-- Generate evenly distributed gate positions with some randomness
+	local positions = {}
+	local segmentLength = length / (numGates + 1)
+	
+	for i = 1, numGates do
+		local baseDistance = i * segmentLength
+		local jitter = math.random(-20, 20)
+		local distance = math.clamp(baseDistance + jitter, 40, length - 40)
+		
+		-- Ensure minimum spacing from previous gate
+		if #positions > 0 then
+			local lastPos = positions[#positions]
+			if distance - lastPos < CONFIG.GateMinSpacing then
+				distance = lastPos + CONFIG.GateMinSpacing
+			end
+		end
+		
+		if distance < length - 40 then
+			table.insert(positions, distance)
+		end
+	end
+	
+	-- Create gates at calculated positions
+	local gateIndex = (slideIndex - 1) * 10  -- Unique index per slide
+	
+	for i, distance in ipairs(positions) do
+		gateIndex = gateIndex + 1
+		
+		-- Get Y position at this distance
+		local y = getHeightFunc(distance) + CONFIG.SlideThickness / 2
+		
+		-- Calculate position
+		local gatePos = Vector3.new(startPos.X, y, startPos.Z) + forwardVec * distance
+		
+		-- Random kudos reward
+		local kudosReward = math.random(CONFIG.GateKudosReward[1], CONFIG.GateKudosReward[2])
+		
+		-- Pick color (rarer colors = higher rewards)
+		local colorIndex = 1
+		if kudosReward > 12 then
+			colorIndex = 4  -- Pink (epic)
+		elseif kudosReward > 10 then
+			colorIndex = 3  -- Purple (rare)
+		elseif kudosReward > 7 then
+			colorIndex = 2  -- Cyan (uncommon)
+		end
+		local color = CONFIG.GateColors[colorIndex]
+		
+		createKudosGate(gatePos, rotation, gateIndex, kudosReward, color, gatesFolder)
+	end
+	
+	print(string.format("[HubService] Generated %d kudos gates for slide %d", #positions, slideIndex))
 end
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -1204,6 +2082,7 @@ local function generateWavySlide(params)
 	local color = params.color or CONFIG.SlideColor
 	local parent = params.parent
 	local name = params.name or "WavySlide"
+	local slideIndex = params.slideIndex or 1  -- For gate generation
 	
 	-- Create folder for this slide
 	local slideFolder = Instance.new("Folder")
@@ -1389,53 +2268,91 @@ local function generateWavySlide(params)
 	-- Get master rails collection for Powers system
 	local railsCollection = HubService._collections and HubService._collections.Rails
 	
-	for i = 0, numRailSegments - 1 do
-		local d1 = i * railSegmentLength
-		local d2 = math.min((i + 1) * railSegmentLength, length)
-		local dMid = (d1 + d2) / 2
+	-- Helper to create a smooth tubular rail segment
+	local function createTubularRail(pos1, pos2, side, index)
+		local segmentDir = (pos2 - pos1)
+		local segmentLength = segmentDir.Magnitude
+		if segmentLength < 0.1 then return end
 		
-		local y1 = getHeight(d1) + thicknessOffset  -- Top of slide surface
-		local y2 = getHeight(d2) + thicknessOffset
-		local yMid = (y1 + y2) / 2 + CONFIG.RailHeight / 2  -- Center of rail
+		local midPos = (pos1 + pos2) / 2
+		local lookDir = segmentDir.Unit
 		
-		-- Get width at this position for rail offset
-		local railWidth = getWidth(dMid)
-		local railOffset = railWidth / 2 + CONFIG.RailThickness / 2
+		-- Main rail cylinder (horizontal tube)
+		local rail = Instance.new("Part")
+		rail.Name = string.format("%sRail_%d", side, index)
+		rail.Shape = Enum.PartType.Cylinder
+		rail.Size = Vector3.new(segmentLength + 0.3, CONFIG.RailThickness, CONFIG.RailThickness)
+		rail.Color = CONFIG.RailColor
+		rail.Material = CONFIG.RailMaterial
+		rail.Anchored = true
+		rail.CanCollide = true
+		-- Cylinder's length is along X axis, so rotate to align with travel direction
+		local cf = CFrame.lookAt(midPos, midPos + lookDir)
+		rail.CFrame = cf * CFrame.Angles(0, math.pi/2, 0)
+		rail.Parent = railsCollection or slideFolder
 		
-		local actualRailLength = math.sqrt((d2 - d1)^2 + (y1 - y2)^2)
-		
-		-- Calculate look direction for rails (follows slope)
-		local lookDir = forwardVec + Vector3.new(0, (y2 - y1) / math.max(d2 - d1, 0.1), 0)
-		if lookDir.Magnitude > 0 then
-			lookDir = lookDir.Unit
-		else
-			lookDir = forwardVec
+		-- Add a vertical post every few segments for visual interest
+		if index % 4 == 0 then
+			local post = Instance.new("Part")
+			post.Name = string.format("%sPost_%d", side, index)
+			post.Shape = Enum.PartType.Cylinder
+			post.Size = Vector3.new(CONFIG.RailHeight, CONFIG.RailThickness * 0.6, CONFIG.RailThickness * 0.6)
+			post.Color = CONFIG.RailAccentColor
+			post.Material = CONFIG.RailMaterial
+			post.Anchored = true
+			post.CanCollide = false
+			post.CFrame = CFrame.new(pos1 - Vector3.new(0, CONFIG.RailHeight/2 - CONFIG.RailThickness/2, 0)) * CFrame.Angles(0, 0, math.pi/2)
+			post.Parent = railsCollection or slideFolder
 		end
 		
-		-- Base position along the slide centerline
-		local basePos = Vector3.new(startPos.X, yMid, startPos.Z) + forwardVec * dMid
+		return rail
+	end
+	
+	-- Helper to create joint sphere for smooth transitions
+	local function createJointSphere(pos, side, index)
+		if not CONFIG.RailUseJointSpheres then return end
 		
-		-- Left rail (offset perpendicular to travel direction)
+		local sphere = Instance.new("Part")
+		sphere.Name = string.format("%sJoint_%d", side, index)
+		sphere.Shape = Enum.PartType.Ball
+		sphere.Size = Vector3.new(CONFIG.RailThickness * 1.1, CONFIG.RailThickness * 1.1, CONFIG.RailThickness * 1.1)
+		sphere.Color = CONFIG.RailColor
+		sphere.Material = CONFIG.RailMaterial
+		sphere.Anchored = true
+		sphere.CanCollide = false  -- Don't add extra collision
+		sphere.Position = pos
+		sphere.Parent = railsCollection or slideFolder
+		
+		return sphere
+	end
+	
+	-- Track previous positions for smooth connections
+	local prevLeftPos, prevRightPos = nil, nil
+	
+	for i = 0, numRailSegments do
+		local d = math.min(i * railSegmentLength, length)
+		
+		local y = getHeight(d) + thicknessOffset + CONFIG.RailHeight / 2
+		local railWidth = getWidth(d)
+		local railOffset = railWidth / 2 + CONFIG.RailThickness / 2
+		
+		-- Current positions
+		local basePos = Vector3.new(startPos.X, y, startPos.Z) + forwardVec * d
 		local leftPos = basePos - rightVec * railOffset
-		local leftRail = Instance.new("Part")
-		leftRail.Name = "LeftRail_" .. i
-		leftRail.Size = Vector3.new(CONFIG.RailThickness, CONFIG.RailHeight, actualRailLength + 0.5)
-		leftRail.Color = CONFIG.RailColor
-		leftRail.Material = CONFIG.RailMaterial
-		leftRail.Anchored = true
-		leftRail.CFrame = CFrame.lookAt(leftPos, leftPos + lookDir) * CFrame.Angles(0, math.pi, 0)
-		leftRail.Parent = railsCollection or slideFolder
-		
-		-- Right rail (offset perpendicular to travel direction)
 		local rightPos = basePos + rightVec * railOffset
-		local rightRail = Instance.new("Part")
-		rightRail.Name = "RightRail_" .. i
-		rightRail.Size = Vector3.new(CONFIG.RailThickness, CONFIG.RailHeight, actualRailLength + 0.5)
-		rightRail.Color = CONFIG.RailColor
-		rightRail.Material = CONFIG.RailMaterial
-		rightRail.Anchored = true
-		rightRail.CFrame = CFrame.lookAt(rightPos, rightPos + lookDir) * CFrame.Angles(0, math.pi, 0)
-		rightRail.Parent = railsCollection or slideFolder
+		
+		-- Create segments connecting to previous position
+		if prevLeftPos then
+			createTubularRail(prevLeftPos, leftPos, "Left", i)
+			createTubularRail(prevRightPos, rightPos, "Right", i)
+		end
+		
+		-- Create joint spheres at this position (smooth the corners)
+		createJointSphere(leftPos, "Left", i)
+		createJointSphere(rightPos, "Right", i)
+		
+		prevLeftPos = leftPos
+		prevRightPos = rightPos
 	end
 	
 	print(string.format("[HubService] Generated %d segments + %d rail segments for %s", numSegments, numRailSegments * 2, name))
@@ -1464,6 +2381,18 @@ local function generateWavySlide(params)
 		parent = slideFolder,
 		getHeight = getHeight,
 		getWidth = getWidth,
+	})
+	
+	-- Generate kudos gates on this slide
+	generateGates({
+		startPos = startPos,
+		startY = startY,
+		direction = direction,
+		length = length,
+		parent = slideFolder,
+		getHeight = getHeight,
+		getWidth = getWidth,
+		slideIndex = slideIndex,
 	})
 	
 	-- Register slide as a track segment for building collision avoidance
@@ -1508,6 +2437,10 @@ function HubService:CreateHub()
 	self._collections.Rails = Instance.new("Folder")
 	self._collections.Rails.Name = "AllRails"
 	self._collections.Rails.Parent = self._hubFolder
+	
+	self._collections.Gates = Instance.new("Folder")
+	self._collections.Gates.Name = "AllGates"
+	self._collections.Gates.Parent = self._hubFolder
 	
 	-- Clear track geometry for fresh collision detection
 	clearTrackGeometry()
@@ -1670,36 +2603,36 @@ function HubService:CreateHub()
 		CONFIG.StartPlatformSize.Z / 2
 	)
 	
-	-- Start platform rails (on sides without slides - back, left, right)
-	local startRailY = startPlatformTopY + CONFIG.RailHeight / 2
+	-- Start platform rails (smooth tubular - on sides without slides: back, left, right)
+	local platformHalfX = CONFIG.StartPlatformSize.X / 2
+	local platformHalfZ = CONFIG.StartPlatformSize.Z / 2
+	local platformCenterX = CONFIG.StartPlatformPosition.X
+	local platformCenterZ = CONFIG.StartPlatformPosition.Z
 	
-	-- Back rail
-	createPart(
+	-- Back rail (Z-)
+	createTubularPlatformRail(
 		"StartPlatform_BackRail",
-		Vector3.new(CONFIG.StartPlatformSize.X, CONFIG.RailHeight, CONFIG.RailThickness),
-		Vector3.new(CONFIG.StartPlatformPosition.X, startRailY, CONFIG.StartPlatformPosition.Z - CONFIG.StartPlatformSize.Z/2),
-		CONFIG.RailColor,
-		CONFIG.RailMaterial,
+		Vector3.new(platformCenterX - platformHalfX, startPlatformTopY, platformCenterZ - platformHalfZ),
+		Vector3.new(platformCenterX + platformHalfX, startPlatformTopY, platformCenterZ - platformHalfZ),
+		0,
 		self._hubFolder
 	)
 	
-	-- Left rail
-	createPart(
+	-- Left rail (X-)
+	createTubularPlatformRail(
 		"StartPlatform_LeftRail",
-		Vector3.new(CONFIG.RailThickness, CONFIG.RailHeight, CONFIG.StartPlatformSize.Z),
-		Vector3.new(CONFIG.StartPlatformPosition.X - CONFIG.StartPlatformSize.X/2, startRailY, CONFIG.StartPlatformPosition.Z),
-		CONFIG.RailColor,
-		CONFIG.RailMaterial,
+		Vector3.new(platformCenterX - platformHalfX, startPlatformTopY, platformCenterZ - platformHalfZ),
+		Vector3.new(platformCenterX - platformHalfX, startPlatformTopY, platformCenterZ + platformHalfZ),
+		0,
 		self._hubFolder
 	)
 	
-	-- Right rail
-	createPart(
+	-- Right rail (X+)
+	createTubularPlatformRail(
 		"StartPlatform_RightRail",
-		Vector3.new(CONFIG.RailThickness, CONFIG.RailHeight, CONFIG.StartPlatformSize.Z),
-		Vector3.new(CONFIG.StartPlatformPosition.X + CONFIG.StartPlatformSize.X/2, startRailY, CONFIG.StartPlatformPosition.Z),
-		CONFIG.RailColor,
-		CONFIG.RailMaterial,
+		Vector3.new(platformCenterX + platformHalfX, startPlatformTopY, platformCenterZ - platformHalfZ),
+		Vector3.new(platformCenterX + platformHalfX, startPlatformTopY, platformCenterZ + platformHalfZ),
+		0,
 		self._hubFolder
 	)
 	
@@ -1840,7 +2773,8 @@ function HubService:CreateHub()
 			width = CONFIG.MiddlePlatformSize,
 			color = slideColor,
 			parent = self._hubFolder,
-			name = string.format("Slide%d_%s_%s", i, currentDirection, slideType)
+			name = string.format("Slide%d_%s_%s", i, currentDirection, slideType),
+			slideIndex = i,  -- For gate generation
 		})
 		
 		lastSlideResult = slideResult
@@ -1877,14 +2811,25 @@ function HubService:CreateHub()
 				slideResult.endPos.Z + platformOffset.Z
 			)
 			
+		-- Create base platform
 		createPart(
 			string.format("Platform%d", i),
 			Vector3.new(CONFIG.MiddlePlatformSize, CONFIG.MiddlePlatformHeight, CONFIG.MiddlePlatformSize),
 			platformPos,
-			platformColor,
+			CONFIG.MiddlePlatformColor,  -- Use consistent dark base color
 			CONFIG.PlatformMaterial,
 			self._hubFolder
 		)
+		
+		-- Add platform decorations with cycling accent colors
+		local accentColor = CONFIG.MiddlePlatformAccentColors[(i - 1) % #CONFIG.MiddlePlatformAccentColors + 1]
+		decoratePlatform(platformPos, CONFIG.MiddlePlatformSize, accentColor, {
+			hasEdgeTrim = CONFIG.MiddlePlatformHasEdgeTrim,
+			hasCornerLights = CONFIG.MiddlePlatformHasCornerLights,
+			hasUnderglow = CONFIG.MiddlePlatformHasUnderglow,
+			hasCenterMarking = CONFIG.MiddlePlatformHasCenterMarking,
+			platformIndex = i,
+		}, self._hubFolder)
 		
 		-- Register intermediate platform in track geometry
 		addTrackBox(
@@ -1904,37 +2849,40 @@ function HubService:CreateHub()
 		local platformTopY = platformPos.Y + CONFIG.MiddlePlatformHeight / 2
 		local halfSize = CONFIG.MiddlePlatformSize / 2
 		
-		-- Check each side and add rail if not connected to a slide
-		-- Rail Size is (thickness, height, length) - length runs along local Z axis
-		-- So for z+/z- edges (front/back), we need to rotate 90° so rail runs along X
-		-- For x+/x- edges (left/right), no rotation needed - rail runs along Z
+		-- Check each side and add tubular rail if not connected to a slide
 		local sides = {
-			{dir = "z+", offset = Vector3.new(0, 0, halfSize), length = CONFIG.MiddlePlatformSize, rotation = math.pi/2},
-			{dir = "z-", offset = Vector3.new(0, 0, -halfSize), length = CONFIG.MiddlePlatformSize, rotation = math.pi/2},
-			{dir = "x+", offset = Vector3.new(halfSize, 0, 0), length = CONFIG.MiddlePlatformSize, rotation = 0},
-			{dir = "x-", offset = Vector3.new(-halfSize, 0, 0), length = CONFIG.MiddlePlatformSize, rotation = 0},
+			{dir = "z+", offset = Vector3.new(0, 0, halfSize)},
+			{dir = "z-", offset = Vector3.new(0, 0, -halfSize)},
+			{dir = "x+", offset = Vector3.new(halfSize, 0, 0)},
+			{dir = "x-", offset = Vector3.new(-halfSize, 0, 0)},
 		}
 		
 		for _, side in ipairs(sides) do
-			-- Add rail if this side is not connected to incoming or outgoing slide
-			local isConnected = (side.dir == incomingDir) or (side.dir == getOppositeDirection(incomingDir))
-				or (side.dir == outgoingDir) or (side.dir == getOppositeDirection(outgoingDir))
-			
 			-- Actually, we want rails on sides that DON'T have slides
 			-- Incoming slide comes FROM the opposite direction, outgoing goes TO the direction
 			local hasIncoming = (getOppositeDirection(side.dir) == incomingDir)
 			local hasOutgoing = (side.dir == outgoingDir)
 			
 			if not hasIncoming and not hasOutgoing then
-				local railPos = platformPos + side.offset + Vector3.new(0, CONFIG.MiddlePlatformHeight/2 + CONFIG.RailHeight/2, 0)
-				local rail = Instance.new("Part")
-				rail.Name = string.format("PlatformRail_%d_%s", i, side.dir)
-				rail.Size = Vector3.new(CONFIG.RailThickness, CONFIG.RailHeight, side.length)
-				rail.Color = CONFIG.RailColor
-				rail.Material = CONFIG.RailMaterial
-				rail.Anchored = true
-				rail.CFrame = CFrame.new(railPos) * CFrame.Angles(0, side.rotation, 0)
-				rail.Parent = self._hubFolder
+				-- Calculate start and end points for tubular rail
+				local railStartPos, railEndPos
+				if side.dir == "z+" or side.dir == "z-" then
+					-- Rail runs along X axis
+					railStartPos = Vector3.new(platformPos.X - halfSize, platformTopY, platformPos.Z + side.offset.Z)
+					railEndPos = Vector3.new(platformPos.X + halfSize, platformTopY, platformPos.Z + side.offset.Z)
+				else
+					-- Rail runs along Z axis
+					railStartPos = Vector3.new(platformPos.X + side.offset.X, platformTopY, platformPos.Z - halfSize)
+					railEndPos = Vector3.new(platformPos.X + side.offset.X, platformTopY, platformPos.Z + halfSize)
+				end
+				
+				createTubularPlatformRail(
+					string.format("PlatformRail_%d_%s", i, side.dir),
+					railStartPos,
+					railEndPos,
+					0,
+					self._hubFolder
+				)
 			end
 		end
 			
@@ -1973,40 +2921,50 @@ function HubService:CreateHub()
 		CONFIG.FinalLandingSize,
 		finalLandingPos,
 		CONFIG.FinalLandingColor,
-		Enum.Material.Slate,
+		Enum.Material.SmoothPlastic,
 		self._hubFolder
 	)
 	
-	-- Final landing rails (on sides without the incoming slide)
-	local landingTopY = finalLandingPos.Y + CONFIG.FinalLandingSize.Y / 2 + CONFIG.RailHeight / 2
+	-- Add finish line decorations (checkerboard, victory arch)
+	decoratePlatform(finalLandingPos, CONFIG.FinalLandingSize, CONFIG.FinalLandingAccentColor, {
+		hasEdgeTrim = true,
+		hasCornerLights = true,
+		hasUnderglow = true,
+		hasCheckerboard = CONFIG.FinalLandingHasCheckerboard,
+		hasVictoryArch = CONFIG.FinalLandingHasVictoryArch,
+		platformIndex = "Final",
+	}, self._hubFolder)
+	
+	-- Final landing rails (smooth tubular - on sides without the incoming slide)
+	local landingTopY = finalLandingPos.Y + CONFIG.FinalLandingSize.Y / 2
 	local landingHalfX = CONFIG.FinalLandingSize.X / 2
 	local landingHalfZ = CONFIG.FinalLandingSize.Z / 2
 	local incomingFromDir = getOppositeDirection(currentDirection)  -- Where the slide comes from
 	
-	-- Add rails on sides that don't have the incoming slide
+	-- Add smooth tubular rails on sides that don't have the incoming slide
 	if incomingFromDir ~= "z-" then
-		createPart("FinalLanding_BackRail", 
-			Vector3.new(CONFIG.FinalLandingSize.X, CONFIG.RailHeight, CONFIG.RailThickness),
-			finalLandingPos + Vector3.new(0, CONFIG.FinalLandingSize.Y/2 + CONFIG.RailHeight/2, -landingHalfZ),
-			CONFIG.RailColor, CONFIG.RailMaterial, self._hubFolder)
+		createTubularPlatformRail("FinalLanding_BackRail",
+			Vector3.new(finalLandingPos.X - landingHalfX, landingTopY, finalLandingPos.Z - landingHalfZ),
+			Vector3.new(finalLandingPos.X + landingHalfX, landingTopY, finalLandingPos.Z - landingHalfZ),
+			0, self._hubFolder)
 	end
 	if incomingFromDir ~= "z+" then
-		createPart("FinalLanding_FrontRail",
-			Vector3.new(CONFIG.FinalLandingSize.X, CONFIG.RailHeight, CONFIG.RailThickness),
-			finalLandingPos + Vector3.new(0, CONFIG.FinalLandingSize.Y/2 + CONFIG.RailHeight/2, landingHalfZ),
-			CONFIG.RailColor, CONFIG.RailMaterial, self._hubFolder)
+		createTubularPlatformRail("FinalLanding_FrontRail",
+			Vector3.new(finalLandingPos.X - landingHalfX, landingTopY, finalLandingPos.Z + landingHalfZ),
+			Vector3.new(finalLandingPos.X + landingHalfX, landingTopY, finalLandingPos.Z + landingHalfZ),
+			0, self._hubFolder)
 	end
 	if incomingFromDir ~= "x-" then
-		createPart("FinalLanding_LeftRail",
-			Vector3.new(CONFIG.RailThickness, CONFIG.RailHeight, CONFIG.FinalLandingSize.Z),
-			finalLandingPos + Vector3.new(-landingHalfX, CONFIG.FinalLandingSize.Y/2 + CONFIG.RailHeight/2, 0),
-			CONFIG.RailColor, CONFIG.RailMaterial, self._hubFolder)
+		createTubularPlatformRail("FinalLanding_LeftRail",
+			Vector3.new(finalLandingPos.X - landingHalfX, landingTopY, finalLandingPos.Z - landingHalfZ),
+			Vector3.new(finalLandingPos.X - landingHalfX, landingTopY, finalLandingPos.Z + landingHalfZ),
+			0, self._hubFolder)
 	end
 	if incomingFromDir ~= "x+" then
-		createPart("FinalLanding_RightRail",
-			Vector3.new(CONFIG.RailThickness, CONFIG.RailHeight, CONFIG.FinalLandingSize.Z),
-			finalLandingPos + Vector3.new(landingHalfX, CONFIG.FinalLandingSize.Y/2 + CONFIG.RailHeight/2, 0),
-			CONFIG.RailColor, CONFIG.RailMaterial, self._hubFolder)
+		createTubularPlatformRail("FinalLanding_RightRail",
+			Vector3.new(finalLandingPos.X + landingHalfX, landingTopY, finalLandingPos.Z - landingHalfZ),
+			Vector3.new(finalLandingPos.X + landingHalfX, landingTopY, finalLandingPos.Z + landingHalfZ),
+			0, self._hubFolder)
 	end
 	
 	-- ══════════════════════════════════════════════════════════════════════
@@ -2206,11 +3164,99 @@ function HubService:RespawnMachines()
 end
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║                         KUDOS SYSTEM                                        ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- Award kudos to a player
+function HubService:AwardKudos(player, amount)
+	if not player or amount <= 0 then return end
+	
+	-- Initialize kudos for player if not exists
+	if not self._playerKudos[player] then
+		self._playerKudos[player] = 0
+	end
+	
+	-- Add kudos
+	self._playerKudos[player] = self._playerKudos[player] + amount
+	
+	-- Update replica if exists
+	local replica = self._kudosReplicas[player]
+	if replica then
+		replica:SetValue("Kudos", self._playerKudos[player])
+		replica:SetValue("LastAward", amount)
+		replica:SetValue("LastAwardTime", tick())
+	end
+	
+	print(string.format("[HubService] Awarded %d kudos to %s (total: %d)", 
+		amount, player.Name, self._playerKudos[player]))
+end
+
+-- Get player's total kudos
+function HubService:GetPlayerKudos(player)
+	return self._playerKudos[player] or 0
+end
+
+-- Setup kudos tracking for a player (called when player joins)
+function HubService:SetupPlayerKudos(player)
+	-- Initialize kudos
+	self._playerKudos[player] = 0
+	
+	-- Create a replica for this player's kudos (ReplicaService already required at top of file)
+	local replica = ReplicaService.NewReplica({
+		ClassToken = ReplicaService.NewClassToken("PlayerKudos_" .. player.UserId),
+		Data = {
+			Kudos = 0,
+			LastAward = 0,
+			LastAwardTime = 0,
+		},
+		Replication = player,  -- Only replicate to this player
+	})
+	
+	self._kudosReplicas[player] = replica
+	print(string.format("[HubService] Kudos replica created for %s", player.Name))
+end
+
+-- Cleanup kudos when player leaves
+function HubService:CleanupPlayerKudos(player)
+	-- Destroy replica
+	local replica = self._kudosReplicas[player]
+	if replica then
+		replica:Destroy()
+		self._kudosReplicas[player] = nil
+	end
+	
+	-- Clean up kudos data
+	self._playerKudos[player] = nil
+	
+	print(string.format("[HubService] Kudos cleaned up for %s", player.Name))
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
 -- ║                         KNIT LIFECYCLE                                      ║
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
 function HubService:KnitInit()
 	print("[HubService] Initializing...")
+	
+	-- Create RemoteEvent for gate collection feedback
+	local gateCollectedEvent = Instance.new("RemoteEvent")
+	gateCollectedEvent.Name = "GateCollectedEvent"
+	gateCollectedEvent.Parent = ReplicatedStorage
+	
+	-- Setup kudos for players that join
+	Players.PlayerAdded:Connect(function(player)
+		self:SetupPlayerKudos(player)
+	end)
+	
+	-- Cleanup when players leave
+	Players.PlayerRemoving:Connect(function(player)
+		self:CleanupPlayerKudos(player)
+	end)
+	
+	-- Setup for any players already in game
+	for _, player in ipairs(Players:GetPlayers()) do
+		self:SetupPlayerKudos(player)
+	end
 end
 
 function HubService:KnitStart()
@@ -2289,6 +3335,11 @@ function HubService.Client:UpdateCrystalParticleSettings(player, settings)
 	
 	print(string.format("[HubService] %s updated crystal particle settings", player.Name))
 	return true
+end
+
+-- Get player's current kudos
+function HubService.Client:GetKudos(player)
+	return HubService:GetPlayerKudos(player)
 end
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
