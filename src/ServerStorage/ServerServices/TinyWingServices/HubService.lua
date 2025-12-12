@@ -3,6 +3,7 @@
 	
 	Creates a hub area where players spawn on a platform.
 	Machines are lined up on the edge, ready to ride down a slide/ramp.
+	Tracks race time for each player using Replica.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -10,7 +11,17 @@ local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
 
 local Packages = ReplicatedStorage:WaitForChild("Packages")
+local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
 local Knit = require(Packages.Knit)
+local Timer = require(Packages.timer)
+
+-- Zone+ module
+local ZoneRoot = CustomPackages:WaitForChild("ZoneRoot")
+local Zone = require(ZoneRoot:WaitForChild("Zone"))
+
+-- Replica module
+local Replica = CustomPackages:WaitForChild("Replica")
+local ReplicaService = require(Replica.ReplicaService)
 
 local HubService = Knit.CreateService {
 	Name = "HubService",
@@ -20,6 +31,10 @@ local HubService = Knit.CreateService {
 	_hubFolder = nil,
 	_spawnLocation = nil,
 	_machines = {},
+	_startZone = nil,
+	
+	-- Player timers: { [player] = { timer = Timer, replica = Replica, startTime = number } }
+	_playerTimers = {},
 }
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -51,12 +66,20 @@ local CONFIG = {
 	SlideSegmentLength = 6,                      -- Smaller = smoother curves
 	SlideThickness = 4,
 	
+	-- Narrow zones (width variation)
+	NarrowZoneEnabled = true,                    -- Enable width variation
+	NarrowZoneChance = 0.4,                      -- 40% chance a slide has narrow zones
+	NarrowZoneMinWidth = 60,                     -- Minimum width at narrowest point
+	NarrowZoneTransitionLength = 80,             -- How long it takes to narrow/widen
+	NarrowZoneDuration = 100,                    -- How long the narrow section lasts
+	NarrowZonesPerSlide = {1, 3},                -- Min/max narrow zones per slide
+	
 	-- Guide Rails
 	RailHeight = 8,                              -- How tall the rails are
 	RailThickness = 3,                           -- How thick the rails are
 	RailColor = Color3.fromRGB(70, 70, 80),      -- Dark metal color
 	RailMaterial = Enum.Material.Metal,
-	RailSegmentLength = 20,                      -- Length of each rail segment (longer = fewer parts)
+	RailSegmentLength = 12,                      -- Shorter segments to follow width changes
 	
 	-- Slope settings
 	DownhillDropRate = 0.08,                     -- How steep downhill slides are (positive = down)
@@ -111,6 +134,11 @@ local CONFIG = {
 	
 	-- Prefabs
 	MachinePrefabPath = {"Prefabs", "Machines"},
+	
+	-- Start Zone (wall at slide entrance)
+	StartZoneSize = Vector3.new(120, 20, 5),     -- Wide wall at slide edge
+	StartZoneColor = Color3.fromRGB(100, 200, 255),
+	StartZoneTransparency = 0.7,
 }
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -188,6 +216,86 @@ local function generateWavySlide(params)
 		return height - initialWaveOffset - thicknessOffset
 	end
 	
+	-- Generate narrow zones for this slide
+	local narrowZones = {}
+	if CONFIG.NarrowZoneEnabled and math.random() < CONFIG.NarrowZoneChance then
+		local numZones = math.random(CONFIG.NarrowZonesPerSlide[1], CONFIG.NarrowZonesPerSlide[2])
+		local zoneSpacing = length / (numZones + 1)
+		
+		-- Generate initial zone centers
+		local zoneCenters = {}
+		for z = 1, numZones do
+			local zoneCenter = zoneSpacing * z + math.random(-50, 50)
+			zoneCenter = math.clamp(zoneCenter, CONFIG.NarrowZoneTransitionLength + 50, length - CONFIG.NarrowZoneTransitionLength - 50)
+			table.insert(zoneCenters, zoneCenter)
+		end
+		
+		-- Sort by position
+		table.sort(zoneCenters)
+		
+		-- Create zones, merging overlapping ones
+		local i = 1
+		while i <= #zoneCenters do
+			local startCenter = zoneCenters[i]
+			local endCenter = startCenter
+			
+			-- Check for subsequent zones that should merge (if they overlap or are close)
+			while i < #zoneCenters do
+				local nextCenter = zoneCenters[i + 1]
+				local currentZoneEnd = endCenter + CONFIG.NarrowZoneDuration / 2 + CONFIG.NarrowZoneTransitionLength
+				local nextZoneStart = nextCenter - CONFIG.NarrowZoneDuration / 2 - CONFIG.NarrowZoneTransitionLength
+				
+				-- If zones overlap or are within transition distance, merge them
+				if nextZoneStart <= currentZoneEnd + 20 then  -- 20 stud buffer for smooth connection
+					endCenter = nextCenter
+					i = i + 1
+				else
+					break
+				end
+			end
+			
+			-- Create the (possibly merged) zone
+			table.insert(narrowZones, {
+				start = startCenter - CONFIG.NarrowZoneDuration / 2 - CONFIG.NarrowZoneTransitionLength,
+				narrowStart = startCenter - CONFIG.NarrowZoneDuration / 2,
+				narrowEnd = endCenter + CONFIG.NarrowZoneDuration / 2,
+				finish = endCenter + CONFIG.NarrowZoneDuration / 2 + CONFIG.NarrowZoneTransitionLength,
+			})
+			
+			i = i + 1
+		end
+	end
+	
+	-- Width function based on distance (handles narrow zones with smooth transitions)
+	local function getWidth(distance)
+		local currentWidth = width
+		local narrowAmount = width - CONFIG.NarrowZoneMinWidth
+		
+		for _, zone in ipairs(narrowZones) do
+			if distance >= zone.start and distance <= zone.finish then
+				if distance < zone.narrowStart then
+					-- Transitioning into narrow
+					local t = (distance - zone.start) / CONFIG.NarrowZoneTransitionLength
+					t = math.clamp(t, 0, 1)
+					t = t * t * (3 - 2 * t)  -- Smoothstep
+					currentWidth = width - narrowAmount * t
+				elseif distance > zone.narrowEnd then
+					-- Transitioning out of narrow
+					local t = (distance - zone.narrowEnd) / CONFIG.NarrowZoneTransitionLength
+					t = math.clamp(t, 0, 1)
+					t = t * t * (3 - 2 * t)  -- Smoothstep
+					currentWidth = CONFIG.NarrowZoneMinWidth + narrowAmount * t
+				else
+					-- In the narrow section
+					currentWidth = CONFIG.NarrowZoneMinWidth
+				end
+				break
+			end
+		end
+		
+		return currentWidth
+	end
+	
 	-- Direction vector (horizontal movement direction)
 	local forwardVec
 	if direction == "z+" then
@@ -231,6 +339,9 @@ local function generateWavySlide(params)
 		local y2 = getHeight(d2)
 		local yMid = (y1 + y2) / 2
 		
+		-- Get width at this position (may vary due to narrow zones)
+		local segmentWidth = getWidth(dMid)
+		
 		-- Position along the direction (3D points)
 		local pos1 = Vector3.new(startPos.X, y1, startPos.Z) + forwardVec * d1
 		local pos2 = Vector3.new(startPos.X, y2, startPos.Z) + forwardVec * d2
@@ -242,7 +353,7 @@ local function generateWavySlide(params)
 		-- Create segment
 		local segment = Instance.new("Part")
 		segment.Name = "Segment_" .. i
-		segment.Size = Vector3.new(width, CONFIG.SlideThickness, actualLength + 0.5)
+		segment.Size = Vector3.new(segmentWidth, CONFIG.SlideThickness, actualLength + 0.5)
 		segment.Color = color
 		segment.Material = CONFIG.SlideMaterial
 		segment.Anchored = true
@@ -261,8 +372,7 @@ local function generateWavySlide(params)
 		endY = y2
 	end
 	
-	-- Generate guide rails along edges
-	local railOffset = width / 2 + CONFIG.RailThickness / 2  -- Position at edge of slide
+	-- Generate guide rails along edges (follow the width variation)
 	
 	for i = 0, numRailSegments - 1 do
 		local d1 = i * railSegmentLength
@@ -272,6 +382,10 @@ local function generateWavySlide(params)
 		local y1 = getHeight(d1) + thicknessOffset  -- Top of slide surface
 		local y2 = getHeight(d2) + thicknessOffset
 		local yMid = (y1 + y2) / 2 + CONFIG.RailHeight / 2  -- Center of rail
+		
+		-- Get width at this position for rail offset
+		local railWidth = getWidth(dMid)
+		local railOffset = railWidth / 2 + CONFIG.RailThickness / 2
 		
 		local actualRailLength = math.sqrt((d2 - d1)^2 + (y1 - y2)^2)
 		
@@ -379,6 +493,42 @@ function HubService:CreateHub()
 		CONFIG.RailMaterial,
 		self._hubFolder
 	)
+	
+	-- ══════════════════════════════════════════════════════════════════════
+	-- START ZONE (wall at slide entrance - detects when players leave)
+	-- ══════════════════════════════════════════════════════════════════════
+	local startZonePart = Instance.new("Part")
+	startZonePart.Name = "StartZone"
+	startZonePart.Size = CONFIG.StartZoneSize
+	startZonePart.Position = Vector3.new(
+		CONFIG.StartPlatformPosition.X,
+		startPlatformTopY + CONFIG.StartZoneSize.Y / 2,
+		startPlatformFrontZ + CONFIG.StartZoneSize.Z / 2  -- At the edge where slide starts
+	)
+	startZonePart.Color = CONFIG.StartZoneColor
+	startZonePart.Transparency = CONFIG.StartZoneTransparency
+	startZonePart.Material = Enum.Material.ForceField
+	startZonePart.Anchored = true
+	startZonePart.CanCollide = false  -- Players can pass through
+	startZonePart.Parent = self._hubFolder
+	
+	-- Create Zone+ zone from the part
+	self._startZone = Zone.new(startZonePart)
+	
+	-- When player exits the zone, start their race timer
+	self._startZone.playerExited:Connect(function(player)
+		print(string.format("[HubService] Player '%s' exited the start zone - starting timer!", player.Name))
+		self:StartPlayerTimer(player)
+	end)
+	
+	-- When player enters the zone, stop their timer (they came back)
+	self._startZone.playerEntered:Connect(function(player)
+		print(string.format("[HubService] Player '%s' entered the start zone", player.Name))
+		-- Optionally stop timer if they return to start
+		-- self:StopPlayerTimer(player)
+	end)
+	
+	print("[HubService] Start zone created at slide entrance")
 	
 	-- ══════════════════════════════════════════════════════════════════════
 	-- 2. GENERATE ALL SLIDES AND PLATFORMS (with random directions)
@@ -708,6 +858,101 @@ function HubService:SpawnMachinesOnEdge()
 	
 	return self._machines
 end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║                         PLAYER TIMER FUNCTIONS                              ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- Class token for race timer replicas (created once)
+local RaceTimerClassToken = ReplicaService.NewClassToken("RaceTimerReplica")
+
+function HubService:StartPlayerTimer(player)
+	-- Don't start if already running
+	if self._playerTimers[player] then
+		print(string.format("[HubService] Timer already running for %s", player.Name))
+		return
+	end
+	
+	local startTime = tick()
+	
+	-- Create a replica for this player's timer
+	local replica = ReplicaService.NewReplica({
+		ClassToken = RaceTimerClassToken,
+		Data = {
+			ElapsedTime = 0,
+			IsRunning = true,
+			StartTime = startTime,
+		},
+		Replication = { [player] = true },  -- Only replicate to this player
+	})
+	
+	-- Create a timer that ticks every 0.1 seconds to update the replica
+	local timer = Timer.new(0.1)
+	timer.Tick:Connect(function()
+		local elapsed = tick() - startTime
+		replica:SetValue({"ElapsedTime"}, elapsed)
+	end)
+	timer:Start()
+	
+	-- Store timer data
+	self._playerTimers[player] = {
+		timer = timer,
+		replica = replica,
+		startTime = startTime,
+	}
+	
+	print(string.format("[HubService] Started race timer for %s", player.Name))
+end
+
+function HubService:StopPlayerTimer(player)
+	local timerData = self._playerTimers[player]
+	if not timerData then
+		return nil
+	end
+	
+	-- Stop the timer
+	timerData.timer:Stop()
+	timerData.timer:Destroy()
+	
+	-- Get final time
+	local finalTime = tick() - timerData.startTime
+	
+	-- Update replica one last time
+	timerData.replica:SetValue({"ElapsedTime"}, finalTime)
+	timerData.replica:SetValue({"IsRunning"}, false)
+	
+	-- Destroy replica after a short delay so client can see final time
+	task.delay(5, function()
+		if timerData.replica then
+			timerData.replica:Destroy()
+		end
+	end)
+	
+	-- Clear from table
+	self._playerTimers[player] = nil
+	
+	print(string.format("[HubService] Stopped race timer for %s - Final time: %.2f seconds", player.Name, finalTime))
+	
+	return finalTime
+end
+
+function HubService:GetPlayerTime(player)
+	local timerData = self._playerTimers[player]
+	if not timerData then
+		return nil
+	end
+	return tick() - timerData.startTime
+end
+
+-- Clean up timers when players leave
+local function onPlayerRemoving(player)
+	local hubService = Knit.GetService("HubService")
+	if hubService._playerTimers[player] then
+		hubService:StopPlayerTimer(player)
+	end
+end
+
+Players.PlayerRemoving:Connect(onPlayerRemoving)
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
 -- ║                         PUBLIC API                                          ║
