@@ -46,6 +46,9 @@ local RaceTimerController = Knit.CreateController {
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
 local CONFIG = {
+	-- Master enable/disable
+	Enabled = false,  -- DISABLED - timer GUI hidden
+	
 	-- Position & Size
 	Position = UDim2.new(0.5, 0, 0, 30),
 	Size = UDim2.new(0, 200, 0, 80),
@@ -288,6 +291,12 @@ function RaceTimerController:KnitInit()
 end
 
 function RaceTimerController:KnitStart()
+	-- Check if enabled
+	if not CONFIG.Enabled then
+		print("[RaceTimerController] DISABLED - Timer GUI hidden")
+		return
+	end
+	
 	-- Create the UI
 	self._screenGui = createTimerUI(self._displayTime, self._isRunning, self._isVisible, self._pulseValue)
 	
