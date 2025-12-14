@@ -210,7 +210,27 @@ function KudosShopController:CreateShopPanel()
 end
 
 function KudosShopController:CreatePackCards(container)
+	print(string.format("[KudosShopController] Creating pack cards, %d packs available", #self._packs))
+	
+	if #self._packs == 0 then
+		warn("[KudosShopController] No packs to display!")
+		
+		-- Create a message if no packs
+		local noPacksLabel = Instance.new("TextLabel")
+		noPacksLabel.Size = UDim2.new(1, -20, 0, 60)
+		noPacksLabel.Position = UDim2.new(0, 10, 0, 10)
+		noPacksLabel.BackgroundTransparency = 1
+		noPacksLabel.Text = "⚠️ Shop loading...\nPlease try again in a moment"
+		noPacksLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+		noPacksLabel.TextSize = 14
+		noPacksLabel.Font = Enum.Font.Gotham
+		noPacksLabel.TextWrapped = true
+		noPacksLabel.Parent = container
+		return
+	end
+	
 	for i, pack in ipairs(self._packs) do
+		print(string.format("[KudosShopController] Creating card for: %s (ID: %d)", pack.Name, pack.ProductId))
 		local card = Instance.new("Frame")
 		card.Name = "Pack_" .. i
 		card.Size = UDim2.new(1, -8, 0, 90)
@@ -443,20 +463,36 @@ function KudosShopController:KnitStart()
 	-- Get packs from server
 	local KudosShopService = Knit.GetService("KudosShopService")
 	
-	local success, packs = pcall(function()
+	print("[KudosShopController] Calling GetKudosPacks...")
+	local success, result = pcall(function()
 		return KudosShopService:GetKudosPacks()
 	end)
 	
-	if success and packs then
-		self._packs = packs
-		print(string.format("[KudosShopController] Loaded %d kudos packs", #packs))
+	print(string.format("[KudosShopController] pcall success: %s, result type: %s", tostring(success), typeof(result)))
+	
+	if success then
+		if result and typeof(result) == "table" then
+			self._packs = result
+			print(string.format("[KudosShopController] Loaded %d kudos packs from server", #result))
+			for i, pack in ipairs(result) do
+				print(string.format("  Pack %d: %s - %d kudos (ProductId: %d)", i, pack.Name, pack.KudosAmount, pack.ProductId))
+			end
+		else
+			warn(string.format("[KudosShopController] Unexpected result: %s", tostring(result)))
+			self._packs = {}
+		end
 	else
-		warn("[KudosShopController] Failed to load packs, using defaults")
+		warn(string.format("[KudosShopController] pcall failed: %s", tostring(result)))
+	end
+	
+	-- Use fallback if no packs loaded
+	if #self._packs == 0 then
+		warn("[KudosShopController] Using fallback defaults")
 		self._packs = {
-			{ Name = "Starter Pack", ProductId = 0, KudosAmount = 100, RobuxPrice = 25, Icon = "💰", BestValue = false },
-			{ Name = "Value Pack", ProductId = 0, KudosAmount = 500, RobuxPrice = 99, Icon = "💎", BestValue = false },
-			{ Name = "Super Pack", ProductId = 0, KudosAmount = 1200, RobuxPrice = 199, Icon = "🌟", BestValue = true },
-			{ Name = "Mega Pack", ProductId = 0, KudosAmount = 3000, RobuxPrice = 399, Icon = "👑", BestValue = false },
+			{ Name = "Starter Pack", ProductId = 3479973967, KudosAmount = 100, RobuxPrice = 25, Icon = "💰", BestValue = false },
+			{ Name = "Value Pack", ProductId = 3479974190, KudosAmount = 500, RobuxPrice = 99, Icon = "💎", BestValue = false },
+			{ Name = "Super Pack", ProductId = 3479974347, KudosAmount = 1200, RobuxPrice = 199, Icon = "🌟", BestValue = true },
+			{ Name = "Mega Pack", ProductId = 3479974541, KudosAmount = 3000, RobuxPrice = 399, Icon = "👑", BestValue = false },
 		}
 	end
 	
@@ -465,6 +501,12 @@ function KudosShopController:KnitStart()
 	
 	-- Listen for purchase completion
 	KudosShopService.PurchaseComplete:Connect(function(packName, kudosAmount)
+		-- Skip animation for shop purchases - just update the counter
+		local KudosController = Knit.GetController("KudosController")
+		if KudosController then
+			KudosController:SkipNextAnimation()
+		end
+		
 		self:ShowMessage(string.format("✓ +%d Kudos!", kudosAmount), Color3.fromRGB(0, 200, 100))
 		self:CloseShop()
 	end)

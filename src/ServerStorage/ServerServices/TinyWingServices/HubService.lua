@@ -5210,64 +5210,71 @@ end
 function HubService:AwardKudos(player, amount, worldPosition)
 	if not player or amount <= 0 then return end
 	
-	-- Initialize kudos for player if not exists
-	if not self._playerKudos[player] then
-		self._playerKudos[player] = 0
+	-- Use PlayerDataService for persistent storage
+	local PlayerDataService = Knit.GetService("PlayerDataService")
+	local newTotal = PlayerDataService:AddKudos(player, amount)
+	
+	if newTotal then
+		-- Update local cache for replica
+		self._playerKudos[player] = newTotal
+		
+		-- Update replica if exists
+		local replica = self._kudosReplicas[player]
+		if replica then
+			replica:SetValue("Kudos", newTotal)
+			replica:SetValue("LastAward", amount)
+			replica:SetValue("LastAwardTime", tick())
+		end
+		
+		-- Fire client signal for flying kudos effect
+		if worldPosition then
+			self.Client.KudosEarned:Fire(player, amount, worldPosition)
+		end
+		
+		print(string.format("[HubService] Awarded %d kudos to %s (total: %d)", 
+			amount, player.Name, newTotal))
 	end
-	
-	-- Add kudos
-	self._playerKudos[player] = self._playerKudos[player] + amount
-	
-	-- Update replica if exists
-	local replica = self._kudosReplicas[player]
-	if replica then
-		replica:SetValue("Kudos", self._playerKudos[player])
-		replica:SetValue("LastAward", amount)
-		replica:SetValue("LastAwardTime", tick())
-	end
-	
-	-- Fire client signal for flying kudos effect
-	self.Client.KudosEarned:Fire(player, amount, worldPosition)
-	
-	print(string.format("[HubService] Awarded %d kudos to %s (total: %d)", 
-		amount, player.Name, self._playerKudos[player]))
 end
 
 -- Get player's total kudos
 function HubService:GetPlayerKudos(player)
-	return self._playerKudos[player] or 0
+	local PlayerDataService = Knit.GetService("PlayerDataService")
+	return PlayerDataService:GetKudos(player)
 end
 
 -- Spend kudos (deduct from player's total) - returns true if successful
 function HubService:SpendKudos(player, amount)
 	if not player or amount <= 0 then return false end
 	
-	local currentKudos = self._playerKudos[player] or 0
+	-- Use PlayerDataService for persistent storage
+	local PlayerDataService = Knit.GetService("PlayerDataService")
+	local success, remaining = PlayerDataService:SpendKudos(player, amount)
 	
-	-- Check if player has enough kudos
-	if currentKudos < amount then
-		return false
+	if success then
+		-- Update local cache
+		self._playerKudos[player] = remaining
+		
+		-- Update replica if exists
+		local replica = self._kudosReplicas[player]
+		if replica then
+			replica:SetValue("Kudos", remaining)
+		end
+		
+		print(string.format("[HubService] %s spent %d kudos (remaining: %d)", 
+			player.Name, amount, remaining))
 	end
 	
-	-- Deduct kudos
-	self._playerKudos[player] = currentKudos - amount
-	
-	-- Update replica if exists
-	local replica = self._kudosReplicas[player]
-	if replica then
-		replica:SetValue("Kudos", self._playerKudos[player])
-	end
-	
-	print(string.format("[HubService] %s spent %d kudos (remaining: %d)", 
-		player.Name, amount, self._playerKudos[player]))
-	
-	return true
+	return success
 end
 
 -- Setup kudos tracking for a player (called when player joins)
 function HubService:SetupPlayerKudos(player)
-	-- Initialize kudos (players start with 50)
-	local startingKudos = 50
+	-- Wait for PlayerDataService to load the player's profile
+	local PlayerDataService = Knit.GetService("PlayerDataService")
+	local profile = PlayerDataService:WaitForProfile(player, 15)
+	
+	-- Get saved kudos from PlayerDataService (or default)
+	local startingKudos = PlayerDataService:GetKudos(player)
 	self._playerKudos[player] = startingKudos
 	
 	-- Create a replica for this player's kudos (ReplicaService already required at top of file)

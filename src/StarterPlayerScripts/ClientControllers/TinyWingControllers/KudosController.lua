@@ -55,6 +55,7 @@ local currentKudos = 0
 local displayedKudos = 0
 local lastAwardTime = 0
 local replicaConnection = nil
+local skipNextAnimation = false  -- Flag to skip animation for shop purchases
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
 -- ║                         UI CREATION                                         ║
@@ -382,11 +383,21 @@ local function setupReplicaListener()
 			local oldKudos = currentKudos
 			currentKudos = newValue
 			
-			-- Show popup and pulse effect for the difference
+			-- Show popup and pulse effect for the difference (unless flagged to skip)
 			if newValue > oldKudos then
-				local awarded = newValue - oldKudos
-				showRewardPopup(awarded)
-				pulseKudosUI()
+				if skipNextAnimation then
+					-- Shop purchase - just update silently
+					skipNextAnimation = false
+					displayedKudos = newValue
+					if kudosLabel then
+						kudosLabel.Text = tostring(newValue)
+					end
+				else
+					-- Normal reward - show animation
+					local awarded = newValue - oldKudos
+					showRewardPopup(awarded)
+					pulseKudosUI()
+				end
 			end
 		end)
 		
@@ -591,6 +602,11 @@ end
 
 function KudosController:KnitInit()
 	print("[KudosController] Initializing...")
+end
+
+-- Call this to skip animation on the next kudos update (for shop purchases)
+function KudosController:SkipNextAnimation()
+	skipNextAnimation = true
 end
 
 function KudosController:KnitStart()

@@ -1054,31 +1054,38 @@ function PackagePlatformService:InitPlayerUpgrades(player)
 	if self.playerUpgrades[player.UserId] then return end  -- Already initialized
 	
 	local upgradeConfig = PACKAGE_CONFIG.Upgrades
-	local startingCapacity = upgradeConfig.StartingCapacity
+	
+	-- Wait for PlayerDataService to load the player's saved data
+	local PlayerDataService = Knit.GetService("PlayerDataService")
+	local profile = PlayerDataService:WaitForProfile(player, 15)
+	
+	-- Get saved capacity from PlayerDataService (or default to StartingCapacity)
+	local savedCapacity = PlayerDataService:GetStackCapacity(player)
+	local currentCapacity = math.max(savedCapacity, upgradeConfig.StartingCapacity)
 	
 	-- Create upgrade data
 	local upgradeData = {
-		maxStack = startingCapacity,
+		maxStack = currentCapacity,
 		replica = nil,
 	}
 	
-	-- Calculate cost for first upgrade
-	local nextCost = getUpgradeCost(startingCapacity)
+	-- Calculate cost for next upgrade
+	local nextCost = getUpgradeCost(currentCapacity)
 	
 	-- Create a replica for this player's upgrades
 	upgradeData.replica = ReplicaService.NewReplica({
 		ClassToken = UpgradesClassToken,
 		Data = {
-			MaxStack = startingCapacity,
+			MaxStack = currentCapacity,
 			MaxCapacity = upgradeConfig.MaxCapacity,
 			NextUpgradeCost = nextCost,
-			IsMaxed = startingCapacity >= upgradeConfig.MaxCapacity,
+			IsMaxed = currentCapacity >= upgradeConfig.MaxCapacity,
 		},
 		Replication = player,  -- Only replicate to this player
 	})
 	
 	self.playerUpgrades[player.UserId] = upgradeData
-	print("[PackagePlatformService] Upgrade system initialized for " .. player.Name .. " (Max Stack: " .. startingCapacity .. ")")
+	print("[PackagePlatformService] Upgrade system initialized for " .. player.Name .. " (Max Stack: " .. currentCapacity .. ", saved from profile)")
 end
 
 function PackagePlatformService:CleanupPlayerUpgrades(player)
@@ -1146,6 +1153,10 @@ function PackagePlatformService:PurchaseUpgrade(player)
 	local newCapacity = currentCapacity + 1
 	upgradeData.maxStack = newCapacity
 	
+	-- Save to PlayerDataService for persistence
+	local PlayerDataService = Knit.GetService("PlayerDataService")
+	PlayerDataService:SetStackCapacity(player, newCapacity)
+	
 	-- Calculate next upgrade cost
 	local nextCost = getUpgradeCost(newCapacity)
 	local isMaxed = newCapacity >= maxCapacity
@@ -1157,7 +1168,7 @@ function PackagePlatformService:PurchaseUpgrade(player)
 		upgradeData.replica:SetValue({"IsMaxed"}, isMaxed)
 	end
 	
-	print(string.format("[PackagePlatformService] %s upgraded! Max stack: %d → %d (cost: %d kudos)", 
+	print(string.format("[PackagePlatformService] %s upgraded! Max stack: %d → %d (cost: %d kudos, saved to profile)", 
 		player.Name, currentCapacity, newCapacity, cost))
 	
 	return true, "Upgrade successful"

@@ -29,7 +29,7 @@ local KudosShopService = Knit.CreateService {
 local KUDOS_PACKS = {
 	{
 		Name = "Starter Pack",
-		ProductId = 0,  -- Replace with real Developer Product ID
+		ProductId = 3479973967,
 		KudosAmount = 100,
 		RobuxPrice = 25,  -- For display only, actual price set in Creator Dashboard
 		Icon = "💰",
@@ -37,7 +37,7 @@ local KUDOS_PACKS = {
 	},
 	{
 		Name = "Value Pack",
-		ProductId = 0,  -- Replace with real Developer Product ID
+		ProductId = 3479974190,
 		KudosAmount = 500,
 		RobuxPrice = 99,
 		Icon = "💎",
@@ -45,7 +45,7 @@ local KUDOS_PACKS = {
 	},
 	{
 		Name = "Super Pack",
-		ProductId = 0,  -- Replace with real Developer Product ID
+		ProductId = 3479974347,
 		KudosAmount = 1200,
 		RobuxPrice = 199,
 		Icon = "🌟",
@@ -53,7 +53,7 @@ local KUDOS_PACKS = {
 	},
 	{
 		Name = "Mega Pack",
-		ProductId = 0,  -- Replace with real Developer Product ID
+		ProductId = 3479974541,
 		KudosAmount = 3000,
 		RobuxPrice = 399,
 		Icon = "👑",
@@ -106,7 +106,7 @@ function KudosShopService:ProcessReceipt(receiptInfo)
 	end
 	
 	-- Prevent duplicate processing
-	local purchaseKey = string.format("%d_%s", receiptInfo.PurchaseId, player.UserId)
+	local purchaseKey = string.format("%s_%s", tostring(receiptInfo.PurchaseId), tostring(player.UserId))
 	if pendingPurchases[purchaseKey] then
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
@@ -140,8 +140,12 @@ end
 
 -- Get available packs for UI
 function KudosShopService.Client:GetKudosPacks(player)
+	print(string.format("[KudosShopService] GetKudosPacks called by %s", player.Name))
+	print(string.format("[KudosShopService] KUDOS_PACKS has %d entries", #KUDOS_PACKS))
+	
 	local packs = {}
-	for _, pack in ipairs(KUDOS_PACKS) do
+	for i, pack in ipairs(KUDOS_PACKS) do
+		print(string.format("[KudosShopService] Adding pack %d: %s", i, pack.Name))
 		table.insert(packs, {
 			Name = pack.Name,
 			ProductId = pack.ProductId,
@@ -151,6 +155,8 @@ function KudosShopService.Client:GetKudosPacks(player)
 			BestValue = pack.BestValue,
 		})
 	end
+	
+	print(string.format("[KudosShopService] Returning %d packs to client", #packs))
 	return packs
 end
 
