@@ -6,12 +6,22 @@ local Players = game:GetService("Players")
 local Packages = ReplicatedStorage:WaitForChild("Packages")
 local Knit = require(Packages.Knit)
 
+-- Timer and Replica modules
+local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
+local Replica = CustomPackages:WaitForChild("Replica")
+local ReplicaService = require(Replica.ReplicaService)
+local Timer = require(Packages:WaitForChild("timer"))
+
 local PackagePlatformService = Knit.CreateService {
 	Name = "PackagePlatformService",
 	Client = {},
 	packages = {},
 	playerHeldPackages = {}, -- Track stacks of packages per player: { [userId] = { package1, package2, ... } }
+	playerFatigue = {},      -- Track fatigue per player: { [userId] = { value, replica, timer } }
 }
+
+-- Fatigue Replica class token
+local FatigueClassToken = ReplicaService.NewClassToken("PlayerFatigue")
 
 -- === CONFIG ===
 local PLATFORM_TAG = "packagePlatform"
@@ -66,6 +76,16 @@ local PACKAGE_CONFIG = {
 		BaseResponsiveness = 60,
 		BaseMaxVelocity = 40,
 		BaseMaxAngularVelocity = 8,
+	},
+	
+	-- Fatigue system settings
+	Fatigue = {
+		MaxFatigue = 100,                -- Maximum fatigue value
+		BaseDrainRate = 0.2,             -- Base drain per second (no packages) - VERY SLOW
+		DrainPerPackage = 0.3,           -- Additional drain per package held - VERY SLOW
+		RecoveryRate = 2,                -- Recovery per second when not holding packages
+		TickInterval = 0.1,              -- How often to update fatigue (seconds)
+		Enabled = true,                  -- Enable/disable fatigue system
 	},
 }
 
@@ -197,6 +217,104 @@ local function getTopOfStack(service, player)
 	return nil
 end
 
+-- Calculate total kudos value of all held packages
+local function calculateTotalKudos(stack)
+	local total = 0
+	for _, packageModel in ipairs(stack) do
+		local kudosValue = packageModel:GetAttribute("KudosValue") or 0
+		total = total + kudosValue
+	end
+	return total
+end
+
+-- Update the total kudos billboard on the top package
+local function updateTotalKudosBillboard(service, player)
+	local stack = getPlayerStack(service, player)
+	
+	-- Remove existing total billboard from all packages in stack
+	for _, packageModel in ipairs(stack) do
+		local packagePart = packageModel.PrimaryPart
+		if packagePart then
+			local existingBillboard = packagePart:FindFirstChild("TotalKudosBillboard")
+			if existingBillboard then
+				existingBillboard:Destroy()
+			end
+		end
+	end
+	
+	-- If no packages, nothing to display
+	if #stack == 0 then
+		return
+	end
+	
+	-- Get the top package
+	local topPackage = stack[#stack]
+	local topPart = topPackage.PrimaryPart
+	if not topPart then return end
+	
+	-- Calculate total kudos
+	local totalKudos = calculateTotalKudos(stack)
+	local packageCount = #stack
+	
+	-- Create BillboardGui for total
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "TotalKudosBillboard"
+	billboard.Size = UDim2.new(0, 120, 0, 50)
+	billboard.StudsOffset = Vector3.new(0, topPart.Size.Y / 2 + 3, 0)  -- Float above top package
+	billboard.AlwaysOnTop = true
+	billboard.MaxDistance = 100
+	billboard.Parent = topPart
+	
+	-- Background frame
+	local bgFrame = Instance.new("Frame")
+	bgFrame.Name = "Background"
+	bgFrame.Size = UDim2.new(1, 0, 1, 0)
+	bgFrame.BackgroundColor3 = Color3.fromRGB(20, 60, 40)  -- Dark green
+	bgFrame.BackgroundTransparency = 0.2
+	bgFrame.BorderSizePixel = 0
+	bgFrame.Parent = billboard
+	
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0.15, 0)
+	corner.Parent = bgFrame
+	
+	-- Border glow
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(100, 255, 150)  -- Green glow
+	stroke.Thickness = 2
+	stroke.Transparency = 0.3
+	stroke.Parent = bgFrame
+	
+	-- Total kudos label
+	local totalLabel = Instance.new("TextLabel")
+	totalLabel.Name = "TotalLabel"
+	totalLabel.Size = UDim2.new(1, 0, 0.6, 0)
+	totalLabel.Position = UDim2.new(0, 0, 0, 0)
+	totalLabel.BackgroundTransparency = 1
+	totalLabel.Text = "⭐ " .. totalKudos .. " Total"
+	totalLabel.TextColor3 = Color3.fromRGB(255, 230, 100)  -- Gold
+	totalLabel.TextScaled = true
+	totalLabel.Font = Enum.Font.GothamBold
+	totalLabel.Parent = bgFrame
+	
+	local totalStroke = Instance.new("UIStroke")
+	totalStroke.Color = Color3.fromRGB(0, 0, 0)
+	totalStroke.Thickness = 2
+	totalStroke.Parent = totalLabel
+	
+	-- Package count label
+	local countLabel = Instance.new("TextLabel")
+	countLabel.Name = "CountLabel"
+	countLabel.Size = UDim2.new(1, 0, 0.4, 0)
+	countLabel.Position = UDim2.new(0, 0, 0.6, 0)
+	countLabel.BackgroundTransparency = 1
+	countLabel.Text = "📦 " .. packageCount .. " Package" .. (packageCount > 1 and "s" or "")
+	countLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+	countLabel.TextScaled = true
+	countLabel.Font = Enum.Font.Gotham
+	countLabel.Parent = bgFrame
+end
+
 local function attachPackageToPlayer(packageModel, player, service)
 	local character = player.Character
 	if not character then return false end
@@ -218,6 +336,12 @@ local function attachPackageToPlayer(packageModel, player, service)
 	local prompt = packagePart:FindFirstChild("PickupPrompt")
 	if prompt then
 		prompt.Enabled = false
+	end
+	
+	-- Hide the individual kudos billboard (we'll show total on top package)
+	local kudosBillboard = packagePart:FindFirstChild("KudosBillboard")
+	if kudosBillboard then
+		kudosBillboard.Enabled = false
 	end
 	
 	local stack = getPlayerStack(service, player)
@@ -322,6 +446,9 @@ local function attachPackageToPlayer(packageModel, player, service)
 	-- Add to stack
 	table.insert(stack, packageModel)
 	
+	-- Update the total kudos billboard on the top package
+	updateTotalKudosBillboard(service, player)
+	
 	-- Drop functionality disabled - packages cannot be dropped
 	
 	return true
@@ -388,6 +515,18 @@ local function detachPackageFromPlayer(packageModel, player, service)
 	local pickupPrompt = packagePart:FindFirstChild("PickupPrompt")
 	if pickupPrompt then
 		pickupPrompt.Enabled = true
+	end
+	
+	-- Re-enable individual kudos billboard
+	local kudosBillboard = packagePart:FindFirstChild("KudosBillboard")
+	if kudosBillboard then
+		kudosBillboard.Enabled = true
+	end
+	
+	-- Remove total kudos billboard (it was on this package if it was the top)
+	local totalBillboard = packagePart:FindFirstChild("TotalKudosBillboard")
+	if totalBillboard then
+		totalBillboard:Destroy()
 	end
 	
 	-- Clear attributes
@@ -466,13 +605,20 @@ function PackagePlatformService:KnitStart()
 		end
 	end)
 	
-	-- Handle player leaving (drop all their packages)
+	-- Handle player leaving (drop all their packages and cleanup fatigue)
 	Players.PlayerRemoving:Connect(function(player)
 		self:DropAllPackages(player)
+		self:CleanupPlayerFatigue(player)
 	end)
 	
-	-- Handle character death/respawn (drop all their packages)
+	-- Handle player added (initialize fatigue)
 	Players.PlayerAdded:Connect(function(player)
+		-- Initialize fatigue when player spawns
+		player.CharacterAdded:Connect(function()
+			self:InitPlayerFatigue(player)
+		end)
+		
+		-- Cleanup on character removing
 		player.CharacterRemoving:Connect(function()
 			self:DropAllPackages(player)
 		end)
@@ -480,6 +626,15 @@ function PackagePlatformService:KnitStart()
 	
 	-- Setup handlers for existing players (in case they joined before this)
 	for _, player in ipairs(Players:GetPlayers()) do
+		-- Initialize fatigue for existing players with characters
+		if player.Character then
+			self:InitPlayerFatigue(player)
+		end
+		
+		player.CharacterAdded:Connect(function()
+			self:InitPlayerFatigue(player)
+		end)
+		
 		player.CharacterRemoving:Connect(function()
 			self:DropAllPackages(player)
 		end)
@@ -540,6 +695,9 @@ function PackagePlatformService:DropTopPackage(player)
 		-- Stack is empty, clean up
 		if #stack == 0 then
 			self.playerHeldPackages[player.UserId] = nil
+		else
+			-- Update the billboard on the new top package
+			updateTotalKudosBillboard(self, player)
 		end
 		
 		return true
@@ -628,6 +786,122 @@ end
 function PackagePlatformService:SetPackageSize(sizeMin, sizeMax)
 	PACKAGE_CONFIG.SizeMin = sizeMin
 	PACKAGE_CONFIG.SizeMax = sizeMax
+end
+
+-- === FATIGUE SYSTEM ===
+
+function PackagePlatformService:InitPlayerFatigue(player)
+	if not PACKAGE_CONFIG.Fatigue.Enabled then return end
+	if self.playerFatigue[player.UserId] then return end  -- Already initialized
+	
+	local fatigueConfig = PACKAGE_CONFIG.Fatigue
+	
+	-- Create fatigue data
+	local fatigueData = {
+		value = fatigueConfig.MaxFatigue,
+		replica = nil,
+		timer = nil,
+	}
+	
+	-- Create a replica for this player's fatigue
+	fatigueData.replica = ReplicaService.NewReplica({
+		ClassToken = FatigueClassToken,
+		Data = {
+			Fatigue = fatigueConfig.MaxFatigue,
+			MaxFatigue = fatigueConfig.MaxFatigue,
+			StackCount = 0,
+		},
+		Replication = player,  -- Only replicate to this player
+	})
+	
+	-- Create timer to update fatigue
+	fatigueData.timer = Timer.new(fatigueConfig.TickInterval)
+	fatigueData.timer:Start()
+	
+	fatigueData.timer.Tick:Connect(function()
+		self:UpdatePlayerFatigue(player)
+	end)
+	
+	self.playerFatigue[player.UserId] = fatigueData
+	print("[PackagePlatformService] Fatigue system initialized for " .. player.Name)
+end
+
+function PackagePlatformService:UpdatePlayerFatigue(player)
+	local fatigueData = self.playerFatigue[player.UserId]
+	if not fatigueData then return end
+	
+	local fatigueConfig = PACKAGE_CONFIG.Fatigue
+	local stackCount = self:GetStackCount(player)
+	local dt = fatigueConfig.TickInterval
+	
+	local newFatigue = fatigueData.value
+	
+	if stackCount > 0 then
+		-- Drain fatigue based on number of packages
+		local drainRate = fatigueConfig.BaseDrainRate + (stackCount * fatigueConfig.DrainPerPackage)
+		newFatigue = newFatigue - (drainRate * dt)
+	else
+		-- Recover fatigue when not holding packages
+		newFatigue = newFatigue + (fatigueConfig.RecoveryRate * dt)
+	end
+	
+	-- Clamp fatigue
+	newFatigue = math.clamp(newFatigue, 0, fatigueConfig.MaxFatigue)
+	
+	-- Update if changed
+	if newFatigue ~= fatigueData.value then
+		fatigueData.value = newFatigue
+		
+		-- Update replica
+		if fatigueData.replica then
+			fatigueData.replica:SetValue({"Fatigue"}, newFatigue)
+			fatigueData.replica:SetValue({"StackCount"}, stackCount)
+		end
+	end
+	
+	-- Check if exhausted (fatigue depleted)
+	if newFatigue <= 0 and stackCount > 0 then
+		-- Drop all packages when exhausted
+		print("[PackagePlatformService] " .. player.Name .. " is exhausted! Dropping all packages.")
+		self:DropAllPackages(player)
+	end
+end
+
+function PackagePlatformService:CleanupPlayerFatigue(player)
+	local fatigueData = self.playerFatigue[player.UserId]
+	if not fatigueData then return end
+	
+	-- Stop and destroy timer
+	if fatigueData.timer then
+		fatigueData.timer:Stop()
+		fatigueData.timer:Destroy()
+	end
+	
+	-- Destroy replica
+	if fatigueData.replica then
+		fatigueData.replica:Destroy()
+	end
+	
+	self.playerFatigue[player.UserId] = nil
+	print("[PackagePlatformService] Fatigue system cleaned up for " .. player.Name)
+end
+
+function PackagePlatformService:GetPlayerFatigue(player)
+	local fatigueData = self.playerFatigue[player.UserId]
+	if fatigueData then
+		return fatigueData.value
+	end
+	return PACKAGE_CONFIG.Fatigue.MaxFatigue
+end
+
+function PackagePlatformService:SetPlayerFatigue(player, value)
+	local fatigueData = self.playerFatigue[player.UserId]
+	if fatigueData then
+		fatigueData.value = math.clamp(value, 0, PACKAGE_CONFIG.Fatigue.MaxFatigue)
+		if fatigueData.replica then
+			fatigueData.replica:SetValue({"Fatigue"}, fatigueData.value)
+		end
+	end
 end
 
 return PackagePlatformService

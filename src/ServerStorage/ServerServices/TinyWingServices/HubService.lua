@@ -55,6 +55,14 @@ local HubService = Knit.CreateService {
 	-- Player Kudos tracking
 	_playerKudos = {},          -- { [player] = kudosAmount }
 	_kudosReplicas = {},        -- { [player] = replica }
+	
+	-- Package tracking
+	_packageStats = {
+		totalSpawned = 0,       -- Total packages spawned this session
+		totalCollected = 0,     -- Total packages collected/delivered
+		activePackages = {},    -- List of currently active package models
+	},
+	_chuteStatusSign = nil,     -- Reference to status sign GUI
 }
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -97,24 +105,24 @@ local CONFIG = {
 	SplineSegmentsPerUnit = 0.5,                 -- Segments per stud of spline length (0.5 = segment every 2 studs)
 	SplineSegmentLength = 8,                     -- Length of each track segment (overlap with neighbors)
 	
-	-- Track control points generation (Snake Way - MEGA long winding serpentine path)
-	TrackTotalLength = 25000,                    -- SUPER long Snake Way!
-	TrackNumControlPoints = 400,                 -- Many control points for smooth serpentine
-	TrackMaxTurnAngle = 50,                      -- Very tight serpentine turns
+	-- Track control points generation (Logistics conveyor path)
+	TrackTotalLength = 800,                      -- Compact delivery route
+	TrackNumControlPoints = 20,                  -- Minimal control points
+	TrackMaxTurnAngle = 50,                      -- Tight industrial turns
 	TrackMinSectionLength = 30,                  -- Short sections for snake-like curves
 	TrackMaxSectionLength = 70,                  -- Keep sections short for more turns
 	
 	-- Initial straight section (connects to platform smoothly)
-	TrackInitialStraightLength = 60,             -- Short straight before serpentine begins
-	TrackInitialDropDistance = 80,               -- Quick drop into Snake Way
+	TrackInitialStraightLength = 60,             -- Short straight before curves begin
+	TrackInitialDropDistance = 80,               -- Quick descent for delivery
 	
-	-- Track height variation (Snake Way floats through clouds - mostly flat with gentle waves)
+	-- Track height variation (industrial conveyor system)
 	TrackStartHeight = 53,                       -- Starting Y position (matches platform top: 50 + 6/2 = 53)
-	TrackMinHeight = -50,                        -- Snake Way stays high in the clouds
-	TrackMaxHeight = 150,                        -- Can go higher
-	TrackDropPerSection = {2, 8},                -- Gentle slopes like Snake Way
+	TrackMinHeight = -50,                        -- Minimum delivery height
+	TrackMaxHeight = 150,                        -- Maximum conveyor height
+	TrackDropPerSection = {2, 8},                -- Gentle conveyor slopes
 	TrackRisePerSection = {2, 8},                -- Gentle rises
-	TrackDropChance = 0.5,                       -- Equal chance up/down for serpentine feel
+	TrackDropChance = 0.5,                       -- Equal chance up/down for varied route
 	
 	-- Track banking/tilt
 	TrackBankingEnabled = true,                  -- Tilt track on turns
@@ -126,7 +134,7 @@ local CONFIG = {
 	LoopRadius = 40,                             -- Radius of the loop circle
 	LoopSegments = 16,                           -- Number of segments per loop
 	
-	TwistsEnabled = false,                       -- Disabled for Snake Way style
+	TwistsEnabled = false,                       -- Disabled for industrial conveyor
 	TwistChance = 0,                             -- No twists
 	TwistLength = 400,                           -- Length of track for the twist
 	TwistMaxRotation = 90,                       -- Maximum rotation in degrees (90 = banked, not upside down)
@@ -154,12 +162,12 @@ local CONFIG = {
 	MiddlePlatformHasUnderglow = true,
 	MiddlePlatformHasCenterMarking = true,
 	
-	-- Wavy Slide settings (Snake Way style - blue serpentine path with scales)
-	SlideWidth = 80,                             -- Narrower for Snake Way look
-	SlideColor = Color3.fromRGB(140, 160, 200),  -- Blue-gray like Snake Way body
-	SlideMaterial = Enum.Material.Cobblestone,   -- Scale-like texture
+	-- Conveyor Slide settings (Industrial logistics style)
+	SlideWidth = 80,                             -- Wide industrial conveyor
+	SlideColor = Color3.fromRGB(60, 65, 70),     -- Dark metal/steel gray
+	SlideMaterial = Enum.Material.DiamondPlate,  -- Industrial metal texture
 	SlideSegmentLength = 6,                      -- Smaller = smoother curves
-	SlideThickness = 6,                          -- Thicker for that solid path look
+	SlideThickness = 6,                          -- Thick industrial platform
 	
 	-- Narrow zones (width variation)
 	NarrowZoneEnabled = true,                    -- Enable width variation
@@ -169,15 +177,28 @@ local CONFIG = {
 	NarrowZoneDuration = 100,                    -- How long the narrow section lasts
 	NarrowZonesPerSlide = {1, 3},                -- Min/max narrow zones per slide
 	
-	-- Guide Rails (Snake Way style - SPIKES!)
-	RailHeight = 8,                              -- Spike height
-	RailThickness = 4,                           -- Spike base width
-	RailColor = Color3.fromRGB(80, 100, 140),    -- Dark blue like Snake Way spikes
-	RailAccentColor = Color3.fromRGB(100, 120, 160), -- Slightly lighter accent
-	RailMaterial = Enum.Material.SmoothPlastic,  -- Smooth spiky look
+	-- Guide Rails (Industrial safety barriers)
+	RailHeight = 5,                              -- Safety rail height
+	RailThickness = 2,                           -- Rail post width
+	RailColor = Color3.fromRGB(255, 200, 0),     -- Safety yellow
+	RailAccentColor = Color3.fromRGB(40, 40, 45), -- Dark metal accent
+	RailMaterial = Enum.Material.Metal,          -- Industrial metal
+	RailShape = "Bar",                           -- "Bar" for industrial barriers, "Spike" for wedges
 	RailSegmentLength = 8,                       -- Spacing between spikes
 	RailUseJointSpheres = false,                 -- No spheres for spikes
 	RailSpikeStyle = true,                       -- Use spike style instead of tubes
+	
+	-- Light spires on rails (for visibility)
+	RailSpiresEnabled = true,                    -- Enable tall spires with lights
+	RailSpireSpacing = 40,                       -- Distance between spires (studs)
+	RailSpireHeight = 30,                        -- Height of spire above rail (taller)
+	RailSpireThickness = 0.6,                    -- Thickness of spire pole (thinner)
+	RailSpireColor = Color3.fromRGB(50, 55, 60), -- Dark metal color
+	RailSpireLightColor = Color3.fromRGB(255, 50, 50),  -- Red warning light
+	RailSpireLightSize = 1,                      -- Size of light orb (smaller)
+	RailSpireLightRange = 30,                    -- Light range
+	RailSpireLightBrightness = 2,                -- Light brightness
+	RailSpireBlinkSpeed = 1,                     -- Blinks per second
 	
 	-- Slope settings
 	DownhillDropRate = 0.08,                     -- How steep downhill slides are (positive = down)
@@ -201,10 +222,10 @@ local CONFIG = {
 	SlideLengthMax = 1400,                      -- Maximum slide length (double the min for variety)
 	FirstSlideDirection = "z+",                 -- First slide always goes forward
 	
-	-- Slide colors (Snake Way - blue/gray serpent body)
+	-- Slide colors (Industrial conveyor belt grays)
 	SlideColors = {
-		Color3.fromRGB(140, 160, 200),   -- Blue-gray
-		Color3.fromRGB(130, 150, 190),   -- Darker blue
+		Color3.fromRGB(60, 65, 70),      -- Dark steel gray
+		Color3.fromRGB(70, 75, 80),      -- Medium steel gray
 		Color3.fromRGB(150, 170, 210),   -- Lighter blue
 		Color3.fromRGB(135, 155, 195),   -- Medium blue
 		Color3.fromRGB(145, 165, 205),   -- Blue tint
@@ -365,13 +386,19 @@ local CONFIG = {
 	PackageChuteEnabled = true,
 	ChuteWidth = 14,                             -- Diameter of chute pipe
 	ChuteColor = Color3.fromRGB(70, 75, 80),     -- Metal gray
-	PackageSpawnInterval = 3,                    -- Seconds between package drops
+	PackageSpawnInterval = 2,                    -- Seconds between package drops (when spawning)
 	PackageSize = {8, 6, 8},                     -- Size of packages (X, Y, Z)
+	PackageKudosMin = 5,                         -- Minimum kudos per package
+	PackageKudosMax = 50,                        -- Maximum kudos per package
 	PackageColors = {                            -- Random package colors
 		Color3.fromRGB(139, 90, 43),             -- Cardboard brown
 		Color3.fromRGB(160, 100, 50),            -- Light brown
 		Color3.fromRGB(120, 80, 40),             -- Dark brown
 	},
+	
+	-- Package limits and spawning behavior
+	PackageInitialSpawn = 20,                    -- Spawn this many packages initially
+	PackageTargetActive = 20,                    -- Try to maintain this many active packages (no max limit)
 }
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -390,39 +417,63 @@ local function createPart(name, size, position, color, material, parent)
 	return part
 end
 
--- Create a smooth tubular rail along a straight line (for platforms)
--- Create Snake Way style spikes along a platform edge
+-- Create industrial safety barriers along a platform edge
 -- startPos, endPos: Vector3 positions for the rail
 -- yOffset: height above platform surface
 -- parent: parent instance
 local function createTubularPlatformRail(name, startPos, endPos, yOffset, parent)
 	local direction = endPos - startPos
-	local length = direction.Magnituwde
+	local length = direction.Magnitude
 	if length < 0.1 then return end
 	
 	local lookDir = direction.Unit
-	local numSpikes = math.max(2, math.floor(length / CONFIG.RailSegmentLength))
+	local numPosts = math.max(2, math.floor(length / CONFIG.RailSegmentLength))
 	
-	-- Create spikes along the edge
-	for i = 0, numSpikes do
-		local t = i / numSpikes
-		local spikeBasePos = startPos:Lerp(endPos, t) + Vector3.new(0, yOffset, 0)
+	-- Create posts along the edge based on RailShape config
+	for i = 0, numPosts do
+		local t = i / numPosts
+		local postBasePos = startPos:Lerp(endPos, t) + Vector3.new(0, yOffset, 0)
+		local cf = CFrame.lookAt(postBasePos, postBasePos + lookDir)
 		
-		local spike = Instance.new("WedgePart")
-		spike.Name = name .. "_Spike_" .. i
-		spike.Size = Vector3.new(CONFIG.RailThickness, CONFIG.RailHeight, CONFIG.RailThickness * 1.5)
-		spike.Color = CONFIG.RailColor
-		spike.Material = CONFIG.RailMaterial
-		spike.Anchored = true
-		spike.CanCollide = true
-		
-		-- Orient spike pointing up along the edge direction
-		local cf = CFrame.lookAt(spikeBasePos, spikeBasePos + lookDir)
-		spike.CFrame = cf * CFrame.new(0, CONFIG.RailHeight / 2, 0)
-		spike.Parent = parent
+		if CONFIG.RailShape == "Bar" then
+			-- Industrial safety bar
+			local bar = Instance.new("Part")
+			bar.Name = name .. "_Bar_" .. i
+			bar.Size = Vector3.new(CONFIG.RailThickness, CONFIG.RailHeight, CONFIG.RailThickness * 2)
+			bar.Color = CONFIG.RailColor
+			bar.Material = CONFIG.RailMaterial
+			bar.Anchored = true
+			bar.CanCollide = true
+			bar.CFrame = cf * CFrame.new(0, CONFIG.RailHeight / 2, 0)
+			bar.Parent = parent
+			
+			-- Add hazard stripe
+			if i % 2 == 0 then
+				local stripe = Instance.new("Part")
+				stripe.Name = name .. "_Stripe_" .. i
+				stripe.Size = Vector3.new(CONFIG.RailThickness + 0.1, CONFIG.RailHeight * 0.3, CONFIG.RailThickness * 2 + 0.1)
+				stripe.Color = Color3.fromRGB(30, 30, 35)
+				stripe.Material = Enum.Material.SmoothPlastic
+				stripe.Anchored = true
+				stripe.CanCollide = false
+				stripe.CFrame = cf * CFrame.new(0, CONFIG.RailHeight * 0.35, 0)
+				stripe.Parent = parent
+			end
+		else
+			-- Spike (wedge)
+			local spike = Instance.new("WedgePart")
+			spike.Name = name .. "_Spike_" .. i
+			spike.Size = Vector3.new(CONFIG.RailThickness, CONFIG.RailHeight, CONFIG.RailThickness * 1.5)
+			spike.Color = CONFIG.RailColor
+			spike.Material = CONFIG.RailMaterial
+			spike.Anchored = true
+			spike.CanCollide = true
+			spike.CFrame = cf * CFrame.new(0, CONFIG.RailHeight / 2, 0)
+			spike.Parent = parent
+		end
 	end
 	
-	return nil  -- No longer returns a single rail part
+	return nil
 end
 
 -- Create industrial safety rails (for shipping center - NOT spikes)
@@ -480,6 +531,538 @@ local function createSafetyRail(name, startPos, endPos, yOffset, color, parent)
 	end
 	
 	return topRail
+end
+
+-- Create an end shipping center (receiving/delivery center at end of track)
+-- entrancePos: position where the track ends (entrance to the room)
+-- trackDirection: Vector3 direction the track was going (tangent at end)
+-- platformSize: Vector3 for floor dimensions
+-- parent: parent instance
+local function createEndShippingCenter(entrancePos, trackDirection, platformSize, parent)
+	local endShippingModel = Instance.new("Model")
+	endShippingModel.Name = "EndShippingCenter"
+	endShippingModel.Parent = parent
+	
+	-- Calculate rotation: room faces OPPOSITE to track direction (entrance faces track)
+	local flatDirection = Vector3.new(trackDirection.X, 0, trackDirection.Z)
+	if flatDirection.Magnitude < 0.01 then
+		flatDirection = Vector3.new(0, 0, 1)
+	else
+		flatDirection = flatDirection.Unit
+	end
+	
+	-- Room layout: entrance at +Z local, back wall at -Z local
+	local halfX = platformSize.X / 2
+	local halfZ = platformSize.Z / 2
+	local wallHeight = CONFIG.ShippingCenterWallHeight
+	local wallThickness = 3
+	
+	-- Create rotation CFrame first
+	-- CFrame.lookAt makes -Z point toward target
+	-- We want +Z (entrance) to face where track CAME FROM (opposite to flatDirection)
+	-- So -Z should face flatDirection (where track was going)
+	local rotationOnly = CFrame.lookAt(Vector3.zero, flatDirection)
+	
+	-- Entrance is at +Z local from center
+	-- +Z local maps to -flatDirection in world space
+	-- So: entrancePos = roomCenter + (-flatDirection) * halfZ
+	-- Therefore: roomCenter = entrancePos + flatDirection * halfZ
+	local roomCenterXZ = Vector3.new(entrancePos.X, 0, entrancePos.Z) + flatDirection * halfZ
+	local floorY = entrancePos.Y - platformSize.Y / 2
+	local roomCenter = Vector3.new(roomCenterXZ.X, floorY, roomCenterXZ.Z)
+	local floorTopY = floorY + platformSize.Y / 2
+	
+	-- Helper to create a part with local offset AND rotation
+	local function createPartAtOffset(name, size, localOffset, color, material, partParent, canCollide)
+		local part = Instance.new("Part")
+		part.Name = name
+		part.Size = size
+		-- Transform local offset to world space and apply rotation
+		local worldOffset = rotationOnly:VectorToWorldSpace(localOffset)
+		local worldPos = roomCenter + worldOffset
+		part.CFrame = CFrame.new(worldPos) * rotationOnly
+		part.Color = color
+		part.Material = material or Enum.Material.SmoothPlastic
+		part.Anchored = true
+		part.CanCollide = canCollide ~= false
+		part.Parent = partParent or endShippingModel
+		return part
+	end
+	
+	-- Create floor
+	local floor = createPartAtOffset(
+		"ReceivingFloor",
+		platformSize,
+		Vector3.new(0, 0, 0),
+		CONFIG.PlatformColor,
+		CONFIG.PlatformMaterial,
+		endShippingModel,
+		true
+	)
+	
+	-- Set floor as PrimaryPart
+	endShippingModel.PrimaryPart = floor
+	
+	-- Back wall (opposite entrance)
+	createPartAtOffset(
+		"BackWall",
+		Vector3.new(platformSize.X, wallHeight, wallThickness),
+		Vector3.new(0, platformSize.Y/2 + wallHeight/2, -halfZ - wallThickness/2),
+		CONFIG.ShippingCenterWallColor,
+		Enum.Material.Concrete,
+		endShippingModel
+	)
+	
+	-- Left wall
+	createPartAtOffset(
+		"LeftWall",
+		Vector3.new(wallThickness, wallHeight, platformSize.Z),
+		Vector3.new(-halfX - wallThickness/2, platformSize.Y/2 + wallHeight/2, 0),
+		CONFIG.ShippingCenterWallColor,
+		Enum.Material.Concrete,
+		endShippingModel
+	)
+	
+	-- Right wall
+	createPartAtOffset(
+		"RightWall",
+		Vector3.new(wallThickness, wallHeight, platformSize.Z),
+		Vector3.new(halfX + wallThickness/2, platformSize.Y/2 + wallHeight/2, 0),
+		CONFIG.ShippingCenterWallColor,
+		Enum.Material.Concrete,
+		endShippingModel
+	)
+	
+	-- ROOF with skylights
+	local roofThickness = 2
+	createPartAtOffset(
+		"ReceivingRoof",
+		Vector3.new(platformSize.X + wallThickness * 2, roofThickness, platformSize.Z + wallThickness * 2),
+		Vector3.new(0, platformSize.Y/2 + wallHeight + roofThickness/2, 0),
+		CONFIG.ShippingCenterRoofColor,
+		Enum.Material.Metal,
+		endShippingModel
+	)
+	
+	-- Skylights
+	for i = 1, 3 do
+		local skylightLocalX = -halfX + (i / 4) * platformSize.X
+		local skylight = createPartAtOffset(
+			"Skylight_" .. i,
+			Vector3.new(15, roofThickness + 0.1, platformSize.Z * 0.4),
+			Vector3.new(skylightLocalX, platformSize.Y/2 + wallHeight + roofThickness/2, 0),
+			Color3.fromRGB(200, 220, 255),
+			Enum.Material.Glass,
+			endShippingModel,
+			false
+		)
+		skylight.Transparency = 0.6
+	end
+	
+	-- Loading dock hazard stripes (at entrance - front/+Z local)
+	local dockEdgeWidth = 5
+	createPartAtOffset(
+		"LoadingDockStripe",
+		Vector3.new(platformSize.X, 0.5, dockEdgeWidth),
+		Vector3.new(0, platformSize.Y/2 + 0.25, halfZ - dockEdgeWidth/2),
+		Color3.fromRGB(255, 200, 0),
+		Enum.Material.SmoothPlastic,
+		endShippingModel,
+		false
+	)
+	
+	-- Industrial hanging warehouse lights
+	local lightRows = 2
+	local lightsPerRow = 3
+	
+	for row = 1, lightRows do
+		for col = 1, lightsPerRow do
+			local lightLocalX = -halfX + (col / (lightsPerRow + 1)) * platformSize.X
+			local lightLocalZ = -halfZ + (row / (lightRows + 1)) * platformSize.Z
+			local lightLocalY = platformSize.Y/2 + wallHeight - 3
+			
+			-- Light fixture
+			createPartAtOffset(
+				"LightFixture_" .. row .. "_" .. col,
+				Vector3.new(4, 2, 4),
+				Vector3.new(lightLocalX, lightLocalY, lightLocalZ),
+				Color3.fromRGB(50, 50, 55),
+				Enum.Material.Metal,
+				endShippingModel,
+				false
+			)
+			
+			-- Light bulb
+			local bulb = createPartAtOffset(
+				"LightBulb_" .. row .. "_" .. col,
+				Vector3.new(3, 3, 3),
+				Vector3.new(lightLocalX, lightLocalY - 1.5, lightLocalZ),
+				Color3.fromRGB(255, 240, 200),
+				Enum.Material.Neon,
+				endShippingModel,
+				false
+			)
+			bulb.Shape = Enum.PartType.Ball
+			
+			local pointLight = Instance.new("PointLight")
+			pointLight.Color = Color3.fromRGB(255, 245, 220)
+			pointLight.Brightness = 1.02
+			pointLight.Range = 60
+			pointLight.Parent = bulb
+		end
+	end
+	
+	-- Receiving Center sign (on back wall)
+	local signPart = createPartAtOffset(
+		"ReceivingCenterSign",
+		Vector3.new(50, 6, 1),
+		Vector3.new(0, platformSize.Y/2 + wallHeight - 5, -halfZ - wallThickness - 1),
+		Color3.fromRGB(20, 100, 60),
+		Enum.Material.SmoothPlastic,
+		endShippingModel,
+		true
+	)
+	
+	local signGui = Instance.new("SurfaceGui")
+	signGui.Face = Enum.NormalId.Back
+	signGui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	signGui.PixelsPerStud = 30
+	signGui.Parent = signPart
+	
+	local signText = Instance.new("TextLabel")
+	signText.Size = UDim2.new(1, 0, 1, 0)
+	signText.BackgroundTransparency = 1
+	signText.Text = "📦 RECEIVING CENTER 📦"
+	signText.TextColor3 = Color3.fromRGB(255, 255, 255)
+	signText.TextScaled = true
+	signText.Font = Enum.Font.GothamBold
+	signText.Parent = signGui
+	
+	-- Safety rails on closed sides (back, left, right - not front/entrance)
+	local safetyColor = Color3.fromRGB(255, 200, 0)
+	
+	-- Transform local corners to world space for rails
+	local function localToWorld(localPos)
+		local worldOffset = rotationOnly:VectorToWorldSpace(localPos)
+		return roomCenter + worldOffset
+	end
+	
+	-- Back rail
+	createSafetyRail(
+		"EndShipping_BackRail",
+		localToWorld(Vector3.new(-halfX, platformSize.Y/2, -halfZ)),
+		localToWorld(Vector3.new(halfX, platformSize.Y/2, -halfZ)),
+		0,
+		safetyColor,
+		endShippingModel
+	)
+	
+	-- Left rail
+	createSafetyRail(
+		"EndShipping_LeftRail",
+		localToWorld(Vector3.new(-halfX, platformSize.Y/2, -halfZ)),
+		localToWorld(Vector3.new(-halfX, platformSize.Y/2, halfZ)),
+		0,
+		safetyColor,
+		endShippingModel
+	)
+	
+	-- Right rail
+	createSafetyRail(
+		"EndShipping_RightRail",
+		localToWorld(Vector3.new(halfX, platformSize.Y/2, -halfZ)),
+		localToWorld(Vector3.new(halfX, platformSize.Y/2, halfZ)),
+		0,
+		safetyColor,
+		endShippingModel
+	)
+	
+	-- ═══════════════════════════════════════════════════════════════════════
+	-- POLISHED PACKAGE COLLECTION TERMINAL
+	-- ═══════════════════════════════════════════════════════════════════════
+	
+	local binSize = Vector3.new(24, 3, 24)
+	local binCenterOffset = Vector3.new(0, platformSize.Y/2, -halfZ/2)
+	
+	-- Elevated platform base with industrial look
+	local platformBase = createPartAtOffset(
+		"CollectionPlatformBase",
+		Vector3.new(binSize.X + 8, 1, binSize.Z + 8),
+		binCenterOffset + Vector3.new(0, 0.5, 0),
+		Color3.fromRGB(45, 45, 50),
+		Enum.Material.DiamondPlate,
+		endShippingModel,
+		true
+	)
+	
+	-- Inner recessed area (the collection pit)
+	local recessedPit = createPartAtOffset(
+		"CollectionPit",
+		Vector3.new(binSize.X, 0.8, binSize.Z),
+		binCenterOffset + Vector3.new(0, 0.6, 0),
+		Color3.fromRGB(25, 25, 30),
+		Enum.Material.Metal,
+		endShippingModel,
+		true
+	)
+	
+	-- Glowing floor grid pattern
+	local gridSpacing = 6
+	for gx = -1, 1 do
+		for gz = -1, 1 do
+			local gridPart = createPartAtOffset(
+				"GridLight_" .. gx .. "_" .. gz,
+				Vector3.new(4, 0.15, 4),
+				binCenterOffset + Vector3.new(gx * gridSpacing, 1.05, gz * gridSpacing),
+				Color3.fromRGB(0, 200, 150),  -- Teal glow
+				Enum.Material.Neon,
+				endShippingModel,
+				false
+			)
+			gridPart.Transparency = 0.4
+		end
+	end
+	
+	-- Central collection point (glowing circle)
+	local centralGlow = createPartAtOffset(
+		"CentralGlow",
+		Vector3.new(8, 0.2, 8),
+		binCenterOffset + Vector3.new(0, 1.1, 0),
+		Color3.fromRGB(0, 255, 200),  -- Bright teal
+		Enum.Material.Neon,
+		endShippingModel,
+		false
+	)
+	centralGlow.Shape = Enum.PartType.Cylinder
+	centralGlow.CFrame = centralGlow.CFrame * CFrame.Angles(0, 0, math.rad(90))
+	centralGlow.Transparency = 0.3
+	
+	-- Holographic ring above collection point
+	local holoRing = createPartAtOffset(
+		"HoloRing",
+		Vector3.new(16, 0.3, 16),
+		binCenterOffset + Vector3.new(0, 4, 0),
+		Color3.fromRGB(0, 220, 180),
+		Enum.Material.Neon,
+		endShippingModel,
+		false
+	)
+	holoRing.Shape = Enum.PartType.Cylinder
+	holoRing.CFrame = holoRing.CFrame * CFrame.Angles(0, 0, math.rad(90))
+	holoRing.Transparency = 0.6
+	
+	-- Inner holographic ring
+	local holoRingInner = createPartAtOffset(
+		"HoloRingInner",
+		Vector3.new(10, 0.4, 10),
+		binCenterOffset + Vector3.new(0, 4, 0),
+		Color3.fromRGB(0, 255, 220),
+		Enum.Material.Neon,
+		endShippingModel,
+		false
+	)
+	holoRingInner.Shape = Enum.PartType.Cylinder
+	holoRingInner.CFrame = holoRingInner.CFrame * CFrame.Angles(0, 0, math.rad(90))
+	holoRingInner.Transparency = 0.5
+	
+	-- Corner scanner pillars
+	local pillarPositions = {
+		Vector3.new(-binSize.X/2 - 2, 0, -binSize.Z/2 - 2),
+		Vector3.new(binSize.X/2 + 2, 0, -binSize.Z/2 - 2),
+		Vector3.new(-binSize.X/2 - 2, 0, binSize.Z/2 + 2),
+		Vector3.new(binSize.X/2 + 2, 0, binSize.Z/2 + 2),
+	}
+	
+	for i, pillarOffset in ipairs(pillarPositions) do
+		-- Main pillar body
+		local pillar = createPartAtOffset(
+			"ScannerPillar_" .. i,
+			Vector3.new(1.5, 8, 1.5),
+			binCenterOffset + Vector3.new(pillarOffset.X, 4, pillarOffset.Z),
+			Color3.fromRGB(40, 40, 45),
+			Enum.Material.Metal,
+			endShippingModel,
+			true
+		)
+		
+		-- Pillar accent strip
+		local accentStrip = createPartAtOffset(
+			"PillarAccent_" .. i,
+			Vector3.new(0.3, 6, 0.3),
+			binCenterOffset + Vector3.new(pillarOffset.X * 0.9, 4, pillarOffset.Z * 0.9),
+			Color3.fromRGB(0, 200, 160),
+			Enum.Material.Neon,
+			endShippingModel,
+			false
+		)
+		accentStrip.Transparency = 0.2
+		
+		-- Scanner head on top
+		local scannerHead = createPartAtOffset(
+			"ScannerHead_" .. i,
+			Vector3.new(2.5, 1.5, 2.5),
+			binCenterOffset + Vector3.new(pillarOffset.X, 8.5, pillarOffset.Z),
+			Color3.fromRGB(30, 30, 35),
+			Enum.Material.Metal,
+			endShippingModel,
+			true
+		)
+		
+		-- Scanner lens (points toward center)
+		local lensDir = -Vector3.new(pillarOffset.X, -2, pillarOffset.Z).Unit
+		local lens = createPartAtOffset(
+			"ScannerLens_" .. i,
+			Vector3.new(1, 1, 1),
+			binCenterOffset + Vector3.new(pillarOffset.X * 0.85, 8.5, pillarOffset.Z * 0.85),
+			Color3.fromRGB(0, 255, 200),
+			Enum.Material.Neon,
+			endShippingModel,
+			false
+		)
+		lens.Shape = Enum.PartType.Ball
+		lens.Transparency = 0.3
+		
+		-- Scanner spotlight
+		local spotlight = Instance.new("SpotLight")
+		spotlight.Color = Color3.fromRGB(0, 255, 200)
+		spotlight.Brightness = 2
+		spotlight.Range = 25
+		spotlight.Angle = 35
+		spotlight.Face = Enum.NormalId.Bottom
+		spotlight.Parent = scannerHead
+	end
+	
+	-- Counter display panel (floating)
+	local counterPanel = createPartAtOffset(
+		"CounterPanel",
+		Vector3.new(18, 6, 0.5),
+		binCenterOffset + Vector3.new(0, 12, -binSize.Z/2 - 6),
+		Color3.fromRGB(20, 25, 30),
+		Enum.Material.SmoothPlastic,
+		endShippingModel,
+		false
+	)
+	
+	-- Counter panel glow edge
+	local panelGlow = createPartAtOffset(
+		"PanelGlow",
+		Vector3.new(18.5, 6.5, 0.3),
+		binCenterOffset + Vector3.new(0, 12, -binSize.Z/2 - 6.2),
+		Color3.fromRGB(0, 180, 150),
+		Enum.Material.Neon,
+		endShippingModel,
+		false
+	)
+	panelGlow.Transparency = 0.5
+	
+	-- Counter display GUI
+	local counterGui = Instance.new("SurfaceGui")
+	counterGui.Name = "CounterGui"
+	counterGui.Face = Enum.NormalId.Front
+	counterGui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	counterGui.PixelsPerStud = 50
+	counterGui.Parent = counterPanel
+	
+	local counterFrame = Instance.new("Frame")
+	counterFrame.Size = UDim2.new(1, 0, 1, 0)
+	counterFrame.BackgroundTransparency = 1
+	counterFrame.Parent = counterGui
+	
+	-- Title text
+	local titleLabel = Instance.new("TextLabel")
+	titleLabel.Name = "Title"
+	titleLabel.Size = UDim2.new(1, 0, 0.3, 0)
+	titleLabel.Position = UDim2.new(0, 0, 0, 0)
+	titleLabel.BackgroundTransparency = 1
+	titleLabel.Text = "📦 DELIVERY TERMINAL"
+	titleLabel.TextColor3 = Color3.fromRGB(0, 220, 180)
+	titleLabel.TextScaled = true
+	titleLabel.Font = Enum.Font.GothamBold
+	titleLabel.Parent = counterFrame
+	
+	-- Instruction text
+	local instructionLabel = Instance.new("TextLabel")
+	instructionLabel.Name = "Instruction"
+	instructionLabel.Size = UDim2.new(1, 0, 0.25, 0)
+	instructionLabel.Position = UDim2.new(0, 0, 0.3, 0)
+	instructionLabel.BackgroundTransparency = 1
+	instructionLabel.Text = "Press [E] to deposit packages"
+	instructionLabel.TextColor3 = Color3.fromRGB(180, 180, 190)
+	instructionLabel.TextScaled = true
+	instructionLabel.Font = Enum.Font.Gotham
+	instructionLabel.Parent = counterFrame
+	
+	-- Status text (will be updated during collection)
+	local statusLabel = Instance.new("TextLabel")
+	statusLabel.Name = "Status"
+	statusLabel.Size = UDim2.new(1, 0, 0.35, 0)
+	statusLabel.Position = UDim2.new(0, 0, 0.6, 0)
+	statusLabel.BackgroundTransparency = 1
+	statusLabel.Text = "✓ READY"
+	statusLabel.TextColor3 = Color3.fromRGB(0, 255, 150)
+	statusLabel.TextScaled = true
+	statusLabel.Font = Enum.Font.GothamBold
+	statusLabel.Parent = counterFrame
+	
+	-- Also show on back
+	local counterGui2 = counterGui:Clone()
+	counterGui2.Face = Enum.NormalId.Back
+	counterGui2.Parent = counterPanel
+	
+	-- Store reference to status label for updates
+	endShippingModel:SetAttribute("HasStatusDisplay", true)
+	
+	-- Arrow indicators pointing down to collection zone
+	for side = 1, 4 do
+		local angle = (side - 1) * math.pi / 2
+		local arrowOffset = Vector3.new(math.cos(angle) * 18, 3, math.sin(angle) * 18)
+		
+		local arrow = createPartAtOffset(
+			"Arrow_" .. side,
+			Vector3.new(3, 0.3, 5),
+			binCenterOffset + arrowOffset,
+			Color3.fromRGB(0, 200, 150),
+			Enum.Material.Neon,
+			endShippingModel,
+			false
+		)
+		arrow.Transparency = 0.4
+		-- Rotate arrow to point toward center
+		local lookAt = binCenterOffset + Vector3.new(0, 3, 0)
+		local arrowPos = binCenterOffset + arrowOffset
+		arrow.CFrame = CFrame.lookAt(arrow.Position, arrow.Position - arrowOffset) * CFrame.Angles(math.rad(-45), 0, 0)
+	end
+	
+	-- Create invisible collection zone (trigger area)
+	local collectionZone = createPartAtOffset(
+		"PackageCollectionZone",
+		Vector3.new(binSize.X, 12, binSize.Z),
+		binCenterOffset + Vector3.new(0, 6, 0),
+		Color3.fromRGB(100, 50, 150),
+		Enum.Material.SmoothPlastic,
+		endShippingModel,
+		false
+	)
+	collectionZone.Transparency = 1
+	collectionZone.CanQuery = true
+	collectionZone.CanTouch = true
+	
+	-- Store references
+	endShippingModel:SetAttribute("HasCollectionZone", true)
+	collectionZone:SetAttribute("IsCollectionZone", true)
+	
+	-- Store panel references for status updates during collection
+	collectionZone:SetAttribute("CounterPanelName", "CounterPanel")
+	collectionZone:SetAttribute("CentralGlowName", "CentralGlow")
+	
+	print("[HubService] End Shipping Center with polished Delivery Terminal created, facing track from:", entrancePos)
+	
+	return {
+		model = endShippingModel,
+		floor = floor,
+		floorTopY = floorTopY,
+		collectionZone = collectionZone,
+	}
 end
 
 -- Create enhanced platform decorations (edge trim, lights, center marking, underglow)
@@ -2205,7 +2788,7 @@ local function createTrackSegment(startPos, endPos, width, color, bankAngle, par
 	return segments
 end
 
--- Create Snake Way style spikes along a portion of the spline
+-- Create industrial safety rails along a portion of the spline
 local function createSplineRails(spline, tStart, tEnd, width, color, parent)
 	local railsFolder = parent
 	local numSpikes = math.ceil((tEnd - tStart) * spline.Length / CONFIG.RailSegmentLength)
@@ -2546,8 +3129,8 @@ local function generateSplineTrack(startPos, parent)
 		return smoothPath[#smoothPath], (smoothPath[#smoothPath] - smoothPath[#smoothPath - 1]).Unit
 	end
 	
-	-- Create SPIKES along the track (Snake Way style!) + smooth invisible colliders
-	print("[HubService] Creating Snake Way spikes with smooth colliders...")
+	-- Create safety rails along the track (Industrial style) + smooth invisible colliders
+	print("[HubService] Creating industrial safety rails with smooth colliders...")
 	local railsFolder = HubService._collections and HubService._collections.Rails or trackFolder
 	local spikeIndex = 0
 	
@@ -2568,39 +3151,93 @@ local function generateSplineTrack(startPos, parent)
 			if right.Magnitude < 0.1 then right = Vector3.new(1, 0, 0) end
 			right = right.Unit
 			
-			local spikeOffset = CONFIG.SlideWidth / 2 - CONFIG.RailThickness / 4  -- Slightly inward
-			local spikeBaseY = pos.Y + CONFIG.SlideThickness / 2
-			local leftBasePos = Vector3.new(pos.X, spikeBaseY, pos.Z) - right * spikeOffset
-			local rightBasePos = Vector3.new(pos.X, spikeBaseY, pos.Z) + right * spikeOffset
+			local railOffset = CONFIG.SlideWidth / 2 - CONFIG.RailThickness / 4  -- Slightly inward
+			local railBaseY = pos.Y + CONFIG.SlideThickness / 2
+			local leftBasePos = Vector3.new(pos.X, railBaseY, pos.Z) - right * railOffset
+			local rightBasePos = Vector3.new(pos.X, railBaseY, pos.Z) + right * railOffset
 			
-			-- LEFT SPIKE (visual only - no collision)
-			local leftSpike = Instance.new("WedgePart")
-			leftSpike.Name = "LeftSpike_" .. spikeIndex
-			leftSpike.Size = Vector3.new(CONFIG.RailThickness, CONFIG.RailHeight, CONFIG.RailThickness * 1.5)
-			leftSpike.Color = CONFIG.RailColor
-			leftSpike.Material = CONFIG.RailMaterial
-			leftSpike.Anchored = true
-			leftSpike.CanCollide = false  -- Visual only!
-			local leftCF = CFrame.lookAt(leftBasePos, leftBasePos + dir)
-			leftSpike.CFrame = leftCF * CFrame.new(0, CONFIG.RailHeight / 2, 0) * CFrame.Angles(0, math.pi, 0)
-			leftSpike.Parent = railsFolder
-			
-			-- RIGHT SPIKE (visual only - no collision)
-			local rightSpike = Instance.new("WedgePart")
-			rightSpike.Name = "RightSpike_" .. spikeIndex
-			rightSpike.Size = Vector3.new(CONFIG.RailThickness, CONFIG.RailHeight, CONFIG.RailThickness * 1.5)
-			rightSpike.Color = CONFIG.RailColor
-			rightSpike.Material = CONFIG.RailMaterial
-			rightSpike.Anchored = true
-			rightSpike.CanCollide = false  -- Visual only!
-			local rightCF = CFrame.lookAt(rightBasePos, rightBasePos + dir)
-			rightSpike.CFrame = rightCF * CFrame.new(0, CONFIG.RailHeight / 2, 0)
-			rightSpike.Parent = railsFolder
+			-- Create rails based on RailShape config
+			if CONFIG.RailShape == "Bar" then
+				-- INDUSTRIAL SAFETY BARS (rectangular posts)
+				local barLength = CONFIG.RailThickness * 2
+				
+				-- LEFT BAR (visual only - no collision)
+				local leftBar = Instance.new("Part")
+				leftBar.Name = "LeftBar_" .. spikeIndex
+				leftBar.Size = Vector3.new(CONFIG.RailThickness, CONFIG.RailHeight, barLength)
+				leftBar.Color = CONFIG.RailColor
+				leftBar.Material = CONFIG.RailMaterial
+				leftBar.Anchored = true
+				leftBar.CanCollide = false
+				local leftCF = CFrame.lookAt(leftBasePos, leftBasePos + dir)
+				leftBar.CFrame = leftCF * CFrame.new(0, CONFIG.RailHeight / 2, 0)
+				leftBar.Parent = railsFolder
+				
+				-- RIGHT BAR (visual only - no collision)
+				local rightBar = Instance.new("Part")
+				rightBar.Name = "RightBar_" .. spikeIndex
+				rightBar.Size = Vector3.new(CONFIG.RailThickness, CONFIG.RailHeight, barLength)
+				rightBar.Color = CONFIG.RailColor
+				rightBar.Material = CONFIG.RailMaterial
+				rightBar.Anchored = true
+				rightBar.CanCollide = false
+				local rightCF = CFrame.lookAt(rightBasePos, rightBasePos + dir)
+				rightBar.CFrame = rightCF * CFrame.new(0, CONFIG.RailHeight / 2, 0)
+				rightBar.Parent = railsFolder
+				
+				-- Add black/dark stripes for hazard look (every other bar)
+				if spikeIndex % 2 == 0 then
+					-- Dark stripe on left
+					local leftStripe = Instance.new("Part")
+					leftStripe.Name = "LeftStripe_" .. spikeIndex
+					leftStripe.Size = Vector3.new(CONFIG.RailThickness + 0.1, CONFIG.RailHeight * 0.3, barLength + 0.1)
+					leftStripe.Color = Color3.fromRGB(30, 30, 35)
+					leftStripe.Material = Enum.Material.SmoothPlastic
+					leftStripe.Anchored = true
+					leftStripe.CanCollide = false
+					leftStripe.CFrame = leftCF * CFrame.new(0, CONFIG.RailHeight * 0.35, 0)
+					leftStripe.Parent = railsFolder
+					
+					-- Dark stripe on right
+					local rightStripe = Instance.new("Part")
+					rightStripe.Name = "RightStripe_" .. spikeIndex
+					rightStripe.Size = Vector3.new(CONFIG.RailThickness + 0.1, CONFIG.RailHeight * 0.3, barLength + 0.1)
+					rightStripe.Color = Color3.fromRGB(30, 30, 35)
+					rightStripe.Material = Enum.Material.SmoothPlastic
+					rightStripe.Anchored = true
+					rightStripe.CanCollide = false
+					rightStripe.CFrame = rightCF * CFrame.new(0, CONFIG.RailHeight * 0.35, 0)
+					rightStripe.Parent = railsFolder
+				end
+			else
+				-- SPIKES (wedge parts - original style)
+				local leftSpike = Instance.new("WedgePart")
+				leftSpike.Name = "LeftSpike_" .. spikeIndex
+				leftSpike.Size = Vector3.new(CONFIG.RailThickness, CONFIG.RailHeight, CONFIG.RailThickness * 1.5)
+				leftSpike.Color = CONFIG.RailColor
+				leftSpike.Material = CONFIG.RailMaterial
+				leftSpike.Anchored = true
+				leftSpike.CanCollide = false
+				local leftCF = CFrame.lookAt(leftBasePos, leftBasePos + dir)
+				leftSpike.CFrame = leftCF * CFrame.new(0, CONFIG.RailHeight / 2, 0) * CFrame.Angles(0, math.pi, 0)
+				leftSpike.Parent = railsFolder
+				
+				local rightSpike = Instance.new("WedgePart")
+				rightSpike.Name = "RightSpike_" .. spikeIndex
+				rightSpike.Size = Vector3.new(CONFIG.RailThickness, CONFIG.RailHeight, CONFIG.RailThickness * 1.5)
+				rightSpike.Color = CONFIG.RailColor
+				rightSpike.Material = CONFIG.RailMaterial
+				rightSpike.Anchored = true
+				rightSpike.CanCollide = false
+				local rightCF = CFrame.lookAt(rightBasePos, rightBasePos + dir)
+				rightSpike.CFrame = rightCF * CFrame.new(0, CONFIG.RailHeight / 2, 0)
+				rightSpike.Parent = railsFolder
+			end
 			
 			-- SMOOTH COLLIDERS (invisible walls for collision)
-			local colliderY = spikeBaseY + CONFIG.RailHeight / 2
-			local leftColliderPos = Vector3.new(pos.X, colliderY, pos.Z) - right * spikeOffset
-			local rightColliderPos = Vector3.new(pos.X, colliderY, pos.Z) + right * spikeOffset
+			local colliderY = railBaseY + CONFIG.RailHeight / 2
+			local leftColliderPos = Vector3.new(pos.X, colliderY, pos.Z) - right * railOffset
+			local rightColliderPos = Vector3.new(pos.X, colliderY, pos.Z) + right * railOffset
 			
 			if prevLeftPos then
 				-- Left smooth collider segment
@@ -2611,7 +3248,7 @@ local function generateSplineTrack(startPos, parent)
 					local leftCollider = Instance.new("Part")
 					leftCollider.Name = "LeftCollider_" .. spikeIndex
 					leftCollider.Size = Vector3.new(CONFIG.RailThickness, CONFIG.RailHeight, leftLen + 0.5)
-					leftCollider.Transparency = 0.7  -- Semi-transparent
+					leftCollider.Transparency = 0.9  -- Nearly invisible
 					leftCollider.Anchored = true
 					leftCollider.CanCollide = true
 					leftCollider.CFrame = CFrame.lookAt(leftMid, leftMid + leftDir.Unit)
@@ -2626,7 +3263,7 @@ local function generateSplineTrack(startPos, parent)
 					local rightCollider = Instance.new("Part")
 					rightCollider.Name = "RightCollider_" .. spikeIndex
 					rightCollider.Size = Vector3.new(CONFIG.RailThickness, CONFIG.RailHeight, rightLen + 0.5)
-					rightCollider.Transparency = 0.7  -- Semi-transparent
+					rightCollider.Transparency = 0.9  -- Nearly invisible
 					rightCollider.Anchored = true
 					rightCollider.CanCollide = true
 					rightCollider.CFrame = CFrame.lookAt(rightMid, rightMid + rightDir.Unit)
@@ -2639,7 +3276,132 @@ local function generateSplineTrack(startPos, parent)
 			spikeIndex = spikeIndex + 1
 		end
 	end
-	print(string.format("[HubService] Created %d spikes + smooth colliders on each side", spikeIndex))
+	print(string.format("[HubService] Created %d safety rails + smooth colliders on each side", spikeIndex))
+	
+	-- Create light spires along the track for visibility
+	if CONFIG.RailSpiresEnabled then
+		print("[HubService] Creating warning spires with blinking lights...")
+		local spireIndex = 0
+		local spireFolder = Instance.new("Folder")
+		spireFolder.Name = "WarningSpires"
+		spireFolder.Parent = trackFolder
+		
+		local blinkingLights = {}  -- Track lights for blinking animation
+		
+		for i = 1, #smoothPath - 1, math.max(1, math.floor(CONFIG.RailSpireSpacing / (totalPathLength / #smoothPath))) do
+			local pos = smoothPath[i]
+			local nextPos = smoothPath[math.min(i + 1, #smoothPath)]
+			local dir = (nextPos - pos)
+			
+			if dir.Magnitude > 0.1 then
+				dir = dir.Unit
+				local right = dir:Cross(Vector3.new(0, 1, 0))
+				if right.Magnitude < 0.1 then right = Vector3.new(1, 0, 0) end
+				right = right.Unit
+				
+				local railOffset = CONFIG.SlideWidth / 2
+				local railBaseY = pos.Y + CONFIG.SlideThickness / 2
+				
+				-- Create spire on left side
+				local leftBasePos = Vector3.new(pos.X, railBaseY, pos.Z) - right * railOffset
+				
+				-- Spire pole
+				local leftPole = Instance.new("Part")
+				leftPole.Name = "LeftSpire_" .. spireIndex
+				leftPole.Size = Vector3.new(CONFIG.RailSpireThickness, CONFIG.RailSpireHeight, CONFIG.RailSpireThickness)
+				leftPole.Color = CONFIG.RailSpireColor
+				leftPole.Material = Enum.Material.Metal
+				leftPole.Anchored = true
+				leftPole.CanCollide = false
+				leftPole.CastShadow = false
+				leftPole.Position = leftBasePos + Vector3.new(0, CONFIG.RailSpireHeight / 2, 0)
+				leftPole.Parent = spireFolder
+				
+				-- Light orb on top
+				local leftLight = Instance.new("Part")
+				leftLight.Name = "LeftLight_" .. spireIndex
+				leftLight.Shape = Enum.PartType.Ball
+				leftLight.Size = Vector3.new(CONFIG.RailSpireLightSize, CONFIG.RailSpireLightSize, CONFIG.RailSpireLightSize)
+				leftLight.Color = CONFIG.RailSpireLightColor
+				leftLight.Material = Enum.Material.Neon
+				leftLight.Anchored = true
+				leftLight.CanCollide = false
+				leftLight.CastShadow = false
+				leftLight.Position = leftBasePos + Vector3.new(0, CONFIG.RailSpireHeight + CONFIG.RailSpireLightSize / 2, 0)
+				leftLight.Parent = spireFolder
+				
+				-- Point light
+				local leftPointLight = Instance.new("PointLight")
+				leftPointLight.Color = CONFIG.RailSpireLightColor
+				leftPointLight.Range = CONFIG.RailSpireLightRange
+				leftPointLight.Brightness = CONFIG.RailSpireLightBrightness
+				leftPointLight.Parent = leftLight
+				
+				table.insert(blinkingLights, { light = leftPointLight, orb = leftLight })
+				
+				-- Create spire on right side
+				local rightBasePos = Vector3.new(pos.X, railBaseY, pos.Z) + right * railOffset
+				
+				-- Spire pole
+				local rightPole = Instance.new("Part")
+				rightPole.Name = "RightSpire_" .. spireIndex
+				rightPole.Size = Vector3.new(CONFIG.RailSpireThickness, CONFIG.RailSpireHeight, CONFIG.RailSpireThickness)
+				rightPole.Color = CONFIG.RailSpireColor
+				rightPole.Material = Enum.Material.Metal
+				rightPole.Anchored = true
+				rightPole.CanCollide = false
+				rightPole.CastShadow = false
+				rightPole.Position = rightBasePos + Vector3.new(0, CONFIG.RailSpireHeight / 2, 0)
+				rightPole.Parent = spireFolder
+				
+				-- Light orb on top
+				local rightLight = Instance.new("Part")
+				rightLight.Name = "RightLight_" .. spireIndex
+				rightLight.Shape = Enum.PartType.Ball
+				rightLight.Size = Vector3.new(CONFIG.RailSpireLightSize, CONFIG.RailSpireLightSize, CONFIG.RailSpireLightSize)
+				rightLight.Color = CONFIG.RailSpireLightColor
+				rightLight.Material = Enum.Material.Neon
+				rightLight.Anchored = true
+				rightLight.CanCollide = false
+				rightLight.CastShadow = false
+				rightLight.Position = rightBasePos + Vector3.new(0, CONFIG.RailSpireHeight + CONFIG.RailSpireLightSize / 2, 0)
+				rightLight.Parent = spireFolder
+				
+				-- Point light
+				local rightPointLight = Instance.new("PointLight")
+				rightPointLight.Color = CONFIG.RailSpireLightColor
+				rightPointLight.Range = CONFIG.RailSpireLightRange
+				rightPointLight.Brightness = CONFIG.RailSpireLightBrightness
+				rightPointLight.Parent = rightLight
+				
+				table.insert(blinkingLights, { light = rightPointLight, orb = rightLight })
+				
+				spireIndex = spireIndex + 1
+			end
+		end
+		
+		print(string.format("[HubService] Created %d warning spires with lights", spireIndex))
+		
+		-- Start blinking animation for all lights
+		task.spawn(function()
+			local blinkInterval = 1 / CONFIG.RailSpireBlinkSpeed
+			local isOn = true
+			
+			while spireFolder and spireFolder.Parent do
+				task.wait(blinkInterval / 2)
+				isOn = not isOn
+				
+				for _, lightData in ipairs(blinkingLights) do
+					if lightData.light and lightData.light.Parent then
+						lightData.light.Enabled = isOn
+					end
+					if lightData.orb and lightData.orb.Parent then
+						lightData.orb.Transparency = isOn and 0 or 0.7
+					end
+				end
+			end
+		end)
+	end
 	
 	-- Create crystals along the track
 	if CONFIG.CrystalsEnabled then
@@ -3098,9 +3860,9 @@ function HubService:CreateHub()
 	-- ══════════════════════════════════════════════════════════════════════
 	-- 1. SHIPPING CENTER (player spawn area with warehouse aesthetics)
 	-- ══════════════════════════════════════════════════════════════════════
-	local shippingCenterFolder = Instance.new("Folder")
-	shippingCenterFolder.Name = "ShippingCenter"
-	shippingCenterFolder.Parent = self._hubFolder
+	local shippingCenterModel = Instance.new("Model")
+	shippingCenterModel.Name = "ShippingCenter"
+	shippingCenterModel.Parent = self._hubFolder
 	
 	-- Main platform base (concrete floor)
 	local startPlatform = createPart(
@@ -3109,8 +3871,11 @@ function HubService:CreateHub()
 		CONFIG.StartPlatformPosition,
 		CONFIG.PlatformColor,
 		CONFIG.PlatformMaterial,
-		self._hubFolder
+		shippingCenterModel
 	)
+	
+	-- Set floor as PrimaryPart
+	shippingCenterModel.PrimaryPart = startPlatform
 	
 	local startPlatformTopY = CONFIG.StartPlatformPosition.Y + CONFIG.StartPlatformSize.Y / 2
 	local startPlatformFrontZ = CONFIG.StartPlatformPosition.Z + CONFIG.StartPlatformSize.Z / 2
@@ -3127,7 +3892,7 @@ function HubService:CreateHub()
 	backWall.Color = CONFIG.ShippingCenterWallColor
 	backWall.Material = Enum.Material.Concrete
 	backWall.Anchored = true
-	backWall.Parent = shippingCenterFolder
+	backWall.Parent = shippingCenterModel
 	
 	local leftWall = Instance.new("Part")
 	leftWall.Name = "LeftWall"
@@ -3136,7 +3901,7 @@ function HubService:CreateHub()
 	leftWall.Color = CONFIG.ShippingCenterWallColor
 	leftWall.Material = Enum.Material.Concrete
 	leftWall.Anchored = true
-	leftWall.Parent = shippingCenterFolder
+	leftWall.Parent = shippingCenterModel
 	
 	local rightWall = Instance.new("Part")
 	rightWall.Name = "RightWall"
@@ -3145,7 +3910,7 @@ function HubService:CreateHub()
 	rightWall.Color = CONFIG.ShippingCenterWallColor
 	rightWall.Material = Enum.Material.Concrete
 	rightWall.Anchored = true
-	rightWall.Parent = shippingCenterFolder
+	rightWall.Parent = shippingCenterModel
 	
 	-- ROOF with skylights
 	local roofThickness = 2
@@ -3156,7 +3921,7 @@ function HubService:CreateHub()
 	roof.Color = CONFIG.ShippingCenterRoofColor
 	roof.Material = Enum.Material.Metal
 	roof.Anchored = true
-	roof.Parent = shippingCenterFolder
+	roof.Parent = shippingCenterModel
 	
 	for i = 1, 3 do
 		local skylightX = CONFIG.StartPlatformPosition.X - halfX + (i / 4) * CONFIG.StartPlatformSize.X
@@ -3169,7 +3934,7 @@ function HubService:CreateHub()
 		skylight.Transparency = 0.6
 		skylight.Anchored = true
 		skylight.CanCollide = false
-		skylight.Parent = shippingCenterFolder
+		skylight.Parent = shippingCenterModel
 	end
 	
 	-- Loading dock hazard stripes (front edge)
@@ -3183,7 +3948,7 @@ function HubService:CreateHub()
 		dockStripeBase.Material = Enum.Material.SmoothPlastic
 		dockStripeBase.Anchored = true
 		dockStripeBase.CanCollide = false
-		dockStripeBase.Parent = shippingCenterFolder
+		dockStripeBase.Parent = shippingCenterModel
 		
 		local stripeCount = math.floor(CONFIG.StartPlatformSize.X / 8)
 		for i = 0, stripeCount do
@@ -3197,7 +3962,7 @@ function HubService:CreateHub()
 			blackStripe.Anchored = true
 			blackStripe.CanCollide = false
 			blackStripe.CFrame = blackStripe.CFrame * CFrame.Angles(0, math.rad(45), 0)
-			blackStripe.Parent = shippingCenterFolder
+			blackStripe.Parent = shippingCenterModel
 		end
 	end
 	
@@ -3218,7 +3983,7 @@ function HubService:CreateHub()
 				dash.Material = Enum.Material.SmoothPlastic
 				dash.Anchored = true
 				dash.CanCollide = false
-				dash.Parent = shippingCenterFolder
+				dash.Parent = shippingCenterModel
 			end
 		end
 		
@@ -3241,7 +4006,7 @@ function HubService:CreateHub()
 			zoneOutline.Transparency = 0.7
 			zoneOutline.Anchored = true
 			zoneOutline.CanCollide = false
-			zoneOutline.Parent = shippingCenterFolder
+			zoneOutline.Parent = shippingCenterModel
 			
 			-- Zone number label
 			local zoneLabelPart = Instance.new("Part")
@@ -3253,7 +4018,7 @@ function HubService:CreateHub()
 			zoneLabelPart.Transparency = 0.5
 			zoneLabelPart.Anchored = true
 			zoneLabelPart.CanCollide = false
-			zoneLabelPart.Parent = shippingCenterFolder
+			zoneLabelPart.Parent = shippingCenterModel
 			
 			local surfaceGui = Instance.new("SurfaceGui")
 			surfaceGui.Face = Enum.NormalId.Top
@@ -3293,7 +4058,7 @@ function HubService:CreateHub()
 				fixture.Material = Enum.Material.Metal
 				fixture.Anchored = true
 				fixture.CanCollide = false
-				fixture.Parent = shippingCenterFolder
+				fixture.Parent = shippingCenterModel
 				
 				-- Light bulb (bright warm glow)
 				local bulb = Instance.new("Part")
@@ -3305,7 +4070,7 @@ function HubService:CreateHub()
 				bulb.Material = Enum.Material.Neon
 				bulb.Anchored = true
 				bulb.CanCollide = false
-				bulb.Parent = shippingCenterFolder
+				bulb.Parent = shippingCenterModel
 				
 				local pointLight = Instance.new("PointLight")
 				pointLight.Color = Color3.fromRGB(255, 245, 220)  -- Warm white
@@ -3332,7 +4097,7 @@ function HubService:CreateHub()
 		shelfFrame.Material = Enum.Material.Metal
 		shelfFrame.Transparency = 0.3
 		shelfFrame.Anchored = true
-		shelfFrame.Parent = shippingCenterFolder
+		shelfFrame.Parent = shippingCenterModel
 		
 		for level = 1, 3 do
 			local levelY = startPlatformTopY + (level * 4)
@@ -3343,7 +4108,7 @@ function HubService:CreateHub()
 			shelfLevel.Color = Color3.fromRGB(80, 65, 50)
 			shelfLevel.Material = Enum.Material.Wood
 			shelfLevel.Anchored = true
-			shelfLevel.Parent = shippingCenterFolder
+			shelfLevel.Parent = shippingCenterModel
 		end
 	end
 	
@@ -3355,7 +4120,7 @@ function HubService:CreateHub()
 	signPart.Color = Color3.fromRGB(20, 60, 120)
 	signPart.Material = Enum.Material.SmoothPlastic
 	signPart.Anchored = true
-	signPart.Parent = shippingCenterFolder
+	signPart.Parent = shippingCenterModel
 	
 	local signGui = Instance.new("SurfaceGui")
 	signGui.Face = Enum.NormalId.Back
@@ -3394,7 +4159,7 @@ function HubService:CreateHub()
 		Vector3.new(platformCenterX - platformHalfX, startPlatformTopY, platformCenterZ + platformHalfZ),
 		0,
 		safetyColor,
-		shippingCenterFolder
+		shippingCenterModel
 	)
 	
 	-- Right rail (X+)
@@ -3404,7 +4169,7 @@ function HubService:CreateHub()
 		Vector3.new(platformCenterX + platformHalfX, startPlatformTopY, platformCenterZ + platformHalfZ),
 		0,
 		safetyColor,
-		shippingCenterFolder
+		shippingCenterModel
 	)
 	
 	-- ══════════════════════════════════════════════════════════════════════
@@ -3526,30 +4291,21 @@ function HubService:CreateHub()
 		splineTrackResult = generateSplineTrack(startPos, self._hubFolder)
 		
 		if splineTrackResult then
-			-- Create final landing platform at the end of the spline
+			-- Create end shipping center (Receiving Center) at the end of the spline
 			local endPos = splineTrackResult.endPos
 			local endTangent = splineTrackResult.endTangent
 			
-			local finalLandingPos = endPos - Vector3.new(0, CONFIG.FinalLandingSize.Y / 2 + CONFIG.SlideThickness, 0)
+			-- Position entrance at track end, flush with the path
+			local entrancePos = endPos - Vector3.new(0, CONFIG.SlideThickness / 2, 0)
+			local endPlatformSize = CONFIG.FinalLandingSize
 			
-			createPart(
-				"FinalLanding",
-				CONFIG.FinalLandingSize,
-				finalLandingPos,
-				CONFIG.FinalLandingColor,
-				Enum.Material.SmoothPlastic,
-				self._hubFolder
-			)
+			-- Create the receiving center rotated to face the incoming track
+			local endCenterResult = createEndShippingCenter(entrancePos, endTangent, endPlatformSize, self._hubFolder)
 			
-			-- Decorate final landing
-			decoratePlatform(finalLandingPos, CONFIG.FinalLandingSize, CONFIG.FinalLandingAccentColor, {
-				hasEdgeTrim = true,
-				hasCornerLights = true,
-				hasUnderglow = true,
-				hasCheckerboard = CONFIG.FinalLandingHasCheckerboard,
-				hasVictoryArch = CONFIG.FinalLandingHasVictoryArch,
-				platformIndex = "Final",
-			}, self._hubFolder)
+			-- Setup package collection detection
+			if endCenterResult and endCenterResult.collectionZone then
+				self:SetupPackageCollection(endCenterResult.collectionZone)
+			end
 			
 			print(string.format("[HubService] Spline track complete! Total length: %.0f studs", splineTrackResult.totalLength))
 		else
@@ -4044,10 +4800,157 @@ function HubService:CreatePackageChute(ceilingY, dropPosition)
 	-- Spawn point (inside chute near top)
 	local spawnPoint = Vector3.new(dropPosition.X, ceilingY - 3, dropPosition.Z)
 	
+	-- Status sign hanging from ceiling at the front of the room
+	local signHeight = 12
+	local signY = ceilingY - 8  -- Hang from ceiling
+	local signZ = dropPosition.Z + 35  -- Forward toward entrance
+	
+	local signPart = Instance.new("Part")
+	signPart.Name = "ChuteStatusSign"
+	signPart.Size = Vector3.new(20, signHeight, 0.5)
+	signPart.Position = Vector3.new(dropPosition.X, signY, signZ)
+	signPart.Color = Color3.fromRGB(30, 35, 40)
+	signPart.Material = Enum.Material.SmoothPlastic
+	signPart.Anchored = true
+	signPart.CanCollide = false
+	signPart.Parent = chuteFolder
+	
+	-- Glow frame around sign
+	local glowFrame = Instance.new("Part")
+	glowFrame.Name = "SignGlow"
+	glowFrame.Size = Vector3.new(20.5, signHeight + 0.5, 0.3)
+	glowFrame.Position = signPart.Position - Vector3.new(0, 0, 0.2)
+	glowFrame.Color = Color3.fromRGB(0, 180, 150)
+	glowFrame.Material = Enum.Material.Neon
+	glowFrame.Transparency = 0.5
+	glowFrame.Anchored = true
+	glowFrame.CanCollide = false
+	glowFrame.Parent = chuteFolder
+	
+	-- Hanging cables/chains from ceiling
+	local cableWidth = 0.5
+	local cableHeight = ceilingY - signY - signHeight/2
+	
+	-- Left cable
+	local leftCable = Instance.new("Part")
+	leftCable.Name = "LeftCable"
+	leftCable.Size = Vector3.new(cableWidth, cableHeight, cableWidth)
+	leftCable.Position = Vector3.new(dropPosition.X - 8, ceilingY - cableHeight/2, signZ)
+	leftCable.Color = Color3.fromRGB(50, 55, 60)
+	leftCable.Material = Enum.Material.Metal
+	leftCable.Anchored = true
+	leftCable.CanCollide = false
+	leftCable.Parent = chuteFolder
+	
+	-- Right cable
+	local rightCable = Instance.new("Part")
+	rightCable.Name = "RightCable"
+	rightCable.Size = Vector3.new(cableWidth, cableHeight, cableWidth)
+	rightCable.Position = Vector3.new(dropPosition.X + 8, ceilingY - cableHeight/2, signZ)
+	rightCable.Color = Color3.fromRGB(50, 55, 60)
+	rightCable.Material = Enum.Material.Metal
+	rightCable.Anchored = true
+	rightCable.CanCollide = false
+	rightCable.Parent = chuteFolder
+	
+	-- Ceiling mount bar
+	local mountBar = Instance.new("Part")
+	mountBar.Name = "MountBar"
+	mountBar.Size = Vector3.new(18, 1, 1)
+	mountBar.Position = Vector3.new(dropPosition.X, ceilingY - 0.5, signZ)
+	mountBar.Color = Color3.fromRGB(40, 45, 50)
+	mountBar.Material = Enum.Material.Metal
+	mountBar.Anchored = true
+	mountBar.CanCollide = false
+	mountBar.Parent = chuteFolder
+	
+	-- Create SurfaceGui for the sign (back face - facing into the room)
+	local signGui = Instance.new("SurfaceGui")
+	signGui.Name = "StatusGui"
+	signGui.Face = Enum.NormalId.Back
+	signGui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	signGui.PixelsPerStud = 50
+	signGui.Parent = signPart
+	
+	local mainFrame = Instance.new("Frame")
+	mainFrame.Name = "MainFrame"
+	mainFrame.Size = UDim2.new(1, 0, 1, 0)
+	mainFrame.BackgroundTransparency = 1
+	mainFrame.Parent = signGui
+	
+	-- Title
+	local titleLabel = Instance.new("TextLabel")
+	titleLabel.Name = "Title"
+	titleLabel.Size = UDim2.new(1, 0, 0.15, 0)
+	titleLabel.Position = UDim2.new(0, 0, 0.02, 0)
+	titleLabel.BackgroundTransparency = 1
+	titleLabel.Text = "📦 PACKAGE STATUS"
+	titleLabel.TextColor3 = Color3.fromRGB(0, 220, 180)
+	titleLabel.TextScaled = true
+	titleLabel.Font = Enum.Font.GothamBold
+	titleLabel.Parent = mainFrame
+	
+	-- Active packages count
+	local activeLabel = Instance.new("TextLabel")
+	activeLabel.Name = "ActiveCount"
+	activeLabel.Size = UDim2.new(1, 0, 0.2, 0)
+	activeLabel.Position = UDim2.new(0, 0, 0.2, 0)
+	activeLabel.BackgroundTransparency = 1
+	activeLabel.Text = "Available: 0"
+	activeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	activeLabel.TextScaled = true
+	activeLabel.Font = Enum.Font.GothamBold
+	activeLabel.Parent = mainFrame
+	
+	-- Total spawned
+	local spawnedLabel = Instance.new("TextLabel")
+	spawnedLabel.Name = "SpawnedCount"
+	spawnedLabel.Size = UDim2.new(1, 0, 0.15, 0)
+	spawnedLabel.Position = UDim2.new(0, 0, 0.42, 0)
+	spawnedLabel.BackgroundTransparency = 1
+	spawnedLabel.Text = "Spawned: 0"
+	spawnedLabel.TextColor3 = Color3.fromRGB(180, 180, 190)
+	spawnedLabel.TextScaled = true
+	spawnedLabel.Font = Enum.Font.Gotham
+	spawnedLabel.Parent = mainFrame
+	
+	-- Total collected
+	local collectedLabel = Instance.new("TextLabel")
+	collectedLabel.Name = "CollectedCount"
+	collectedLabel.Size = UDim2.new(1, 0, 0.15, 0)
+	collectedLabel.Position = UDim2.new(0, 0, 0.58, 0)
+	collectedLabel.BackgroundTransparency = 1
+	collectedLabel.Text = "Delivered: 0"
+	collectedLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+	collectedLabel.TextScaled = true
+	collectedLabel.Font = Enum.Font.Gotham
+	collectedLabel.Parent = mainFrame
+	
+	-- Status message
+	local statusLabel = Instance.new("TextLabel")
+	statusLabel.Name = "Status"
+	statusLabel.Size = UDim2.new(1, 0, 0.18, 0)
+	statusLabel.Position = UDim2.new(0, 0, 0.78, 0)
+	statusLabel.BackgroundTransparency = 1
+	statusLabel.Text = "⏳ Initializing..."
+	statusLabel.TextColor3 = Color3.fromRGB(255, 220, 100)
+	statusLabel.TextScaled = true
+	statusLabel.Font = Enum.Font.GothamBold
+	statusLabel.Parent = mainFrame
+	
+	-- Also create sign on front side (for people outside looking in)
+	local signGui2 = signGui:Clone()
+	signGui2.Face = Enum.NormalId.Front
+	signGui2.Parent = signPart
+	
+	-- Store reference to sign for updates
+	self._chuteStatusSign = signPart
+	
 	return {
 		folder = chuteFolder,
 		spawnPoint = spawnPoint,
 		dropPosition = dropPosition,
+		statusSign = signPart,
 	}
 end
 
@@ -4093,11 +4996,15 @@ function HubService:SpawnPackageFromChute(chuteData)
 	-- Set as primary part
 	packageModel.PrimaryPart = packagePart
 	
+	-- Assign random kudos value to package (done early so prompt can use it)
+	local kudosValue = math.random(CONFIG.PackageKudosMin, CONFIG.PackageKudosMax)
+	packageModel:SetAttribute("KudosValue", kudosValue)
+	
 	-- Add ProximityPrompt for pickup
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "PickupPrompt"
 	prompt.ActionText = "Pick Up"
-	prompt.ObjectText = "Package"
+	prompt.ObjectText = "Package (⭐" .. kudosValue .. ")"
 	prompt.HoldDuration = 0
 	prompt.MaxActivationDistance = 8
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
@@ -4122,6 +5029,45 @@ function HubService:SpawnPackageFromChute(chuteData)
 	weld.Part0 = packagePart
 	weld.Part1 = tape
 	weld.Parent = tape
+	
+	-- Create BillboardGui to display kudos value
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "KudosBillboard"
+	billboard.Size = UDim2.new(0, 80, 0, 40)
+	billboard.StudsOffset = Vector3.new(0, sizeY / 2 + 2, 0)  -- Float above package
+	billboard.AlwaysOnTop = false
+	billboard.MaxDistance = 50
+	billboard.Parent = packagePart
+	
+	-- Background frame
+	local bgFrame = Instance.new("Frame")
+	bgFrame.Name = "Background"
+	bgFrame.Size = UDim2.new(1, 0, 1, 0)
+	bgFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+	bgFrame.BackgroundTransparency = 0.3
+	bgFrame.BorderSizePixel = 0
+	bgFrame.Parent = billboard
+	
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0.2, 0)
+	corner.Parent = bgFrame
+	
+	-- Kudos icon/text
+	local kudosLabel = Instance.new("TextLabel")
+	kudosLabel.Name = "KudosLabel"
+	kudosLabel.Size = UDim2.new(1, 0, 1, 0)
+	kudosLabel.BackgroundTransparency = 1
+	kudosLabel.Text = "⭐ " .. kudosValue
+	kudosLabel.TextColor3 = Color3.fromRGB(255, 215, 0)  -- Gold color
+	kudosLabel.TextScaled = true
+	kudosLabel.Font = Enum.Font.GothamBold
+	kudosLabel.Parent = bgFrame
+	
+	-- Add stroke for visibility
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(0, 0, 0)
+	stroke.Thickness = 2
+	stroke.Parent = kudosLabel
 	
 	-- Parent model to SpawnedPackages folder
 	local packagesFolder = Workspace:FindFirstChild("SpawnedPackages")
@@ -4176,11 +5122,98 @@ function HubService:SpawnPackageFromChute(chuteData)
 	return packageModel
 end
 
+-- Update the chute status sign display
+function HubService:UpdateChuteStatusSign()
+	if not self._chuteStatusSign then return end
+	
+	local gui = self._chuteStatusSign:FindFirstChild("StatusGui")
+	if not gui then return end
+	
+	local mainFrame = gui:FindFirstChild("MainFrame")
+	if not mainFrame then return end
+	
+	local activeCount = #self._packageStats.activePackages
+	local spawnedCount = self._packageStats.totalSpawned
+	local collectedCount = self._packageStats.totalCollected
+	
+	-- Update labels
+	local activeLabel = mainFrame:FindFirstChild("ActiveCount")
+	if activeLabel then
+		activeLabel.Text = string.format("Available: %d", activeCount)
+		-- Color based on count
+		if activeCount == 0 then
+			activeLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+		elseif activeCount < 10 then
+			activeLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+		else
+			activeLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+		end
+	end
+	
+	local spawnedLabel = mainFrame:FindFirstChild("SpawnedCount")
+	if spawnedLabel then
+		spawnedLabel.Text = string.format("Total Spawned: %d", spawnedCount)
+	end
+	
+	local collectedLabel = mainFrame:FindFirstChild("CollectedCount")
+	if collectedLabel then
+		collectedLabel.Text = string.format("Delivered: %d ⭐", collectedCount)
+	end
+	
+	local statusLabel = mainFrame:FindFirstChild("Status")
+	if statusLabel then
+		if activeCount < CONFIG.PackageTargetActive then
+			statusLabel.Text = "📦 SPAWNING..."
+			statusLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
+		else
+			statusLabel.Text = "✓ READY"
+			statusLabel.TextColor3 = Color3.fromRGB(0, 255, 150)
+		end
+	end
+	
+	-- Also update the second GUI (front side)
+	for _, child in ipairs(self._chuteStatusSign:GetChildren()) do
+		if child:IsA("SurfaceGui") and child.Face == Enum.NormalId.Front then
+			local frame2 = child:FindFirstChild("MainFrame")
+			if frame2 then
+				local al2 = frame2:FindFirstChild("ActiveCount")
+				if al2 and activeLabel then al2.Text = activeLabel.Text; al2.TextColor3 = activeLabel.TextColor3 end
+				local sl2 = frame2:FindFirstChild("SpawnedCount")
+				if sl2 and spawnedLabel then sl2.Text = spawnedLabel.Text end
+				local cl2 = frame2:FindFirstChild("CollectedCount")
+				if cl2 and collectedLabel then cl2.Text = collectedLabel.Text end
+				local st2 = frame2:FindFirstChild("Status")
+				if st2 and statusLabel then st2.Text = statusLabel.Text; st2.TextColor3 = statusLabel.TextColor3 end
+			end
+		end
+	end
+end
+
+-- Track when a package is collected/delivered
+function HubService:OnPackageCollected(packageModel)
+	-- Remove from active list
+	for i, pkg in ipairs(self._packageStats.activePackages) do
+		if pkg == packageModel then
+			table.remove(self._packageStats.activePackages, i)
+			break
+		end
+	end
+	
+	self._packageStats.totalCollected = self._packageStats.totalCollected + 1
+	self:UpdateChuteStatusSign()
+end
+
 function HubService:StartPackageChute()
 	if not CONFIG.PackageChuteEnabled then return end
 	
-	-- Find the warehouse floor
-	local warehouseFloor = self._hubFolder:FindFirstChild("WarehouseFloor")
+	-- Find the warehouse floor inside the ShippingCenter model
+	local shippingCenter = self._hubFolder:FindFirstChild("ShippingCenter")
+	if not shippingCenter then
+		warn("[HubService] No ShippingCenter model found for package chute")
+		return
+	end
+	
+	local warehouseFloor = shippingCenter:FindFirstChild("WarehouseFloor")
 	if not warehouseFloor then
 		warn("[HubService] No warehouse floor found for package chute")
 		return
@@ -4203,12 +5236,65 @@ function HubService:StartPackageChute()
 	end
 	
 	self._chuteData = chuteData
-	print("[HubService] Package chute created!")
 	
-	-- Start spawning packages at intervals
+	-- Reset package stats
+	self._packageStats = {
+		totalSpawned = 0,
+		totalCollected = 0,
+		activePackages = {},
+	}
+	
+	print("[HubService] Package chute created!")
+	self:UpdateChuteStatusSign()
+	
+	-- Spawn initial batch of packages
 	task.spawn(function()
+		print(string.format("[HubService] Spawning initial %d packages...", CONFIG.PackageInitialSpawn))
+		
+		for i = 1, CONFIG.PackageInitialSpawn do
+			if not self._chuteData then break end
+			
+			local pkg = self:SpawnPackageFromChute(chuteData)
+			if pkg then
+				table.insert(self._packageStats.activePackages, pkg)
+				self._packageStats.totalSpawned = self._packageStats.totalSpawned + 1
+				self:UpdateChuteStatusSign()
+			end
+			
+			task.wait(0.3)  -- Quick burst spawn for initial batch
+		end
+		
+		print(string.format("[HubService] Initial spawn complete: %d packages", #self._packageStats.activePackages))
+		self:UpdateChuteStatusSign()
+	end)
+	
+	-- Spawn replacement packages when some are collected
+	task.spawn(function()
+		task.wait(CONFIG.PackageInitialSpawn * 0.3 + 1)  -- Wait for initial spawn
+		
 		while self._chuteData do
-			self:SpawnPackageFromChute(chuteData)
+			-- Clean up any destroyed packages from tracking
+			for i = #self._packageStats.activePackages, 1, -1 do
+				local pkg = self._packageStats.activePackages[i]
+				if not pkg or not pkg.Parent then
+					table.remove(self._packageStats.activePackages, i)
+				end
+			end
+			
+			local activeCount = #self._packageStats.activePackages
+			local needsMore = activeCount < CONFIG.PackageTargetActive
+			
+			-- Spawn more if we need them (no max limit)
+			if needsMore then
+				local pkg = self:SpawnPackageFromChute(chuteData)
+				if pkg then
+					table.insert(self._packageStats.activePackages, pkg)
+					self._packageStats.totalSpawned = self._packageStats.totalSpawned + 1
+					self:UpdateChuteStatusSign()
+				end
+			end
+			
+			self:UpdateChuteStatusSign()
 			task.wait(CONFIG.PackageSpawnInterval)
 		end
 	end)
@@ -4310,6 +5396,356 @@ function HubService:CleanupPlayerKudos(player)
 	self._playerKudos[player] = nil
 	
 	print(string.format("[HubService] Kudos cleaned up for %s", player.Name))
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║                   PACKAGE COLLECTION SYSTEM                                 ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+function HubService:SetupPackageCollection(collectionZone)
+	if not collectionZone then return end
+	print("[HubService] Setting up package collection zone...")
+	
+	local collectedPackages = {}
+	local CollectionService = game:GetService("CollectionService")
+	local TweenService = game:GetService("TweenService")
+	
+	local collectionEvent = Instance.new("RemoteEvent")
+	collectionEvent.Name = "PackageCollectedEvent"
+	collectionEvent.Parent = ReplicatedStorage
+	
+	-- Get reference to PackagePlatformService for dropping packages
+	local Knit = require(game:GetService("ReplicatedStorage").Packages.Knit)
+	local PackagePlatformService = nil
+	task.spawn(function()
+		PackagePlatformService = Knit.GetService("PackagePlatformService")
+	end)
+	
+	-- Find status display elements in the end shipping model
+	local endShippingModel = collectionZone.Parent
+	local counterPanel = endShippingModel:FindFirstChild("CounterPanel")
+	local centralGlow = endShippingModel:FindFirstChild("CentralGlow")
+	local holoRing = endShippingModel:FindFirstChild("HoloRing")
+	local holoRingInner = endShippingModel:FindFirstChild("HoloRingInner")
+	
+	-- Helper to update status display
+	local function updateStatusDisplay(status, color)
+		if not counterPanel then return end
+		
+		for _, gui in ipairs(counterPanel:GetChildren()) do
+			if gui:IsA("SurfaceGui") then
+				local frame = gui:FindFirstChildWhichIsA("Frame")
+				if frame then
+					local statusLabel = frame:FindFirstChild("Status")
+					if statusLabel then
+						statusLabel.Text = status
+						statusLabel.TextColor3 = color or Color3.fromRGB(0, 255, 150)
+					end
+				end
+			end
+		end
+	end
+	
+	-- Helper to pulse the central glow
+	local function pulseGlow()
+		if centralGlow then
+			local originalTransparency = centralGlow.Transparency
+			TweenService:Create(centralGlow, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
+				Transparency = 0,
+			}):Play()
+			task.wait(0.15)
+			TweenService:Create(centralGlow, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
+				Transparency = originalTransparency,
+			}):Play()
+		end
+	end
+	
+	local function collectPackage(packageModel, player)
+		if collectedPackages[packageModel] then return end
+		collectedPackages[packageModel] = true
+		
+		local kudosValue = packageModel:GetAttribute("KudosValue") or 10
+		if player then
+			self:AwardKudos(player, kudosValue)
+			collectionEvent:FireClient(player, {kudosAwarded = kudosValue})
+		end
+		
+		-- Track collection for spawn replacement
+		self:OnPackageCollected(packageModel)
+		
+		task.spawn(function()
+			local packagePart = packageModel.PrimaryPart or packageModel:FindFirstChildWhichIsA("BasePart")
+			if packagePart then
+				local targetPos = collectionZone.Position - Vector3.new(0, 3, 0)
+				packageModel:SetAttribute("HeldByPlayer", nil)
+				for _, part in ipairs(packageModel:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.Anchored = true
+						part.CanCollide = false
+						TweenService:Create(part, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+							Position = targetPos, Transparency = 1, Size = part.Size * 0.1,
+						}):Play()
+					end
+				end
+				task.wait(0.6)
+			end
+			packageModel:Destroy()
+			pulseGlow()
+		end)
+	end
+	
+	-- Create deposit prompt
+	local depositPrompt = Instance.new("ProximityPrompt")
+	depositPrompt.Name = "DepositPrompt"
+	depositPrompt.ActionText = "Deliver"
+	depositPrompt.ObjectText = "📦 Delivery Terminal"
+	depositPrompt.HoldDuration = 0.5
+	depositPrompt.MaxActivationDistance = 15
+	depositPrompt.RequiresLineOfSight = false
+	depositPrompt.KeyboardKeyCode = Enum.KeyCode.E
+	depositPrompt.Parent = collectionZone
+	
+	-- Track depositing state
+	local depositingPlayers = {}
+	
+	-- Cleanup function for when player leaves or dies during collection
+	local function cleanupDeposit(player)
+		if depositingPlayers[player.UserId] then
+			depositingPlayers[player.UserId] = nil
+			depositPrompt.Enabled = true
+			print("[HubService] Deposit cleanup for " .. player.Name)
+		end
+	end
+	
+	-- Listen for player leaving
+	Players.PlayerRemoving:Connect(cleanupDeposit)
+	
+	-- Listen for character dying during collection
+	for _, player in ipairs(Players:GetPlayers()) do
+		player.CharacterAdded:Connect(function()
+			cleanupDeposit(player)
+		end)
+	end
+	Players.PlayerAdded:Connect(function(player)
+		player.CharacterAdded:Connect(function()
+			cleanupDeposit(player)
+		end)
+	end)
+	
+	-- Helper to freeze/unfreeze player movement
+	local function setPlayerFrozen(player, frozen)
+		local character = player.Character
+		if not character then return end
+		
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		local rootPart = character:FindFirstChild("HumanoidRootPart")
+		
+		if frozen then
+			-- Freeze the player
+			if humanoid then
+				humanoid.WalkSpeed = 0
+				humanoid.JumpPower = 0
+				humanoid.JumpHeight = 0
+			end
+			if rootPart then
+				rootPart.Anchored = true
+			end
+		else
+			-- Unfreeze the player
+			if humanoid then
+				humanoid.WalkSpeed = 16  -- Default walk speed
+				humanoid.JumpPower = 50  -- Default jump power
+				humanoid.JumpHeight = 7.2  -- Default jump height
+			end
+			if rootPart then
+				rootPart.Anchored = false
+			end
+		end
+		
+		-- Notify client about freeze state
+		collectionEvent:FireClient(player, {
+			frozen = frozen,
+		})
+	end
+	
+	depositPrompt.Triggered:Connect(function(player)
+		if not PackagePlatformService then
+			warn("[HubService] PackagePlatformService not available yet!")
+			return
+		end
+		
+		if depositingPlayers[player.UserId] then
+			return
+		end
+		
+		local playerStack = PackagePlatformService:GetHeldPackages(player)
+		if not playerStack or #playerStack == 0 then
+			updateStatusDisplay("⚠ NO PACKAGES", Color3.fromRGB(255, 200, 100))
+			task.delay(1.5, function()
+				updateStatusDisplay("✓ READY", Color3.fromRGB(0, 255, 150))
+			end)
+			return
+		end
+		
+		depositingPlayers[player.UserId] = true
+		
+		-- Disable prompt and freeze player during collection
+		depositPrompt.Enabled = false
+		setPlayerFrozen(player, true)
+		
+		local packageCount = #playerStack
+		print(string.format("[HubService] Player %s depositing %d packages", player.Name, packageCount))
+		
+		-- Update status to processing
+		updateStatusDisplay("⏳ SCANNING...", Color3.fromRGB(255, 220, 100))
+		
+		-- Spin up the holo rings
+		if holoRing then
+			task.spawn(function()
+				while depositingPlayers[player.UserId] do
+					holoRing.CFrame = holoRing.CFrame * CFrame.Angles(0, math.rad(2), 0)
+					if holoRingInner then
+						holoRingInner.CFrame = holoRingInner.CFrame * CFrame.Angles(0, math.rad(-3), 0)
+					end
+					task.wait()
+				end
+			end)
+		end
+		
+		task.spawn(function()
+			local totalKudos = 0
+			local processedCount = 0
+			
+			-- Initial scan delay
+			task.wait(0.5)
+			
+			while true do
+				local currentStack = PackagePlatformService:GetHeldPackages(player)
+				if not currentStack or #currentStack == 0 then
+					break
+				end
+				
+				local topPackage = currentStack[#currentStack]
+				if not topPackage then break end
+				
+				local kudosValue = topPackage:GetAttribute("KudosValue") or 10
+				collectedPackages[topPackage] = true
+				
+				-- Update status with progress
+				processedCount = processedCount + 1
+				updateStatusDisplay(
+					string.format("📦 %d/%d  +⭐%d", processedCount, packageCount, kudosValue),
+					Color3.fromRGB(0, 220, 180)
+				)
+				
+				PackagePlatformService:DropTopPackage(player)
+				
+				local packagePart = topPackage.PrimaryPart or topPackage:FindFirstChildWhichIsA("BasePart")
+				if packagePart then
+					local startPos = packagePart.Position
+					local scanPos = collectionZone.Position + Vector3.new(0, 2, 0)
+					local targetPos = collectionZone.Position - Vector3.new(0, 1, 0)
+					
+					-- Anchor all parts
+					for _, part in ipairs(topPackage:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.Anchored = true
+							part.CanCollide = false
+						end
+					end
+					
+					-- Phase 1: Float to scan position (above terminal)
+					TweenService:Create(packagePart, TweenInfo.new(0.4, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+						Position = scanPos,
+					}):Play()
+					
+					local tape = topPackage:FindFirstChild("Tape")
+					if tape then
+						TweenService:Create(tape, TweenInfo.new(0.4, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+							Position = scanPos,
+						}):Play()
+					end
+					
+					task.wait(0.4)
+					
+					-- Phase 2: Brief hover (scanning)
+					task.wait(0.2)
+					
+					-- Phase 3: Drop into terminal with shrink
+					for _, part in ipairs(topPackage:GetDescendants()) do
+						if part:IsA("BasePart") then
+							TweenService:Create(part, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+								Position = targetPos,
+								Size = part.Size * 0.15,
+								Transparency = 0.8,
+							}):Play()
+						end
+					end
+					
+					task.wait(0.35)
+					
+					-- Pulse effect
+					pulseGlow()
+				end
+				
+				-- Award kudos
+				totalKudos = totalKudos + kudosValue
+				self:AwardKudos(player, kudosValue)
+				
+				collectionEvent:FireClient(player, {
+					kudosAwarded = kudosValue,
+					totalKudos = totalKudos,
+					processedCount = processedCount,
+					totalCount = packageCount,
+					isComplete = (processedCount >= packageCount),
+				})
+				
+				-- Track collection for spawn replacement
+				self:OnPackageCollected(topPackage)
+				
+				topPackage:Destroy()
+				
+				-- Small delay between packages
+				task.wait(0.15)
+			end
+			
+			-- Complete!
+			depositingPlayers[player.UserId] = nil
+			
+			-- Unfreeze player and re-enable prompt
+			setPlayerFrozen(player, false)
+			depositPrompt.Enabled = true
+			
+			-- Show completion status
+			updateStatusDisplay(
+				string.format("✓ DELIVERED! +⭐%d", totalKudos),
+				Color3.fromRGB(100, 255, 150)
+			)
+			
+			-- Reset to ready after delay
+			task.delay(2, function()
+				updateStatusDisplay("✓ READY", Color3.fromRGB(0, 255, 150))
+			end)
+			
+			print(string.format("[HubService] Player %s finished: %d packages, %d kudos", 
+				player.Name, processedCount, totalKudos))
+		end)
+	end)
+	
+	-- Also handle packages that physically touch the zone (dropped packages)
+	collectionZone.Touched:Connect(function(hit)
+		local packageModel = hit:FindFirstAncestorOfClass("Model")
+		if not packageModel or not CollectionService:HasTag(packageModel, "spawnedPackage") then return end
+		if collectedPackages[packageModel] then return end
+		
+		-- Only collect if NOT held by a player (loose packages)
+		local holderId = packageModel:GetAttribute("HeldByPlayer")
+		if holderId then return end  -- Skip held packages - use deposit prompt instead
+		
+		collectPackage(packageModel, nil)
+	end)
+	
+	print("[HubService] Package collection zone setup complete!")
 end
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
