@@ -28,6 +28,8 @@ local Spring = Fusion.Spring
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
+local TweenService = game:GetService("TweenService")
+
 local FatigueBarController = Knit.CreateController {
 	Name = "FatigueBarController",
 	_screenGui = nil,
@@ -36,6 +38,7 @@ local FatigueBarController = Knit.CreateController {
 	_stackCountValue = nil,    -- Current stack count
 	_isVisible = nil,
 	_replica = nil,
+	_boostButton = nil,        -- Boost button reference
 }
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -46,10 +49,11 @@ local CONFIG = {
 	-- Master enable/disable
 	Enabled = true,
 	
-	-- Position & Size
-	Position = UDim2.new(0, 20, 1, -120),  -- Bottom left
-	Size = UDim2.new(0, 250, 0, 60),
-	BarHeight = 20,
+	-- Position & Size (bottom center, with room for boost button)
+	Position = UDim2.new(0.5, 0, 1, -75),  -- Higher to make room for big button
+	AnchorPoint = Vector2.new(0.5, 1),     -- Anchor at bottom center
+	Size = UDim2.new(0, 350, 0, 70),
+	BarHeight = 24,
 	
 	-- Colors based on fatigue level
 	HighFatigueColor = Color3.fromRGB(80, 200, 120),    -- Green - plenty of energy
@@ -61,8 +65,8 @@ local CONFIG = {
 	BarBackgroundColor = Color3.fromRGB(40, 45, 55),
 	
 	-- Styling
-	CornerRadius = UDim.new(0, 8),
-	BarCornerRadius = UDim.new(0, 6),
+	CornerRadius = UDim.new(0, 12),
+	BarCornerRadius = UDim.new(0, 8),
 	
 	-- Animation
 	BarSpring = { speed = 15, damping = 0.8 },
@@ -70,6 +74,11 @@ local CONFIG = {
 	-- Thresholds
 	LowThreshold = 30,   -- Below this = red
 	MidThreshold = 60,   -- Below this = yellow
+	
+	-- Boost button
+	BoostButtonColor = Color3.fromRGB(80, 180, 255),
+	BoostCost = 1,       -- Kudos cost
+	BoostPercent = 5,    -- Stamina percent gained
 }
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -160,7 +169,7 @@ function FatigueBarController:CreateUI()
 			-- Main container
 			New "Frame" {
 				Name = "Container",
-				AnchorPoint = Vector2.new(0, 1),
+				AnchorPoint = CONFIG.AnchorPoint or Vector2.new(0.5, 1),
 				Position = CONFIG.Position,
 				Size = CONFIG.Size,
 				BackgroundColor3 = CONFIG.BackgroundColor,
@@ -184,16 +193,16 @@ function FatigueBarController:CreateUI()
 					
 					-- Padding
 					New "UIPadding" {
-						PaddingTop = UDim.new(0, 8),
-						PaddingBottom = UDim.new(0, 8),
-						PaddingLeft = UDim.new(0, 12),
-						PaddingRight = UDim.new(0, 12),
+						PaddingTop = UDim.new(0, 10),
+						PaddingBottom = UDim.new(0, 10),
+						PaddingLeft = UDim.new(0, 14),
+						PaddingRight = UDim.new(0, 14),
 					},
 					
 					-- Top row: Label and stack count
 					New "Frame" {
 						Name = "TopRow",
-						Size = UDim2.new(1, 0, 0, 18),
+						Size = UDim2.new(1, 0, 0, 24),
 						BackgroundTransparency = 1,
 						
 						[Children] = {
@@ -204,7 +213,7 @@ function FatigueBarController:CreateUI()
 								BackgroundTransparency = 1,
 								Text = labelText,
 								TextColor3 = Color3.fromRGB(200, 200, 210),
-								TextSize = 16,
+								TextSize = 18,
 								TextXAlignment = Enum.TextXAlignment.Left,
 								Font = Enum.Font.GothamBold,
 							},
@@ -217,7 +226,7 @@ function FatigueBarController:CreateUI()
 								BackgroundTransparency = 1,
 								Text = stackText,
 								TextColor3 = Color3.fromRGB(255, 200, 100),
-								TextSize = 14,
+								TextSize = 16,
 								TextXAlignment = Enum.TextXAlignment.Right,
 								Font = Enum.Font.GothamBold,
 							},
@@ -227,7 +236,7 @@ function FatigueBarController:CreateUI()
 					-- Bar container
 					New "Frame" {
 						Name = "BarContainer",
-						Position = UDim2.new(0, 0, 0, 24),
+						Position = UDim2.new(0, 0, 0, 30),
 						Size = UDim2.new(1, 0, 0, CONFIG.BarHeight),
 						BackgroundColor3 = CONFIG.BarBackgroundColor,
 						
@@ -266,13 +275,13 @@ function FatigueBarController:CreateUI()
 								BackgroundTransparency = 1,
 								Text = fatigueText,
 								TextColor3 = Color3.fromRGB(255, 255, 255),
-								TextSize = 14,
+								TextSize = 16,
 								Font = Enum.Font.GothamBold,
 								
 								[Children] = {
 									New "UIStroke" {
 										Color = Color3.fromRGB(0, 0, 0),
-										Thickness = 1,
+										Thickness = 1.5,
 									},
 								},
 							},
@@ -283,7 +292,86 @@ function FatigueBarController:CreateUI()
 		},
 	}
 	
+	-- Create boost button below the bar (not using Fusion for simpler interaction)
+	self:CreateBoostButton()
+	
 	print("[FatigueBarController] UI created")
+end
+
+function FatigueBarController:CreateBoostButton()
+	-- Find the container
+	local container = self._screenGui:FindFirstChild("Container", true)
+	if not container then return end
+	
+	-- Create boost button (big and readable)
+	self._boostButton = Instance.new("TextButton")
+	self._boostButton.Name = "BoostButton"
+	self._boostButton.Size = UDim2.new(0, 240, 0, 50)
+	self._boostButton.Position = UDim2.new(0.5, 0, 1, 12)  -- Below the container
+	self._boostButton.AnchorPoint = Vector2.new(0.5, 0)
+	self._boostButton.BackgroundColor3 = CONFIG.BoostButtonColor
+	self._boostButton.Text = string.format("+%d%% ⚡  •  %d ⭐", CONFIG.BoostPercent, CONFIG.BoostCost)
+	self._boostButton.TextColor3 = Color3.new(1, 1, 1)
+	self._boostButton.TextSize = 22
+	self._boostButton.Font = Enum.Font.GothamBold
+	self._boostButton.AutoButtonColor = false
+	self._boostButton.Parent = container
+	
+	local btnCorner = Instance.new("UICorner")
+	btnCorner.CornerRadius = UDim.new(0, 10)
+	btnCorner.Parent = self._boostButton
+	
+	local btnStroke = Instance.new("UIStroke")
+	btnStroke.Color = Color3.fromRGB(60, 140, 200)
+	btnStroke.Thickness = 2
+	btnStroke.Parent = self._boostButton
+	
+	-- Hover effects
+	self._boostButton.MouseEnter:Connect(function()
+		TweenService:Create(self._boostButton, TweenInfo.new(0.1), {
+			BackgroundColor3 = Color3.fromRGB(100, 200, 255)
+		}):Play()
+	end)
+	
+	self._boostButton.MouseLeave:Connect(function()
+		TweenService:Create(self._boostButton, TweenInfo.new(0.1), {
+			BackgroundColor3 = CONFIG.BoostButtonColor
+		}):Play()
+	end)
+	
+	-- Click handler
+	self._boostButton.MouseButton1Click:Connect(function()
+		self:RequestBoost()
+	end)
+end
+
+function FatigueBarController:RequestBoost()
+	local PackagePlatformService = Knit.GetService("PackagePlatformService")
+	
+	-- Disable button temporarily
+	if self._boostButton then
+		self._boostButton.AutoButtonColor = false
+		self._boostButton.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+	end
+	
+	local success, newStamina = PackagePlatformService:RequestStaminaBoost()
+	
+	-- Visual feedback
+	task.spawn(function()
+		task.wait(0.2)
+		if self._boostButton then
+			if success then
+				-- Success flash
+				self._boostButton.BackgroundColor3 = Color3.fromRGB(80, 200, 120)
+				task.wait(0.3)
+			else
+				-- Fail flash (not enough kudos or already full)
+				self._boostButton.BackgroundColor3 = Color3.fromRGB(200, 80, 80)
+				task.wait(0.3)
+			end
+			self._boostButton.BackgroundColor3 = CONFIG.BoostButtonColor
+		end
+	end)
 end
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -317,8 +405,8 @@ function FatigueBarController:SetupReplicaListener()
 			self._stackCountValue:set(newValue)
 		end)
 		
-		-- Handle replica destruction
-		replica:ListenToDestruction(function()
+		-- Handle replica destruction using AddCleanupTask
+		replica:AddCleanupTask(function()
 			print("[FatigueBarController] Fatigue replica destroyed")
 			self._replica = nil
 			-- Reset to full fatigue

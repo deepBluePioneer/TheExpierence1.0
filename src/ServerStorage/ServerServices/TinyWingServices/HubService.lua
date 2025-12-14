@@ -2,8 +2,7 @@
 	HubService
 	
 	Creates a hub area where players spawn on a platform.
-	Machines are lined up on the edge, ready to ride down a slide/ramp.
-	Tracks race time for each player using Replica.
+	Manages package spawning, collection, and kudos system.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -29,12 +28,13 @@ local CatmullRomSpline = require(Splines:WaitForChild("CatmullRomSpline"))
 
 local HubService = Knit.CreateService {
 	Name = "HubService",
-	Client = {},
+	Client = {
+		KudosEarned = Knit.CreateSignal(),  -- (amount: number, worldPosition: Vector3?)
+	},
 	
 	-- References
 	_hubFolder = nil,
 	_spawnLocation = nil,
-	_machines = {},
 	_startZone = nil,
 	
 	-- Player timers: { [player] = { timer = Timer, replica = Replica, startTime = number } }
@@ -91,11 +91,6 @@ local CONFIG = {
 	ShippingCenterDoorColor = Color3.fromRGB(100, 110, 120),
 	ShippingCenterWarningStripes = true,
 	
-	-- Machine spawn area
-	MachineEdgeOffset = 25,
-	MachineSpacing = 15,
-	MachineHeight = 3,
-	MachineFacingAngle = 0,
 	
 	-- ═══════════════════════════════════════════════════════════════════════
 	-- SPLINE-BASED TRACK GENERATION
@@ -254,9 +249,6 @@ local CONFIG = {
 	-- Spawn location
 	SpawnOffset = Vector3.new(0, 3, -20),
 	
-	-- Prefabs
-	MachinePrefabPath = {"Prefabs", "Machines"},
-	
 	-- Start Zone (wall at slide entrance)
 	StartZoneEnabled = false,                    -- DISABLED - no timer/zone
 	StartZoneSize = Vector3.new(120, 20, 5),     -- Wide wall at slide edge
@@ -399,6 +391,15 @@ local CONFIG = {
 	-- Package limits and spawning behavior
 	PackageInitialSpawn = 20,                    -- Spawn this many packages initially
 	PackageTargetActive = 20,                    -- Try to maintain this many active packages (no max limit)
+	
+	-- Delivery Bonus System
+	DeliveryBonusPerPackage = 5,                 -- Flat bonus kudos for EACH package delivered
+	StackBonusThresholds = {                     -- Stack size bonuses (cumulative)
+		{ minStack = 3,  bonusPercent = 10 },   -- 3+ packages = +10% bonus
+		{ minStack = 5,  bonusPercent = 25 },   -- 5+ packages = +25% bonus
+		{ minStack = 8,  bonusPercent = 50 },   -- 8+ packages = +50% bonus
+		{ minStack = 12, bonusPercent = 100 },  -- 12+ packages = +100% bonus (double!)
+	},
 }
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -1305,23 +1306,6 @@ local function decoratePlatform(platformPos, platformSize, accentColor, options,
 	return decorFolder
 end
 
-local function getMachinePrefabs()
-	local current = ReplicatedStorage
-	for _, pathPart in ipairs(CONFIG.MachinePrefabPath) do
-		current = current:FindFirstChild(pathPart)
-		if not current then return {} end
-	end
-	
-	local prefabs = {}
-	for _, child in ipairs(current:GetChildren()) do
-		if child:IsA("Model") then
-			table.insert(prefabs, child)
-		end
-	end
-	table.sort(prefabs, function(a, b) return a.Name < b.Name end)
-	return prefabs
-end
-
 -- ╔════════════════════════════════════════════════════════════════════════════╗
 -- ║                         TRACK GEOMETRY TRACKING                             ║
 -- ╚════════════════════════════════════════════════════════════════════════════╝
@@ -1901,28 +1885,15 @@ local function createCrystalBurstEffect(position, color, collisionDirection)
 	end)
 end
 
--- Check if a part belongs to a player character or machine
-local function isPlayerOrMachine(part)
-	-- Check if it's part of a character
+-- Check if a part belongs to a player character
+local function isPlayerCharacter(part)
 	local character = part:FindFirstAncestorOfClass("Model")
 	if character then
 		local humanoid = character:FindFirstChildOfClass("Humanoid")
 		if humanoid then
 			return true, character
 		end
-		
-		-- Check if it's a machine (has ControllerManager)
-		local controllerManager = character:FindFirstChildOfClass("ControllerManager")
-		if controllerManager then
-			return true, character
-		end
-		
-		-- Check for RootPart in the name (machine root parts)
-		if part.Name == "RootPart" or part.Name == "HumanoidRootPart" then
-			return true, character
-		end
 	end
-	
 	return false, nil
 end
 
@@ -1968,7 +1939,7 @@ local function createCrystal(position, size, color, parent)
 	crystal.Touched:Connect(function(otherPart)
 		if collected then return end
 		
-		local isValid, model = isPlayerOrMachine(otherPart)
+		local isValid, model = isPlayerCharacter(otherPart)
 		if isValid and model then
 			collected = true
 			
@@ -1978,7 +1949,7 @@ local function createCrystal(position, size, color, parent)
 			local effectPosition = crystal.Position  -- Fallback to crystal position
 			
 			if rootPart then
-				-- Use machine/player position for the effect
+				-- Use player position for the effect
 				effectPosition = rootPart.Position
 				
 				-- Direction based on player's velocity (where they're going)
@@ -1999,7 +1970,7 @@ local function createCrystal(position, size, color, parent)
 			-- Store crystal color before destroying
 			local crystalColor = crystal.Color
 			
-			-- Create burst effect at the machine's position
+			-- Create burst effect at the player's position
 			task.spawn(function()
 				createCrystalBurstEffect(effectPosition, crystalColor, collisionDir)
 			end)
@@ -2225,38 +2196,8 @@ end
 -- ║                         KUDOS GATE GENERATOR                               ║
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
--- Helper: Check if part belongs to a player or machine
+-- Helper: Get player from a part that touched something
 local function getPlayerFromPart(part)
-	-- Check if it's a machine
-	local model = part:FindFirstAncestorOfClass("Model")
-	if model then
-		local seat = model:FindFirstChildOfClass("Seat") or model:FindFirstChildOfClass("VehicleSeat")
-		if seat and seat.Occupant then
-			local character = seat.Occupant.Parent
-			local player = Players:GetPlayerFromCharacter(character)
-			if player then
-				return player, model
-			end
-		end
-		
-		-- Check if the model has a RootPart (machine indicator)
-		if model:FindFirstChild("RootPart") then
-			-- Find player by looking for any occupant
-			for _, desc in ipairs(model:GetDescendants()) do
-				if desc:IsA("Seat") or desc:IsA("VehicleSeat") then
-					if desc.Occupant then
-						local character = desc.Occupant.Parent
-						local player = Players:GetPlayerFromCharacter(character)
-						if player then
-							return player, model
-						end
-					end
-				end
-			end
-		end
-	end
-	
-	-- Check if it's a player character directly
 	local character = part:FindFirstAncestorOfClass("Model")
 	if character then
 		local player = Players:GetPlayerFromCharacter(character)
@@ -2264,7 +2205,6 @@ local function getPlayerFromPart(part)
 			return player, character
 		end
 	end
-	
 	return nil, nil
 end
 
@@ -4577,66 +4517,6 @@ function HubService:CreateHub()
 end
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
--- ║                         MACHINE SPAWNING                                    ║
--- ╚════════════════════════════════════════════════════════════════════════════╝
-
-function HubService:SpawnMachinesOnEdge()
-	print("[HubService] SpawnMachinesOnEdge called")
-	
-	-- Clear existing machines
-	for _, machine in ipairs(self._machines) do
-		if machine and machine.Parent then
-			machine:Destroy()
-		end
-	end
-	self._machines = {}
-	
-	local prefabs = getMachinePrefabs()
-	print("[HubService] Found", #prefabs, "machine prefabs")
-	
-	if #prefabs == 0 then
-		warn("[HubService] No machine prefabs found at path:", table.concat(CONFIG.MachinePrefabPath, "."))
-		return {}
-	end
-	
-	-- Calculate positions along the edge (facing Slide 1)
-	local totalWidth = (#prefabs - 1) * CONFIG.MachineSpacing
-	local startX = CONFIG.StartPlatformPosition.X - totalWidth / 2
-	local edgeZ = CONFIG.StartPlatformPosition.Z + CONFIG.MachineEdgeOffset
-	local machineY = CONFIG.StartPlatformPosition.Y + CONFIG.StartPlatformSize.Y/2 + CONFIG.MachineHeight
-	
-	-- Create machines folder
-	local machinesFolder = self._hubFolder:FindFirstChild("Machines")
-	if not machinesFolder then
-		machinesFolder = Instance.new("Folder")
-		machinesFolder.Name = "Machines"
-		machinesFolder.Parent = self._hubFolder
-	end
-	
-	-- Spawn each machine
-	for i, prefab in ipairs(prefabs) do
-		local xPos = startX + (i - 1) * CONFIG.MachineSpacing
-		local position = Vector3.new(xPos, machineY, edgeZ)
-		
-		local clone = prefab:Clone()
-		clone.Name = prefab.Name
-		
-		-- Position facing down the slide (positive Z)
-		local cframe = CFrame.new(position) * CFrame.Angles(0, math.rad(CONFIG.MachineFacingAngle), 0)
-		clone:PivotTo(cframe)
-		
-		clone.Parent = machinesFolder
-		table.insert(self._machines, clone)
-		
-		print(string.format("[HubService] Spawned %s at edge position %d", clone.Name, i))
-	end
-	
-	print(string.format("[HubService] Spawned %d machines on the edge", #self._machines))
-	
-	return self._machines
-end
-
--- ╔════════════════════════════════════════════════════════════════════════════╗
 -- ║                         PLAYER TIMER FUNCTIONS                              ║
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
@@ -5318,16 +5198,8 @@ end
 -- ║                         PUBLIC API                                          ║
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
-function HubService:GetMachines()
-	return self._machines
-end
-
 function HubService:GetSpawnLocation()
 	return self._spawnLocation
-end
-
-function HubService:RespawnMachines()
-	return self:SpawnMachinesOnEdge()
 end
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -5335,7 +5207,7 @@ end
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
 -- Award kudos to a player
-function HubService:AwardKudos(player, amount)
+function HubService:AwardKudos(player, amount, worldPosition)
 	if not player or amount <= 0 then return end
 	
 	-- Initialize kudos for player if not exists
@@ -5354,6 +5226,9 @@ function HubService:AwardKudos(player, amount)
 		replica:SetValue("LastAwardTime", tick())
 	end
 	
+	-- Fire client signal for flying kudos effect
+	self.Client.KudosEarned:Fire(player, amount, worldPosition)
+	
 	print(string.format("[HubService] Awarded %d kudos to %s (total: %d)", 
 		amount, player.Name, self._playerKudos[player]))
 end
@@ -5363,16 +5238,43 @@ function HubService:GetPlayerKudos(player)
 	return self._playerKudos[player] or 0
 end
 
+-- Spend kudos (deduct from player's total) - returns true if successful
+function HubService:SpendKudos(player, amount)
+	if not player or amount <= 0 then return false end
+	
+	local currentKudos = self._playerKudos[player] or 0
+	
+	-- Check if player has enough kudos
+	if currentKudos < amount then
+		return false
+	end
+	
+	-- Deduct kudos
+	self._playerKudos[player] = currentKudos - amount
+	
+	-- Update replica if exists
+	local replica = self._kudosReplicas[player]
+	if replica then
+		replica:SetValue("Kudos", self._playerKudos[player])
+	end
+	
+	print(string.format("[HubService] %s spent %d kudos (remaining: %d)", 
+		player.Name, amount, self._playerKudos[player]))
+	
+	return true
+end
+
 -- Setup kudos tracking for a player (called when player joins)
 function HubService:SetupPlayerKudos(player)
-	-- Initialize kudos
-	self._playerKudos[player] = 0
+	-- Initialize kudos (players start with 50)
+	local startingKudos = 50
+	self._playerKudos[player] = startingKudos
 	
 	-- Create a replica for this player's kudos (ReplicaService already required at top of file)
 	local replica = ReplicaService.NewReplica({
 		ClassToken = ReplicaService.NewClassToken("PlayerKudos_" .. player.UserId),
 		Data = {
-			Kudos = 0,
+			Kudos = startingKudos,
 			LastAward = 0,
 			LastAwardTime = 0,
 		},
@@ -5380,7 +5282,7 @@ function HubService:SetupPlayerKudos(player)
 	})
 	
 	self._kudosReplicas[player] = replica
-	print(string.format("[HubService] Kudos replica created for %s", player.Name))
+	print(string.format("[HubService] Kudos replica created for %s (starting with %d kudos)", player.Name, startingKudos))
 end
 
 -- Cleanup kudos when player leaves
@@ -5613,8 +5515,11 @@ function HubService:SetupPackageCollection(collectionZone)
 		end
 		
 		task.spawn(function()
-			local totalKudos = 0
+			local baseKudos = 0        -- Sum of package values
+			local totalKudos = 0       -- Final amount with bonuses
 			local processedCount = 0
+			local flatBonus = 0        -- Flat bonus per package
+			local stackBonus = 0       -- Percentage-based stack bonus
 			
 			-- Initial scan delay
 			task.wait(0.5)
@@ -5688,16 +5593,22 @@ function HubService:SetupPackageCollection(collectionZone)
 					pulseGlow()
 				end
 				
-				-- Award kudos
-				totalKudos = totalKudos + kudosValue
-				self:AwardKudos(player, kudosValue)
+				-- Add base kudos value (from package)
+				baseKudos = baseKudos + kudosValue
+				
+				-- Add flat delivery bonus per package
+				flatBonus = flatBonus + CONFIG.DeliveryBonusPerPackage
+				
+				-- Award the package value + flat bonus immediately
+				local immediateAward = kudosValue + CONFIG.DeliveryBonusPerPackage
+				self:AwardKudos(player, immediateAward, collectionZone.Position + Vector3.new(0, 3, 0))
 				
 				collectionEvent:FireClient(player, {
-					kudosAwarded = kudosValue,
-					totalKudos = totalKudos,
+					kudosAwarded = immediateAward,
+					totalKudos = baseKudos + flatBonus,
 					processedCount = processedCount,
 					totalCount = packageCount,
-					isComplete = (processedCount >= packageCount),
+					isComplete = false,
 				})
 				
 				-- Track collection for spawn replacement
@@ -5709,6 +5620,25 @@ function HubService:SetupPackageCollection(collectionZone)
 				task.wait(0.15)
 			end
 			
+			-- Calculate stack bonus based on total packages delivered
+			local stackBonusPercent = 0
+			for _, threshold in ipairs(CONFIG.StackBonusThresholds) do
+				if processedCount >= threshold.minStack then
+					stackBonusPercent = threshold.bonusPercent
+				end
+			end
+			
+			-- Calculate and award stack bonus
+			if stackBonusPercent > 0 then
+				stackBonus = math.floor(baseKudos * stackBonusPercent / 100)
+				if stackBonus > 0 then
+					self:AwardKudos(player, stackBonus, collectionZone.Position + Vector3.new(0, 5, 0))
+				end
+			end
+			
+			-- Calculate final total
+			totalKudos = baseKudos + flatBonus + stackBonus
+			
 			-- Complete!
 			depositingPlayers[player.UserId] = nil
 			
@@ -5716,19 +5646,36 @@ function HubService:SetupPackageCollection(collectionZone)
 			setPlayerFrozen(player, false)
 			depositPrompt.Enabled = true
 			
-			-- Show completion status
+			-- Show completion status with breakdown
+			local bonusText = ""
+			if stackBonusPercent > 0 then
+				bonusText = string.format(" (+%d%% BONUS!)", stackBonusPercent)
+			end
 			updateStatusDisplay(
-				string.format("✓ DELIVERED! +⭐%d", totalKudos),
+				string.format("✓ +⭐%d%s", totalKudos, bonusText),
 				Color3.fromRGB(100, 255, 150)
 			)
+			
+			-- Fire final completion event
+			collectionEvent:FireClient(player, {
+				kudosAwarded = stackBonus,
+				totalKudos = totalKudos,
+				processedCount = processedCount,
+				totalCount = packageCount,
+				isComplete = true,
+				stackBonusPercent = stackBonusPercent,
+				stackBonus = stackBonus,
+				flatBonus = flatBonus,
+				baseKudos = baseKudos,
+			})
 			
 			-- Reset to ready after delay
 			task.delay(2, function()
 				updateStatusDisplay("✓ READY", Color3.fromRGB(0, 255, 150))
 			end)
 			
-			print(string.format("[HubService] Player %s finished: %d packages, %d kudos", 
-				player.Name, processedCount, totalKudos))
+			print(string.format("[HubService] Player %s delivered %d packages: Base=%d + Flat=%d + Stack=%d (%d%%) = %d total kudos", 
+				player.Name, processedCount, baseKudos, flatBonus, stackBonus, stackBonusPercent, totalKudos))
 		end)
 	end)
 	
@@ -5795,8 +5742,6 @@ function HubService:KnitStart()
 		
 		-- Remove any buildings that collide with track or each other
 		removeCollidingBuildings(self._hubFolder)
-		
-		-- self:SpawnMachinesOnEdge()  -- DISABLED - no machines
 		
 		-- Start package chute system (drops packages from ceiling)
 		self:StartPackageChute()

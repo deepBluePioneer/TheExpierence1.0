@@ -156,6 +156,122 @@ local function createKudosUI()
 end
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║                         PULSE EFFECT                                        ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+local isPulsing = false
+local originalContainerSize = nil
+local activeTweens = {}
+
+local function cancelAllTweens()
+	for _, tween in ipairs(activeTweens) do
+		if tween and tween.PlaybackState == Enum.PlaybackState.Playing then
+			tween:Cancel()
+		end
+	end
+	activeTweens = {}
+end
+
+local function pulseKudosUI()
+	if not kudosGui then return end
+	
+	local container = kudosGui:FindFirstChild("KudosContainer")
+	if not container then return end
+	
+	-- Store original size on first call
+	if not originalContainerSize then
+		originalContainerSize = CONFIG.Size
+	end
+	
+	-- Cancel existing and reset immediately
+	cancelAllTweens()
+	container.Size = originalContainerSize
+	
+	isPulsing = true
+	
+	-- SUPER bouncy - scale up big!
+	local bigSize = UDim2.new(
+		originalContainerSize.X.Scale * 1.3, 
+		originalContainerSize.X.Offset * 1.3, 
+		originalContainerSize.Y.Scale * 1.3, 
+		originalContainerSize.Y.Offset * 1.3
+	)
+	
+	-- Quick pop up
+	local scaleUp = TweenService:Create(container, TweenInfo.new(0.06, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Size = bigSize
+	})
+	table.insert(activeTweens, scaleUp)
+	
+	-- SUPER elastic bounce back - lots of wobble!
+	local bounceBack = TweenService:Create(container, TweenInfo.new(0.5, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), {
+		Size = originalContainerSize
+	})
+	table.insert(activeTweens, bounceBack)
+	
+	scaleUp:Play()
+	scaleUp.Completed:Connect(function()
+		bounceBack:Play()
+	end)
+	
+	bounceBack.Completed:Connect(function()
+		-- Force exact reset
+		container.Size = originalContainerSize
+		isPulsing = false
+		activeTweens = {}
+	end)
+	
+	-- Star icon - BIG instant pop then super bouncy
+	local starIcon = container:FindFirstChild("StarIcon")
+	if starIcon then
+		local originalTextSize = 28
+		starIcon.TextSize = originalTextSize * 1.8  -- Bigger instant pop!
+		
+		task.delay(0.06, function()
+			local starBounce = TweenService:Create(starIcon, TweenInfo.new(0.5, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), {
+				TextSize = originalTextSize
+			})
+			table.insert(activeTweens, starBounce)
+			starBounce:Play()
+		end)
+		
+		-- Ensure reset after animation completes
+		task.delay(0.6, function()
+			starIcon.TextSize = originalTextSize
+		end)
+	end
+	
+	-- Flash the border BRIGHT
+	local stroke = container:FindFirstChildOfClass("UIStroke")
+	if stroke then
+		local originalColor = CONFIG.BorderColor
+		local originalTransparency = 0.3
+		local originalThickness = 2
+		
+		stroke.Color = Color3.fromRGB(255, 255, 100)
+		stroke.Transparency = 0
+		stroke.Thickness = 5
+		
+		task.delay(0.1, function()
+			local strokeTween = TweenService:Create(stroke, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				Color = originalColor,
+				Transparency = originalTransparency,
+				Thickness = originalThickness
+			})
+			table.insert(activeTweens, strokeTween)
+			strokeTween:Play()
+		end)
+		
+		-- Ensure reset after animation completes
+		task.delay(0.6, function()
+			stroke.Color = originalColor
+			stroke.Transparency = originalTransparency
+			stroke.Thickness = originalThickness
+		end)
+	end
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
 -- ║                         REWARD POPUP                                        ║
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
@@ -266,10 +382,11 @@ local function setupReplicaListener()
 			local oldKudos = currentKudos
 			currentKudos = newValue
 			
-			-- Show popup for the difference
+			-- Show popup and pulse effect for the difference
 			if newValue > oldKudos then
 				local awarded = newValue - oldKudos
 				showRewardPopup(awarded)
+				pulseKudosUI()
 			end
 		end)
 		

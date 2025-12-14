@@ -14,14 +14,37 @@ local Timer = require(Packages:WaitForChild("timer"))
 
 local PackagePlatformService = Knit.CreateService {
 	Name = "PackagePlatformService",
-	Client = {},
+	Client = {
+		PickupFailed = Knit.CreateSignal(),  -- (reason: string, cost: number)
+		StaminaBoostResult = Knit.CreateSignal(),  -- (success: boolean, newStamina: number)
+	},
 	packages = {},
 	playerHeldPackages = {}, -- Track stacks of packages per player: { [userId] = { package1, package2, ... } }
 	playerFatigue = {},      -- Track fatigue per player: { [userId] = { value, replica, timer } }
+	playerUpgrades = {},     -- Track upgrades per player: { [userId] = { maxStack = number, replica = Replica } }
 }
+
+-- Client method to request +1 capacity upgrade purchase
+function PackagePlatformService.Client:RequestUpgrade(player)
+	local success, message = self.Server:PurchaseUpgrade(player)
+	return success, message
+end
+
+-- Client method to get current player upgrade info
+function PackagePlatformService.Client:GetPlayerUpgradeInfo(player)
+	return {
+		maxStack = self.Server:GetPlayerMaxStack(player),
+		maxCapacity = self.Server:GetMaxCapacity(),
+		nextUpgradeCost = self.Server:GetNextUpgradeCost(player),
+		isMaxed = self.Server:IsAtMaxCapacity(player),
+	}
+end
 
 -- Fatigue Replica class token
 local FatigueClassToken = ReplicaService.NewClassToken("PlayerFatigue")
+
+-- Upgrades Replica class token
+local UpgradesClassToken = ReplicaService.NewClassToken("PlayerUpgrades")
 
 -- === CONFIG ===
 local PLATFORM_TAG = "packagePlatform"
@@ -86,6 +109,15 @@ local PACKAGE_CONFIG = {
 		RecoveryRate = 2,                -- Recovery per second when not holding packages
 		TickInterval = 0.1,              -- How often to update fatigue (seconds)
 		Enabled = true,                  -- Enable/disable fatigue system
+	},
+	
+	-- Stack capacity upgrade system (incremental +1 per upgrade)
+	Upgrades = {
+		Enabled = true,
+		StartingCapacity = 1,    -- Players start with 1 box capacity
+		MaxCapacity = 20,        -- Maximum capacity achievable
+		BaseCost = 10,           -- First upgrade costs this much
+		CostMultiplier = 1.5,    -- Each upgrade costs this much more (exponential)
 	},
 }
 
@@ -209,6 +241,34 @@ local function getPlayerStack(service, player)
 	return service.playerHeldPackages[player.UserId]
 end
 
+-- Get player's current max stack capacity (starts at StartingCapacity, +1 per upgrade)
+local function getPlayerMaxStack(service, player)
+	local upgradeData = service.playerUpgrades[player.UserId]
+	if upgradeData then
+		return upgradeData.maxStack or PACKAGE_CONFIG.Upgrades.StartingCapacity
+	end
+	return PACKAGE_CONFIG.Upgrades.StartingCapacity
+end
+
+-- Calculate the cost for the next upgrade based on current capacity
+local function getUpgradeCost(currentCapacity)
+	local upgradeConfig = PACKAGE_CONFIG.Upgrades
+	-- Number of upgrades already purchased (currentCapacity - startingCapacity)
+	local upgradesPurchased = currentCapacity - upgradeConfig.StartingCapacity
+	-- Exponential cost: BaseCost * (Multiplier ^ upgradesPurchased)
+	return math.floor(upgradeConfig.BaseCost * (upgradeConfig.CostMultiplier ^ upgradesPurchased))
+end
+
+-- Check if player can pick up more packages
+local function canPlayerPickUp(service, player)
+	if not PACKAGE_CONFIG.Upgrades.Enabled then
+		return true  -- No limit if upgrades disabled
+	end
+	local stack = getPlayerStack(service, player)
+	local maxStack = getPlayerMaxStack(service, player)
+	return #stack < maxStack
+end
+
 local function getTopOfStack(service, player)
 	local stack = getPlayerStack(service, player)
 	if #stack > 0 then
@@ -324,6 +384,33 @@ local function attachPackageToPlayer(packageModel, player, service)
 	
 	local packagePart = packageModel.PrimaryPart
 	if not packagePart then return false end
+	
+	-- Check if player has reached their stack limit
+	if not canPlayerPickUp(service, player) then
+		local maxStack = getPlayerMaxStack(service, player)
+		print("[PackagePlatformService] " .. player.Name .. " has reached max stack capacity (" .. maxStack .. ")")
+		return false, "max_capacity"
+	end
+	
+	-- Check if player can afford the package (costs kudos equal to package value)
+	local packageKudosValue = packageModel:GetAttribute("KudosValue") or 0
+	if packageKudosValue > 0 then
+		local HubService = Knit.GetService("HubService")
+		local playerKudos = HubService:GetPlayerKudos(player)
+		
+		if playerKudos < packageKudosValue then
+			print("[PackagePlatformService] " .. player.Name .. " can't afford package (costs " .. packageKudosValue .. " kudos, has " .. playerKudos .. ")")
+			return false, "not_enough_kudos", packageKudosValue
+		end
+		
+		-- Spend the kudos to pick up the package
+		if not HubService:SpendKudos(player, packageKudosValue) then
+			print("[PackagePlatformService] " .. player.Name .. " failed to spend kudos")
+			return false, "kudos_error"
+		end
+		
+		print("[PackagePlatformService] " .. player.Name .. " spent " .. packageKudosValue .. " kudos to pick up package")
+	end
 	
 	-- Unanchor the package so it can be picked up (it may have been anchored after settling)
 	packagePart.Anchored = false
@@ -552,10 +639,17 @@ local function setupPromptHandler(packageModel, service)
 		end
 		
 		-- Pick up the package (will stack if already holding)
-		if attachPackageToPlayer(packageModel, player, service) then
+		local success, reason, extra = attachPackageToPlayer(packageModel, player, service)
+		if success then
 			local stack = getPlayerStack(service, player)
 			print("[PackagePlatformService] " .. player.Name .. " picked up " .. packageModel.Name .. " (stack: " .. #stack .. ")")
-			-- Drop functionality disabled
+		else
+			-- Fire event to client for feedback
+			if reason == "not_enough_kudos" then
+				service.Client.PickupFailed:Fire(player, "not_enough_kudos", extra or 0)
+			elseif reason == "max_capacity" then
+				service.Client.PickupFailed:Fire(player, "max_capacity", 0)
+			end
 		end
 	end)
 end
@@ -605,14 +699,18 @@ function PackagePlatformService:KnitStart()
 		end
 	end)
 	
-	-- Handle player leaving (drop all their packages and cleanup fatigue)
+	-- Handle player leaving (drop all their packages and cleanup fatigue/upgrades)
 	Players.PlayerRemoving:Connect(function(player)
 		self:DropAllPackages(player)
 		self:CleanupPlayerFatigue(player)
+		self:CleanupPlayerUpgrades(player)
 	end)
 	
-	-- Handle player added (initialize fatigue)
+	-- Handle player added (initialize fatigue and upgrades)
 	Players.PlayerAdded:Connect(function(player)
+		-- Initialize upgrades immediately (persists across respawns)
+		self:InitPlayerUpgrades(player)
+		
 		-- Initialize fatigue when player spawns
 		player.CharacterAdded:Connect(function()
 			self:InitPlayerFatigue(player)
@@ -626,6 +724,9 @@ function PackagePlatformService:KnitStart()
 	
 	-- Setup handlers for existing players (in case they joined before this)
 	for _, player in ipairs(Players:GetPlayers()) do
+		-- Initialize upgrades immediately
+		self:InitPlayerUpgrades(player)
+		
 		-- Initialize fatigue for existing players with characters
 		if player.Character then
 			self:InitPlayerFatigue(player)
@@ -902,6 +1003,164 @@ function PackagePlatformService:SetPlayerFatigue(player, value)
 			fatigueData.replica:SetValue({"Fatigue"}, fatigueData.value)
 		end
 	end
+end
+
+-- Boost stamina by percentage for kudos cost
+function PackagePlatformService:BoostStamina(player, percentBoost, kudosCost)
+	local fatigueData = self.playerFatigue[player.UserId]
+	if not fatigueData then
+		return false, 0
+	end
+	
+	-- Check if already at max
+	local maxFatigue = PACKAGE_CONFIG.Fatigue.MaxFatigue
+	if fatigueData.value >= maxFatigue then
+		return false, fatigueData.value
+	end
+	
+	-- Try to spend kudos
+	local HubService = Knit.GetService("HubService")
+	if not HubService:SpendKudos(player, kudosCost) then
+		return false, fatigueData.value
+	end
+	
+	-- Apply boost
+	local boostAmount = maxFatigue * (percentBoost / 100)
+	local newValue = math.min(fatigueData.value + boostAmount, maxFatigue)
+	fatigueData.value = newValue
+	
+	-- Update replica
+	if fatigueData.replica then
+		fatigueData.replica:SetValue({"Fatigue"}, newValue)
+	end
+	
+	print(string.format("[PackagePlatformService] %s boosted stamina by %d%% (cost: %d kudos, new: %.1f)", 
+		player.Name, percentBoost, kudosCost, newValue))
+	
+	return true, newValue
+end
+
+-- Client method to request stamina boost
+function PackagePlatformService.Client:RequestStaminaBoost(player)
+	local success, newStamina = PackagePlatformService:BoostStamina(player, 5, 1)  -- 5% for 1 kudos
+	PackagePlatformService.Client.StaminaBoostResult:Fire(player, success, newStamina)
+	return success, newStamina
+end
+
+-- === UPGRADE SYSTEM ===
+
+function PackagePlatformService:InitPlayerUpgrades(player)
+	if not PACKAGE_CONFIG.Upgrades.Enabled then return end
+	if self.playerUpgrades[player.UserId] then return end  -- Already initialized
+	
+	local upgradeConfig = PACKAGE_CONFIG.Upgrades
+	local startingCapacity = upgradeConfig.StartingCapacity
+	
+	-- Create upgrade data
+	local upgradeData = {
+		maxStack = startingCapacity,
+		replica = nil,
+	}
+	
+	-- Calculate cost for first upgrade
+	local nextCost = getUpgradeCost(startingCapacity)
+	
+	-- Create a replica for this player's upgrades
+	upgradeData.replica = ReplicaService.NewReplica({
+		ClassToken = UpgradesClassToken,
+		Data = {
+			MaxStack = startingCapacity,
+			MaxCapacity = upgradeConfig.MaxCapacity,
+			NextUpgradeCost = nextCost,
+			IsMaxed = startingCapacity >= upgradeConfig.MaxCapacity,
+		},
+		Replication = player,  -- Only replicate to this player
+	})
+	
+	self.playerUpgrades[player.UserId] = upgradeData
+	print("[PackagePlatformService] Upgrade system initialized for " .. player.Name .. " (Max Stack: " .. startingCapacity .. ")")
+end
+
+function PackagePlatformService:CleanupPlayerUpgrades(player)
+	local upgradeData = self.playerUpgrades[player.UserId]
+	if not upgradeData then return end
+	
+	-- Destroy replica
+	if upgradeData.replica then
+		upgradeData.replica:Destroy()
+	end
+	
+	self.playerUpgrades[player.UserId] = nil
+	print("[PackagePlatformService] Upgrade system cleaned up for " .. player.Name)
+end
+
+function PackagePlatformService:GetPlayerMaxStack(player)
+	return getPlayerMaxStack(self, player)
+end
+
+function PackagePlatformService:GetMaxCapacity()
+	return PACKAGE_CONFIG.Upgrades.MaxCapacity
+end
+
+function PackagePlatformService:GetNextUpgradeCost(player)
+	local upgradeData = self.playerUpgrades[player.UserId]
+	if not upgradeData then return getUpgradeCost(PACKAGE_CONFIG.Upgrades.StartingCapacity) end
+	
+	return getUpgradeCost(upgradeData.maxStack)
+end
+
+function PackagePlatformService:IsAtMaxCapacity(player)
+	local upgradeData = self.playerUpgrades[player.UserId]
+	if not upgradeData then return false end
+	
+	return upgradeData.maxStack >= PACKAGE_CONFIG.Upgrades.MaxCapacity
+end
+
+function PackagePlatformService:PurchaseUpgrade(player)
+	local upgradeData = self.playerUpgrades[player.UserId]
+	if not upgradeData then 
+		warn("[PackagePlatformService] No upgrade data for " .. player.Name)
+		return false, "No upgrade data"
+	end
+	
+	local currentCapacity = upgradeData.maxStack
+	local maxCapacity = PACKAGE_CONFIG.Upgrades.MaxCapacity
+	
+	-- Check if already at max capacity
+	if currentCapacity >= maxCapacity then
+		return false, "Already at max capacity"
+	end
+	
+	-- Calculate cost for this upgrade
+	local cost = getUpgradeCost(currentCapacity)
+	
+	-- Get HubService to spend kudos
+	local HubService = Knit.GetService("HubService")
+	
+	-- Try to spend kudos
+	if not HubService:SpendKudos(player, cost) then
+		return false, "Not enough kudos"
+	end
+	
+	-- Upgrade successful! Add +1 capacity
+	local newCapacity = currentCapacity + 1
+	upgradeData.maxStack = newCapacity
+	
+	-- Calculate next upgrade cost
+	local nextCost = getUpgradeCost(newCapacity)
+	local isMaxed = newCapacity >= maxCapacity
+	
+	-- Update replica
+	if upgradeData.replica then
+		upgradeData.replica:SetValue({"MaxStack"}, newCapacity)
+		upgradeData.replica:SetValue({"NextUpgradeCost"}, isMaxed and 0 or nextCost)
+		upgradeData.replica:SetValue({"IsMaxed"}, isMaxed)
+	end
+	
+	print(string.format("[PackagePlatformService] %s upgraded! Max stack: %d → %d (cost: %d kudos)", 
+		player.Name, currentCapacity, newCapacity, cost))
+	
+	return true, "Upgrade successful"
 end
 
 return PackagePlatformService
