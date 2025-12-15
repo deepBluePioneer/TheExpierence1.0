@@ -30,9 +30,9 @@ local KudosShopController = Knit.CreateController {
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
 local CONFIG = {
-	-- Button position (top right area)
-	ButtonPosition = UDim2.new(1, -160, 0, 100),
-	ButtonSize = UDim2.new(0, 140, 0, 40),
+	-- Button position (top left, under kudos counter)
+	ButtonPosition = UDim2.new(0, 20, 0, 75),
+	ButtonSize = UDim2.new(0, 160, 0, 35),
 	
 	-- Shop panel
 	PanelSize = UDim2.new(0, 400, 0, 450),
@@ -58,16 +58,16 @@ function KudosShopController:CreateUI()
 	self._screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	self._screenGui.Parent = PlayerGui
 	
-	-- Shop button
+	-- Shop button (positioned under kudos counter)
 	self._shopButton = Instance.new("TextButton")
 	self._shopButton.Name = "ShopButton"
 	self._shopButton.Size = CONFIG.ButtonSize
 	self._shopButton.Position = CONFIG.ButtonPosition
-	self._shopButton.AnchorPoint = Vector2.new(1, 0)
+	self._shopButton.AnchorPoint = Vector2.new(0, 0)  -- Left-aligned
 	self._shopButton.BackgroundColor3 = CONFIG.AccentColor
-	self._shopButton.Text = "⭐ KUDOS SHOP"
+	self._shopButton.Text = "KUDOS SHOP"
 	self._shopButton.TextColor3 = Color3.fromRGB(30, 30, 30)
-	self._shopButton.TextSize = 14
+	self._shopButton.TextSize = 13
 	self._shopButton.Font = Enum.Font.GothamBold
 	self._shopButton.AutoButtonColor = false
 	self._shopButton.Parent = self._screenGui

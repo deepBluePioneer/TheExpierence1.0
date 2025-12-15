@@ -104,9 +104,9 @@ local PACKAGE_CONFIG = {
 	-- Fatigue system settings
 	Fatigue = {
 		MaxFatigue = 100,                -- Maximum fatigue value
-		BaseDrainRate = 0.2,             -- Base drain per second (no packages) - VERY SLOW
-		DrainPerPackage = 0.3,           -- Additional drain per package held - VERY SLOW
-		RecoveryRate = 2,                -- Recovery per second when not holding packages
+		BaseDrainRate = 0.32,            -- Base drain per second when holding packages
+		DrainPerPackage = 0.012,         -- Additional drain per package held
+		RecoveryRate = 10,               -- Recovery per second when not holding packages
 		TickInterval = 0.1,              -- How often to update fatigue (seconds)
 		Enabled = true,                  -- Enable/disable fatigue system
 	},
@@ -118,6 +118,13 @@ local PACKAGE_CONFIG = {
 		MaxCapacity = 20,        -- Maximum capacity achievable
 		BaseCost = 10,           -- First upgrade costs this much
 		CostMultiplier = 1.5,    -- Each upgrade costs this much more (exponential)
+	},
+	
+	-- Drop penalty (when packages are dropped due to fatigue)
+	DropPenalty = {
+		Enabled = true,
+		MinDiscount = 0.1,       -- Minimum discount (10% of value lost)
+		MaxDiscount = 0.5,       -- Maximum discount (50% of value lost)
 	},
 }
 
@@ -138,6 +145,51 @@ local function clearPackages()
 	if folder then
 		folder:ClearAllChildren()
 	end
+end
+
+-- Apply a random discount to a dropped package's kudos value
+local function applyDropDiscount(packageModel)
+	if not PACKAGE_CONFIG.DropPenalty.Enabled then return end
+	
+	local currentValue = packageModel:GetAttribute("KudosValue") or 0
+	if currentValue <= 0 then return end
+	
+	-- Calculate random discount
+	local minDiscount = PACKAGE_CONFIG.DropPenalty.MinDiscount
+	local maxDiscount = PACKAGE_CONFIG.DropPenalty.MaxDiscount
+	local discountPercent = minDiscount + math.random() * (maxDiscount - minDiscount)
+	
+	-- Apply discount
+	local discountAmount = math.floor(currentValue * discountPercent)
+	local newValue = math.max(1, currentValue - discountAmount)  -- Minimum value of 1
+	
+	-- Update the attribute
+	packageModel:SetAttribute("KudosValue", newValue)
+	
+	-- Update the billboard GUI if it exists
+	local packagePart = packageModel.PrimaryPart
+	if packagePart then
+		local billboard = packagePart:FindFirstChild("KudosBillboard")
+		if billboard then
+			local bgFrame = billboard:FindFirstChild("Background")
+			if bgFrame then
+				local kudosLabel = bgFrame:FindFirstChild("KudosLabel")
+				if kudosLabel then
+					kudosLabel.Text = "⭐ " .. newValue
+					-- Flash red briefly to indicate discount
+					kudosLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+					task.delay(0.5, function()
+						if kudosLabel and kudosLabel.Parent then
+							kudosLabel.TextColor3 = Color3.fromRGB(255, 215, 0)  -- Back to gold
+						end
+					end)
+				end
+			end
+		end
+	end
+	
+	print(string.format("[PackagePlatformService] Package %s discounted: %d -> %d (-%d%%)", 
+		packageModel.Name, currentValue, newValue, math.floor(discountPercent * 100)))
 end
 
 local function randomRange(min, max)
@@ -708,18 +760,22 @@ function PackagePlatformService:KnitStart()
 	
 	-- Handle player added (initialize fatigue and upgrades)
 	Players.PlayerAdded:Connect(function(player)
-		-- Initialize upgrades immediately (persists across respawns)
-		self:InitPlayerUpgrades(player)
-		
-		-- Initialize fatigue when player spawns
+		-- Setup character listeners FIRST (before any yielding operations)
 		player.CharacterAdded:Connect(function()
 			self:InitPlayerFatigue(player)
 		end)
 		
-		-- Cleanup on character removing
 		player.CharacterRemoving:Connect(function()
 			self:DropAllPackages(player)
 		end)
+		
+		-- Check if character already exists (may have spawned during connection)
+		if player.Character then
+			self:InitPlayerFatigue(player)
+		end
+		
+		-- Initialize upgrades (this waits for profile to load, so do it after listeners are set up)
+		self:InitPlayerUpgrades(player)
 	end)
 	
 	-- Setup handlers for existing players (in case they joined before this)
@@ -807,8 +863,8 @@ function PackagePlatformService:DropTopPackage(player)
 	return false
 end
 
--- Drop all packages from the stack
-function PackagePlatformService:DropAllPackages(player)
+-- Drop all packages from the stack (with optional discount penalty)
+function PackagePlatformService:DropAllPackages(player, applyPenalty)
 	local stack = self.playerHeldPackages[player.UserId]
 	if not stack or #stack == 0 then
 		return false
@@ -820,10 +876,20 @@ function PackagePlatformService:DropAllPackages(player)
 	for i = #stack, 1, -1 do
 		local packageModel = stack[i]
 		detachPackageFromPlayer(packageModel, player, self)
+		
+		-- Apply discount penalty if specified (e.g., from fatigue)
+		if applyPenalty then
+			applyDropDiscount(packageModel)
+		end
 	end
 	
 	self.playerHeldPackages[player.UserId] = nil
-	print("[PackagePlatformService] " .. player.Name .. " dropped all " .. count .. " packages")
+	
+	if applyPenalty then
+		print("[PackagePlatformService] " .. player.Name .. " dropped all " .. count .. " packages (with penalty)")
+	else
+		print("[PackagePlatformService] " .. player.Name .. " dropped all " .. count .. " packages")
+	end
 	
 	return true
 end
@@ -915,56 +981,75 @@ function PackagePlatformService:InitPlayerFatigue(player)
 		Replication = player,  -- Only replicate to this player
 	})
 	
+	-- Store fatigue data first
+	self.playerFatigue[player.UserId] = fatigueData
+	
 	-- Create timer to update fatigue
 	fatigueData.timer = Timer.new(fatigueConfig.TickInterval)
-	fatigueData.timer:Start()
 	
+	local tickCount = 0
 	fatigueData.timer.Tick:Connect(function()
+		tickCount = tickCount + 1
+		if tickCount <= 3 then
+			print("[PackagePlatformService] Timer tick #" .. tickCount .. " for " .. player.Name)
+		end
 		self:UpdatePlayerFatigue(player)
 	end)
 	
-	self.playerFatigue[player.UserId] = fatigueData
-	print("[PackagePlatformService] Fatigue system initialized for " .. player.Name)
+	fatigueData.timer:Start()
+	
+	print("[PackagePlatformService] Fatigue system initialized for " .. player.Name .. " (timer interval: " .. fatigueConfig.TickInterval .. "s)")
 end
+
+-- Debug counter for logging
+local fatigueDebugCounter = 0
 
 function PackagePlatformService:UpdatePlayerFatigue(player)
 	local fatigueData = self.playerFatigue[player.UserId]
-	if not fatigueData then return end
+	if not fatigueData then 
+		return 
+	end
 	
 	local fatigueConfig = PACKAGE_CONFIG.Fatigue
 	local stackCount = self:GetStackCount(player)
 	local dt = fatigueConfig.TickInterval
 	
-	local newFatigue = fatigueData.value
+	local oldFatigue = fatigueData.value
+	local newFatigue = oldFatigue
 	
 	if stackCount > 0 then
 		-- Drain fatigue based on number of packages
 		local drainRate = fatigueConfig.BaseDrainRate + (stackCount * fatigueConfig.DrainPerPackage)
-		newFatigue = newFatigue - (drainRate * dt)
+		newFatigue = oldFatigue - (drainRate * dt)
+		
+		-- Debug: log every second (10 ticks at 0.1s interval)
+		fatigueDebugCounter = fatigueDebugCounter + 1
+		if fatigueDebugCounter % 10 == 0 then
+			print(string.format("[Fatigue] %s: %.1f -> %.1f (stack: %d, drain: %.2f/s)", 
+				player.Name, oldFatigue, newFatigue, stackCount, drainRate))
+		end
 	else
 		-- Recover fatigue when not holding packages
-		newFatigue = newFatigue + (fatigueConfig.RecoveryRate * dt)
+		newFatigue = oldFatigue + (fatigueConfig.RecoveryRate * dt)
 	end
 	
 	-- Clamp fatigue
 	newFatigue = math.clamp(newFatigue, 0, fatigueConfig.MaxFatigue)
 	
-	-- Update if changed
-	if newFatigue ~= fatigueData.value then
-		fatigueData.value = newFatigue
-		
-		-- Update replica
-		if fatigueData.replica then
-			fatigueData.replica:SetValue({"Fatigue"}, newFatigue)
-			fatigueData.replica:SetValue({"StackCount"}, stackCount)
-		end
+	-- Always update the value
+	fatigueData.value = newFatigue
+	
+	-- Always update replica
+	if fatigueData.replica then
+		fatigueData.replica:SetValue({"Fatigue"}, newFatigue)
+		fatigueData.replica:SetValue({"StackCount"}, stackCount)
 	end
 	
 	-- Check if exhausted (fatigue depleted)
 	if newFatigue <= 0 and stackCount > 0 then
-		-- Drop all packages when exhausted
-		print("[PackagePlatformService] " .. player.Name .. " is exhausted! Dropping all packages.")
-		self:DropAllPackages(player)
+		-- Drop all packages when exhausted (with value penalty!)
+		print("[PackagePlatformService] " .. player.Name .. " is exhausted! Dropping all packages with penalty.")
+		self:DropAllPackages(player, true)  -- true = apply discount penalty
 	end
 end
 

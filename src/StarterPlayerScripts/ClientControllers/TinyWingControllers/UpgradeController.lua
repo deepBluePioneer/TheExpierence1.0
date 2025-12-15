@@ -25,15 +25,18 @@ local UpgradeController = Knit.CreateController {
 	Name = "UpgradeController",
 	_screenGui = nil,
 	_panel = nil,
-	-- 2D UI
+	-- UI Elements
+	_headerTitle = nil,
 	_slotsContainer = nil,
-	_slotFrames = {},
-	-- 3D Viewport
+	_slotFrames = {},        -- 2D slot frames
+	_capacityLabel = nil,
+	_capacityFill = nil,
+	_purchaseButton = nil,
+	-- 3D Viewport (avatar only)
 	_viewportFrame = nil,
 	_worldModel = nil,
 	_camera = nil,
 	_avatarClone = nil,
-	_slot3DParts = {},
 	-- State
 	_maxStack = 1,
 	_maxCapacity = 20,
@@ -56,47 +59,44 @@ local CONFIG = {
 	
 	-- Panel position and size
 	PanelPosition = UDim2.new(0, 20, 1, -20),
-	PanelWidth = 200,
+	PanelWidth = 180,
 	
-	-- Viewport settings (avatar with 3D boxes)
-	ViewportHeight = 140,  -- Smaller to fit more slots
-	ViewportCameraDistance = 7,
-	ViewportCameraHeight = 3.5,
-	ViewportCameraFOV = 50,
+	-- Viewport settings (just the avatar, no 3D boxes)
+	ViewportHeight = 100,
+	ViewportCameraDistance = 8,
+	ViewportCameraHeight = 3,
+	ViewportCameraLookAtY = 2,
+	ViewportCameraFOV = 40,
 	
-	-- 3D Box settings (above avatar head)
-	Box3DSize = Vector3.new(1.5, 1.0, 1.5),
-	Box3DSpacing = 0.1,
-	Box3DStartHeight = 1.2,  -- Above head
-	MaxVisible3DBoxes = 8,   -- Limit 3D boxes shown
-	
-	-- 2D Slot settings (square boxes)
-	SlotSize = 24,  -- Square size in pixels (smaller to fit 20)
-	SlotSpacing = 2,
-	MaxVisibleSlots = 20,  -- Show all 20 boxes
+	-- 2D Slot settings (stacked vertically above viewport)
+	SlotWidth = 50,      -- Width of each 2D slot
+	SlotHeight = 22,     -- Height of each 2D slot
+	SlotSpacing = 2,     -- Gap between slots
+	MaxVisibleSlots = 20,
 	
 	-- Industrial/Logistics Color Palette
-	BackgroundColor = Color3.fromRGB(25, 28, 32),
+	BackgroundColor = Color3.fromRGB(20, 22, 28),
 	BorderColor = Color3.fromRGB(255, 180, 0),
+	HeaderColor = Color3.fromRGB(30, 34, 42),
 	
-	-- Slot colors (both 2D and 3D)
+	-- Slot colors (2D boxes)
 	SlotFilledColor = Color3.fromRGB(180, 130, 70),      -- Cardboard brown
 	SlotFilledStroke = Color3.fromRGB(140, 100, 50),
-	SlotNextColor = Color3.fromRGB(255, 200, 50),        -- Safety yellow
-	SlotNextStroke = Color3.fromRGB(200, 160, 40),
-	SlotLockedColor = Color3.fromRGB(45, 42, 40),        -- Dark
-	SlotLockedStroke = Color3.fromRGB(60, 55, 50),
-	SlotMaxedColor = Color3.fromRGB(218, 165, 32),
+	SlotNextColor = Color3.fromRGB(100, 255, 100),       -- Green for purchasable
+	SlotNextStroke = Color3.fromRGB(70, 180, 70),
+	SlotLockedColor = Color3.fromRGB(45, 43, 40),        -- Dark grey
+	SlotLockedStroke = Color3.fromRGB(55, 52, 48),
+	SlotMaxedColor = Color3.fromRGB(218, 165, 32),       -- Gold
 	
 	-- UI Colors
 	AccentColor = Color3.fromRGB(255, 180, 0),
 	TextColor = Color3.fromRGB(255, 255, 255),
-	ButtonColor = Color3.fromRGB(255, 200, 50),
-	ButtonTextColor = Color3.fromRGB(30, 30, 30),
-	
-	-- Hazard stripe
-	HazardYellow = Color3.fromRGB(255, 200, 0),
-	HazardBlack = Color3.fromRGB(30, 30, 30),
+	SubtextColor = Color3.fromRGB(150, 150, 150),
+	ButtonColor = Color3.fromRGB(80, 200, 80),           -- Green buy button
+	ButtonHoverColor = Color3.fromRGB(100, 230, 100),
+	ButtonTextColor = Color3.fromRGB(255, 255, 255),
+	ButtonDisabledColor = Color3.fromRGB(60, 55, 50),
+	ButtonDisabledText = Color3.fromRGB(100, 95, 90),
 }
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -125,17 +125,16 @@ function UpgradeController:CreateSlotFrames()
 	
 	if not self._slotsContainer then return end
 	
-	-- Create slot frames (squares, from bottom to top)
+	-- Create 2D slot frames (stacked bottom to top)
 	local slotsToCreate = math.min(self._maxCapacity, CONFIG.MaxVisibleSlots)
-	local size = CONFIG.SlotSize  -- Square size
 	
 	for i = 1, slotsToCreate do
 		local slotFrame = Instance.new("Frame")
 		slotFrame.Name = "Slot_" .. i
-		slotFrame.Size = UDim2.new(0, size, 0, size)  -- Square!
+		slotFrame.Size = UDim2.new(0, CONFIG.SlotWidth, 0, CONFIG.SlotHeight)
 		slotFrame.BackgroundColor3 = CONFIG.SlotLockedColor
 		slotFrame.BorderSizePixel = 0
-		slotFrame.LayoutOrder = slotsToCreate - i + 1
+		slotFrame.LayoutOrder = slotsToCreate - i + 1  -- Reverse order for bottom-to-top
 		slotFrame.Parent = self._slotsContainer
 		
 		-- Rounded corners
@@ -147,27 +146,19 @@ function UpgradeController:CreateSlotFrames()
 		local stroke = Instance.new("UIStroke")
 		stroke.Name = "Stroke"
 		stroke.Color = CONFIG.SlotLockedStroke
-		stroke.Thickness = 2
+		stroke.Thickness = 1
 		stroke.Parent = slotFrame
 		
-		-- Tape stripe (horizontal)
-		local tape = Instance.new("Frame")
-		tape.Name = "Tape"
-		tape.Size = UDim2.new(1, 4, 0, 4)
-		tape.Position = UDim2.new(0, -2, 0.5, -2)
-		tape.BackgroundColor3 = Color3.fromRGB(200, 180, 140)
-		tape.BackgroundTransparency = 0.3
-		tape.BorderSizePixel = 0
-		tape.Parent = slotFrame
-		
-		-- Box emoji centered
-		local icon = Instance.new("TextLabel")
-		icon.Name = "Icon"
-		icon.Size = UDim2.new(1, 0, 1, 0)
-		icon.BackgroundTransparency = 1
-		icon.Text = "📦"
-		icon.TextSize = 14
-		icon.Parent = slotFrame
+		-- Slot number
+		local numLabel = Instance.new("TextLabel")
+		numLabel.Name = "Number"
+		numLabel.Size = UDim2.new(1, 0, 1, 0)
+		numLabel.BackgroundTransparency = 1
+		numLabel.Text = tostring(i)
+		numLabel.TextColor3 = Color3.fromRGB(150, 145, 140)
+		numLabel.TextSize = 11
+		numLabel.Font = Enum.Font.GothamBold
+		numLabel.Parent = slotFrame
 		
 		self._slotFrames[i] = slotFrame
 	end
@@ -177,48 +168,40 @@ end
 
 function UpgradeController:UpdateSlotColors()
 	for i, slotFrame in ipairs(self._slotFrames) do
-		if slotFrame then
+		if slotFrame and slotFrame.Parent then
 			local stroke = slotFrame:FindFirstChild("Stroke")
-			local tape = slotFrame:FindFirstChild("Tape")
 			local numLabel = slotFrame:FindFirstChild("Number")
-			local icon = slotFrame:FindFirstChild("Icon")
 			
 			if i <= self._maxStack then
-				-- Owned slot - cardboard brown
+				-- Filled slot (owned)
 				slotFrame.BackgroundColor3 = CONFIG.SlotFilledColor
 				if stroke then stroke.Color = CONFIG.SlotFilledStroke end
-				if tape then 
-					tape.BackgroundColor3 = Color3.fromRGB(200, 180, 140)
-					tape.BackgroundTransparency = 0.2
+				if numLabel then 
+					numLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+					numLabel.TextTransparency = 0.2
 				end
-				if numLabel then numLabel.TextTransparency = 0.3 end
-				if icon then icon.TextTransparency = 0 end
-				
 			elseif i == self._maxStack + 1 and not self._isMaxed then
-				-- Next purchasable - highlighted yellow
+				-- Next slot (purchasable) - green
 				slotFrame.BackgroundColor3 = CONFIG.SlotNextColor
 				if stroke then stroke.Color = CONFIG.SlotNextStroke end
-				if tape then 
-					tape.BackgroundColor3 = Color3.fromRGB(255, 255, 200)
-					tape.BackgroundTransparency = 0.1
+				if numLabel then 
+					numLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+					numLabel.TextTransparency = 0
 				end
-				if numLabel then numLabel.TextTransparency = 0 end
-				if icon then icon.TextTransparency = 0 end
-				
 			else
-				-- Locked slot - dark/faded
+				-- Locked slot
 				slotFrame.BackgroundColor3 = CONFIG.SlotLockedColor
 				if stroke then stroke.Color = CONFIG.SlotLockedStroke end
-				if tape then 
-					tape.BackgroundColor3 = Color3.fromRGB(80, 75, 70)
-					tape.BackgroundTransparency = 0.7
+				if numLabel then 
+					numLabel.TextColor3 = Color3.fromRGB(100, 95, 90)
+					numLabel.TextTransparency = 0.5
 				end
-				if numLabel then numLabel.TextTransparency = 0.7 end
-				if icon then icon.TextTransparency = 0.7 end
 			end
 		end
 	end
 end
+
+-- Old 2D UpdateSlotColors removed - using 3D slots now
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
 -- ║                         3D AVATAR VIEWPORT                                  ║
@@ -234,10 +217,12 @@ function UpgradeController:SetupAvatarViewport()
 	self._camera.FieldOfView = CONFIG.ViewportCameraFOV
 	self._viewportFrame.CurrentCamera = self._camera
 	
-	-- Position camera to see avatar from waist up
+	-- Position camera to see full avatar with all stacked boxes
+	-- Camera looks at the middle of the stack from the front
+	local lookAtY = CONFIG.ViewportCameraLookAtY or 10
 	self._camera.CFrame = CFrame.new(
 		Vector3.new(0, CONFIG.ViewportCameraHeight, CONFIG.ViewportCameraDistance),
-		Vector3.new(0, 3, 0)  -- Look at chest height
+		Vector3.new(0, lookAtY, 0)  -- Look at middle of box stack
 	)
 	
 	-- Add lighting
@@ -316,11 +301,17 @@ end
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
 function UpgradeController:CreateUI()
-	-- Calculate heights (SlotSize is now a number for square boxes)
-	local slotsToShow = math.min(self._maxCapacity, CONFIG.MaxVisibleSlots)
-	local slotsHeight = slotsToShow * (CONFIG.SlotSize + CONFIG.SlotSpacing) + 8
+	-- Calculate dimensions
+	local slotsHeight = self._maxCapacity * (CONFIG.SlotHeight + CONFIG.SlotSpacing)
+	local slotsFrameHeight = slotsHeight + 8  -- Extra padding for frame
 	local viewportHeight = CONFIG.ViewportHeight
-	local panelHeight = 8 + slotsHeight + viewportHeight + 75  -- padding + slots + viewport + bottom
+	local headerHeight = 35
+	local buttonHeight = 45
+	local capacityHeight = 24
+	local padding = 6
+	
+	-- Panel height: header + slotsFrame + viewport + capacity + button + padding
+	local panelHeight = headerHeight + slotsFrameHeight + padding + viewportHeight + padding + capacityHeight + buttonHeight + padding
 	
 	-- Main ScreenGui
 	self._screenGui = Instance.new("ScreenGui")
@@ -329,17 +320,18 @@ function UpgradeController:CreateUI()
 	self._screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	self._screenGui.Parent = PlayerGui
 	
-	-- Main panel (no header, just clean dark background)
+	-- Main panel
 	self._panel = Instance.new("Frame")
 	self._panel.Name = "UpgradePanel"
 	self._panel.Size = UDim2.new(0, CONFIG.PanelWidth, 0, panelHeight)
 	self._panel.Position = CONFIG.PanelPosition
 	self._panel.AnchorPoint = Vector2.new(0, 1)
 	self._panel.BackgroundColor3 = CONFIG.BackgroundColor
+	self._panel.ClipsDescendants = true
 	self._panel.Parent = self._screenGui
 	
 	local panelCorner = Instance.new("UICorner")
-	panelCorner.CornerRadius = UDim.new(0, 8)
+	panelCorner.CornerRadius = UDim.new(0, 10)
 	panelCorner.Parent = self._panel
 	
 	local panelStroke = Instance.new("UIStroke")
@@ -347,24 +339,70 @@ function UpgradeController:CreateUI()
 	panelStroke.Thickness = 2
 	panelStroke.Parent = self._panel
 	
-	-- Simple title at top
-	local title = Instance.new("TextLabel")
-	title.Size = UDim2.new(1, 0, 0, 24)
-	title.Position = UDim2.new(0, 0, 0, 4)
-	title.BackgroundTransparency = 1
-	title.Text = "📦 CARGO"
-	title.TextColor3 = CONFIG.AccentColor
-	title.TextSize = 14
-	title.Font = Enum.Font.GothamBold
-	title.Parent = self._panel
+	-- ═══════════════════════════════════════════════════════════════
+	-- HEADER SECTION (at top)
+	-- ═══════════════════════════════════════════════════════════════
+	local header = Instance.new("Frame")
+	header.Name = "Header"
+	header.Size = UDim2.new(1, 0, 0, headerHeight)
+	header.Position = UDim2.new(0, 0, 0, 0)
+	header.BackgroundColor3 = CONFIG.HeaderColor
+	header.BorderSizePixel = 0
+	header.ZIndex = 10
+	header.Parent = self._panel
 	
-	-- 2D Slots container (square boxes above avatar)
+	local headerCorner = Instance.new("UICorner")
+	headerCorner.CornerRadius = UDim.new(0, 10)
+	headerCorner.Parent = header
+	
+	local headerCover = Instance.new("Frame")
+	headerCover.Size = UDim2.new(1, 0, 0, 10)
+	headerCover.Position = UDim2.new(0, 0, 1, -10)
+	headerCover.BackgroundColor3 = CONFIG.HeaderColor
+	headerCover.BorderSizePixel = 0
+	headerCover.Parent = header
+	
+	self._headerTitle = Instance.new("TextLabel")
+	self._headerTitle.Size = UDim2.new(1, -12, 1, 0)
+	self._headerTitle.Position = UDim2.new(0, 6, 0, 0)
+	self._headerTitle.BackgroundTransparency = 1
+	self._headerTitle.Text = "📦 1/20"
+	self._headerTitle.TextColor3 = CONFIG.AccentColor
+	self._headerTitle.TextSize = 14
+	self._headerTitle.Font = Enum.Font.GothamBold
+	self._headerTitle.TextXAlignment = Enum.TextXAlignment.Center
+	self._headerTitle.Parent = header
+	
+	-- ═══════════════════════════════════════════════════════════════
+	-- 2D SLOTS SECTION (in its own frame with background)
+	-- ═══════════════════════════════════════════════════════════════
+	local slotsY = headerHeight
+	
+	-- Outer frame for the slot stack (with background)
+	local slotsFrame = Instance.new("Frame")
+	slotsFrame.Name = "SlotsFrame"
+	slotsFrame.Size = UDim2.new(1, -12, 0, slotsHeight + 8)
+	slotsFrame.Position = UDim2.new(0, 6, 0, slotsY)
+	slotsFrame.BackgroundColor3 = Color3.fromRGB(25, 28, 35)
+	slotsFrame.ZIndex = 5
+	slotsFrame.Parent = self._panel
+	
+	local slotsFrameCorner = Instance.new("UICorner")
+	slotsFrameCorner.CornerRadius = UDim.new(0, 6)
+	slotsFrameCorner.Parent = slotsFrame
+	
+	local slotsFrameStroke = Instance.new("UIStroke")
+	slotsFrameStroke.Color = Color3.fromRGB(50, 55, 65)
+	slotsFrameStroke.Thickness = 1
+	slotsFrameStroke.Parent = slotsFrame
+	
+	-- Inner container for the actual slots
 	self._slotsContainer = Instance.new("Frame")
 	self._slotsContainer.Name = "SlotsContainer"
-	self._slotsContainer.Size = UDim2.new(1, -16, 0, slotsHeight)
-	self._slotsContainer.Position = UDim2.new(0, 8, 0, 28)
+	self._slotsContainer.Size = UDim2.new(1, -8, 1, -8)
+	self._slotsContainer.Position = UDim2.new(0, 4, 0, 4)
 	self._slotsContainer.BackgroundTransparency = 1
-	self._slotsContainer.Parent = self._panel
+	self._slotsContainer.Parent = slotsFrame
 	
 	local slotsLayout = Instance.new("UIListLayout")
 	slotsLayout.SortOrder = Enum.SortOrder.LayoutOrder
@@ -373,74 +411,95 @@ function UpgradeController:CreateUI()
 	slotsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	slotsLayout.Parent = self._slotsContainer
 	
-	-- Create 2D slot frames
 	self:CreateSlotFrames()
 	
-	-- Viewport frame (shows 3D avatar below the 2D slots)
+	-- ═══════════════════════════════════════════════════════════════
+	-- VIEWPORT SECTION (Avatar - below the slots frame)
+	-- ═══════════════════════════════════════════════════════════════
+	local viewportY = slotsY + slotsFrameHeight + padding
+	
 	self._viewportFrame = Instance.new("ViewportFrame")
 	self._viewportFrame.Name = "AvatarViewport"
-	self._viewportFrame.Size = UDim2.new(1, -16, 0, viewportHeight)
-	self._viewportFrame.Position = UDim2.new(0, 8, 0, 28 + slotsHeight)
+	self._viewportFrame.Size = UDim2.new(1, -12, 0, viewportHeight)
+	self._viewportFrame.Position = UDim2.new(0, 6, 0, viewportY)
 	self._viewportFrame.BackgroundColor3 = Color3.fromRGB(15, 18, 22)
+	self._viewportFrame.ZIndex = 1
 	self._viewportFrame.Parent = self._panel
 	
 	local vpCorner = Instance.new("UICorner")
 	vpCorner.CornerRadius = UDim.new(0, 6)
 	vpCorner.Parent = self._viewportFrame
 	
-	local vpStroke = Instance.new("UIStroke")
-	vpStroke.Color = Color3.fromRGB(50, 55, 60)
-	vpStroke.Thickness = 1
-	vpStroke.Parent = self._viewportFrame
-	
-	-- Setup 3D avatar in viewport
 	self:SetupAvatarViewport()
 	
-	-- Bottom info section
-	local infoY = 28 + slotsHeight + viewportHeight + 8
+	-- ═══════════════════════════════════════════════════════════════
+	-- BOTTOM SECTION (Capacity bar + Buy Button)
+	-- ═══════════════════════════════════════════════════════════════
+	local bottomY = viewportY + viewportHeight + padding
 	
-	local infoFrame = Instance.new("Frame")
-	infoFrame.Name = "InfoFrame"
-	infoFrame.Size = UDim2.new(1, -16, 0, 60)
-	infoFrame.Position = UDim2.new(0, 8, 0, infoY)
-	infoFrame.BackgroundTransparency = 1
-	infoFrame.Parent = self._panel
+	-- Capacity bar background
+	local capacityBg = Instance.new("Frame")
+	capacityBg.Name = "CapacityBg"
+	capacityBg.Size = UDim2.new(1, -16, 0, capacityHeight)
+	capacityBg.Position = UDim2.new(0, 8, 0, bottomY)
+	capacityBg.BackgroundColor3 = Color3.fromRGB(35, 38, 45)
+	capacityBg.Parent = self._panel
 	
-	-- Capacity label
+	local capBgCorner = Instance.new("UICorner")
+	capBgCorner.CornerRadius = UDim.new(0, 6)
+	capBgCorner.Parent = capacityBg
+	
+	-- Capacity fill bar
+	self._capacityFill = Instance.new("Frame")
+	self._capacityFill.Name = "CapacityFill"
+	self._capacityFill.Size = UDim2.new(0.05, 0, 1, 0)
+	self._capacityFill.BackgroundColor3 = CONFIG.AccentColor
+	self._capacityFill.Parent = capacityBg
+	
+	local capFillCorner = Instance.new("UICorner")
+	capFillCorner.CornerRadius = UDim.new(0, 6)
+	capFillCorner.Parent = self._capacityFill
+	
+	-- Capacity label overlaid
 	self._capacityLabel = Instance.new("TextLabel")
-	self._capacityLabel.Size = UDim2.new(1, 0, 0, 22)
+	self._capacityLabel.Size = UDim2.new(1, 0, 1, 0)
 	self._capacityLabel.BackgroundTransparency = 1
 	self._capacityLabel.Text = "1 / 20"
-	self._capacityLabel.TextColor3 = CONFIG.AccentColor
-	self._capacityLabel.TextSize = 20
+	self._capacityLabel.TextColor3 = CONFIG.TextColor
+	self._capacityLabel.TextSize = 12
 	self._capacityLabel.Font = Enum.Font.GothamBold
-	self._capacityLabel.Parent = infoFrame
+	self._capacityLabel.Parent = capacityBg
 	
 	-- Purchase button
+	local buttonY = bottomY + capacityHeight + padding
+	
 	self._purchaseButton = Instance.new("TextButton")
 	self._purchaseButton.Name = "PurchaseButton"
-	self._purchaseButton.Size = UDim2.new(1, 0, 0, 32)
-	self._purchaseButton.Position = UDim2.new(0, 0, 0, 26)
+	self._purchaseButton.Size = UDim2.new(1, -16, 0, buttonHeight)
+	self._purchaseButton.Position = UDim2.new(0, 8, 0, buttonY)
 	self._purchaseButton.BackgroundColor3 = CONFIG.ButtonColor
-	self._purchaseButton.Text = "+1 📦 • 10 ⭐"
+	self._purchaseButton.Text = "+1 • 10 ⭐"
 	self._purchaseButton.TextColor3 = CONFIG.ButtonTextColor
-	self._purchaseButton.TextSize = 15
+	self._purchaseButton.TextSize = 16
 	self._purchaseButton.Font = Enum.Font.GothamBold
 	self._purchaseButton.AutoButtonColor = false
-	self._purchaseButton.Parent = infoFrame
+	self._purchaseButton.Parent = self._panel
 	
 	local btnCorner = Instance.new("UICorner")
-	btnCorner.CornerRadius = UDim.new(0, 4)
+	btnCorner.CornerRadius = UDim.new(0, 8)
 	btnCorner.Parent = self._purchaseButton
 	
 	local btnStroke = Instance.new("UIStroke")
-	btnStroke.Color = Color3.fromRGB(200, 160, 0)
-	btnStroke.Thickness = 1
+	btnStroke.Color = Color3.fromRGB(60, 160, 60)
+	btnStroke.Thickness = 2
 	btnStroke.Parent = self._purchaseButton
 	
+	-- Button hover effects
 	self._purchaseButton.MouseEnter:Connect(function()
 		if not self._isMaxed and self._kudos >= self._nextCost then
-			self._purchaseButton.BackgroundColor3 = Color3.fromRGB(255, 220, 80)
+			TweenService:Create(self._purchaseButton, TweenInfo.new(0.1), {
+				BackgroundColor3 = CONFIG.ButtonHoverColor
+			}):Play()
 		end
 	end)
 	
@@ -457,32 +516,57 @@ function UpgradeController:CreateUI()
 end
 
 function UpgradeController:UpdateDisplay()
-	-- Update capacity label (digital counter style)
+	-- Update header title with capacity
+	if self._headerTitle then
+		self._headerTitle.Text = string.format("📦 %d/%d", self._maxStack, self._maxCapacity)
+	end
+	
+	-- Update capacity label
 	if self._capacityLabel then
 		self._capacityLabel.Text = string.format("%d / %d", self._maxStack, self._maxCapacity)
 	end
 	
+	-- Update capacity fill bar
+	if self._capacityFill then
+		local fillPercent = self._maxStack / self._maxCapacity
+		TweenService:Create(self._capacityFill, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
+			Size = UDim2.new(fillPercent, 0, 1, 0)
+		}):Play()
+		
+		-- Color based on fill level
+		if self._isMaxed then
+			self._capacityFill.BackgroundColor3 = CONFIG.SlotMaxedColor
+		else
+			self._capacityFill.BackgroundColor3 = CONFIG.AccentColor
+		end
+	end
+	
 	-- Update purchase button
 	if self._purchaseButton then
+		local btnStroke = self._purchaseButton:FindFirstChildOfClass("UIStroke")
+		
 		if self._isMaxed then
-			self._purchaseButton.Text = "✓ MAX CAPACITY"
+			self._purchaseButton.Text = "✓ MAX"
 			self._purchaseButton.BackgroundColor3 = CONFIG.SlotMaxedColor
-			self._purchaseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+			self._purchaseButton.TextColor3 = Color3.fromRGB(30, 30, 30)
+			if btnStroke then btnStroke.Color = Color3.fromRGB(180, 140, 20) end
 		else
 			local canAfford = self._kudos >= self._nextCost
-			self._purchaseButton.Text = string.format("+1 📦 • %s ⭐", formatNumber(self._nextCost))
+			self._purchaseButton.Text = string.format("+1 • %s ⭐", formatNumber(self._nextCost))
 			
 			if canAfford then
 				self._purchaseButton.BackgroundColor3 = CONFIG.ButtonColor
 				self._purchaseButton.TextColor3 = CONFIG.ButtonTextColor
+				if btnStroke then btnStroke.Color = Color3.fromRGB(60, 160, 60) end
 			else
-				self._purchaseButton.BackgroundColor3 = Color3.fromRGB(60, 55, 50)
-				self._purchaseButton.TextColor3 = Color3.fromRGB(120, 115, 110)
+				self._purchaseButton.BackgroundColor3 = CONFIG.ButtonDisabledColor
+				self._purchaseButton.TextColor3 = CONFIG.ButtonDisabledText
+				if btnStroke then btnStroke.Color = Color3.fromRGB(50, 45, 40) end
 			end
 		end
 	end
 	
-	-- Update 3D slot colors
+	-- Update 2D slot colors
 	self:UpdateSlotColors()
 end
 
@@ -523,26 +607,32 @@ function UpgradeController:TryPurchaseUpgrade()
 end
 
 function UpgradeController:PlayUpgradeEffect()
-	-- Flash the newly purchased slot frame (2D)
+	-- Flash the newly purchased 2D slot frame
 	local newSlot = self._slotFrames[self._maxStack]
-	if newSlot then
-		local originalColor = CONFIG.SlotFilledColor
-		newSlot.BackgroundColor3 = Color3.new(1, 1, 1)
+	if newSlot and newSlot.Parent then
+		newSlot.BackgroundColor3 = Color3.new(1, 1, 1)  -- Flash white
 		
-		TweenService:Create(newSlot, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-			BackgroundColor3 = originalColor
-		}):Play()
+		task.delay(0.1, function()
+			if newSlot and newSlot.Parent then
+				TweenService:Create(newSlot, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
+					BackgroundColor3 = CONFIG.SlotFilledColor
+				}):Play()
+			end
+		end)
 	end
 	
-	-- Button feedback
+	-- Button feedback - pulse
 	if self._purchaseButton then
-		TweenService:Create(self._purchaseButton, TweenInfo.new(0.1), {
-			Size = UDim2.new(1, 10, 0, 44)
+		local originalSize = self._purchaseButton.Size
+		TweenService:Create(self._purchaseButton, TweenInfo.new(0.1, Enum.EasingStyle.Back), {
+			Size = UDim2.new(originalSize.X.Scale, originalSize.X.Offset + 8, originalSize.Y.Scale, originalSize.Y.Offset + 4)
 		}):Play()
 		task.delay(0.1, function()
-			TweenService:Create(self._purchaseButton, TweenInfo.new(0.15), {
-				Size = UDim2.new(1, 0, 0, 36)
-			}):Play()
+			if self._purchaseButton then
+				TweenService:Create(self._purchaseButton, TweenInfo.new(0.15, Enum.EasingStyle.Elastic), {
+					Size = originalSize
+				}):Play()
+			end
 		end)
 	end
 end
@@ -551,12 +641,10 @@ function UpgradeController:PlayRejectEffect()
 	if self._isPlayingReject then return end
 	self._isPlayingReject = true
 	
-	-- Shake the next slot frame (2D)
+	-- Flash the next 2D slot frame red
 	local nextSlotIndex = self._maxStack + 1
 	local nextSlot = self._slotFrames[nextSlotIndex]
-	if nextSlot then
-		local originalColor = nextSlot.BackgroundColor3
-		
+	if nextSlot and nextSlot.Parent then
 		-- Flash red
 		nextSlot.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
 		task.delay(0.2, function()

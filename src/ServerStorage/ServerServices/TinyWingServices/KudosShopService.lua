@@ -112,13 +112,16 @@ function KudosShopService:ProcessReceipt(receiptInfo)
 	end
 	pendingPurchases[purchaseKey] = true
 	
+	-- Notify client FIRST (so they can skip the animation before replica updates)
+	self.Client.PurchaseComplete:Fire(player, pack.Name, pack.KudosAmount)
+	
+	-- Small delay to ensure client receives the signal before replica update
+	task.wait(0.05)
+	
 	-- Grant the kudos
 	local success = self:GrantKudos(player, pack.KudosAmount, "Purchased " .. pack.Name)
 	
 	if success then
-		-- Notify client
-		self.Client.PurchaseComplete:Fire(player, pack.Name, pack.KudosAmount)
-		
 		-- Clean up pending
 		task.delay(10, function()
 			pendingPurchases[purchaseKey] = nil

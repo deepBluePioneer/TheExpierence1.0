@@ -63,6 +63,9 @@ local HubService = Knit.CreateService {
 		activePackages = {},    -- List of currently active package models
 	},
 	_chuteStatusSign = nil,     -- Reference to status sign GUI
+	
+	-- Track path (stored for TramService to use)
+	_trackPath = nil,
 }
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -2597,80 +2600,34 @@ local function generateTrackControlPoints(startPos, startHeight)
 	-- IMPORTANT: Control points define segment CENTER positions
 	-- Offset down by half thickness so segment TOP surfaces are at intended height
 	local thicknessOffset = CONFIG.SlideThickness / 2
-	local currentHeight = (startHeight or startPos and startPos.Y or CONFIG.TrackStartHeight) - thicknessOffset
+	local startHeightValue = (startHeight or startPos and startPos.Y or CONFIG.TrackStartHeight) - thicknessOffset
 	
-	-- Point 0: At the platform edge (where track connects)
-	-- This Y is where the segment CENTER will be, so segment TOP is at platform surface
-	local currentPos = Vector3.new(platformCenterX, currentHeight, platformEdgeZ)
-	table.insert(points, currentPos)
+	-- ═══════════════════════════════════════════════════════════════════════
+	-- STRAIGHT TRACK - No curves, just a straight line with gentle slope
+	-- ═══════════════════════════════════════════════════════════════════════
 	
-	-- Point 1: Initial straight section (no turn, slight drop)
-	-- This ensures smooth connection to platform
-	local initialDrop = 8  -- Gentle initial drop
-	currentHeight = currentHeight - initialDrop
-	currentPos = currentPos + Vector3.new(0, -initialDrop, CONFIG.TrackInitialStraightLength)
-	table.insert(points, currentPos)
+	local trackLength = CONFIG.TrackTotalLength
+	local numPoints = CONFIG.TrackNumControlPoints or 20
+	local totalDrop = startHeightValue - CONFIG.TrackMinHeight  -- Total height drop
 	
-	-- Point 2: Continue straight with more drop (builds up speed before turns)
-	currentHeight = currentHeight - 15
-	currentPos = currentPos + Vector3.new(0, -15, CONFIG.TrackInitialDropDistance - CONFIG.TrackInitialStraightLength)
-	table.insert(points, currentPos)
+	-- Start position
+	local startPosition = Vector3.new(platformCenterX, startHeightValue, platformEdgeZ)
 	
-	local currentAngle = 0  -- Heading in radians (0 = +Z direction)
-	local totalDistance = CONFIG.TrackInitialStraightLength + CONFIG.TrackInitialDropDistance
-	local targetTurnRate = 0  -- Smooth turn rate target
-	local currentTurnRate = 0  -- Actual turn rate (smoothly follows target)
+	-- End position (straight ahead in +Z direction with gradual descent)
+	local endPosition = Vector3.new(
+		platformCenterX,  -- Same X (no turning)
+		CONFIG.TrackMinHeight,  -- End at minimum height
+		platformEdgeZ + trackLength  -- Straight ahead
+	)
 	
-	-- Generate remaining points with smooth curves and more turns
-	for i = 4, CONFIG.TrackNumControlPoints do
-		-- Vary section length slightly for natural feel
-		local sectionLength = CONFIG.TrackMinSectionLength + 
-			math.random() * (CONFIG.TrackMaxSectionLength - CONFIG.TrackMinSectionLength)
-		
-		-- Calculate turn intensity based on distance from start (gradual introduction)
-		local turnIntensity = math.min(1.0, (totalDistance - CONFIG.TrackInitialDropDistance) / 150)
-		
-		-- Use smooth turns - change direction every 2 control points for snake-like curves
-		if i % 2 == 0 then  -- Very frequent direction changes = more snake-like!
-			local maxTurn = math.rad(CONFIG.TrackMaxTurnAngle) * turnIntensity
-			targetTurnRate = (math.random() - 0.5) * 2 * maxTurn * 0.7  -- Stronger turn rate
-		end
-		
-		-- Smoothly interpolate current turn rate toward target (gradual changes)
-		currentTurnRate = currentTurnRate + (targetTurnRate - currentTurnRate) * 0.35  -- Faster response
-		currentAngle = currentAngle + currentTurnRate
-		
-		-- Clamp total angle to prevent extreme turns, with smooth return to center
-		if math.abs(currentAngle) > math.rad(90) then
-			targetTurnRate = -math.sign(currentAngle) * math.rad(5)  -- Gently steer back
-		end
-		currentAngle = math.clamp(currentAngle, math.rad(-100), math.rad(100))
-		
-		-- Smooth height changes
-		local heightChange
-		if currentHeight <= CONFIG.TrackMinHeight + 50 then
-			heightChange = math.random(CONFIG.TrackRisePerSection[1], CONFIG.TrackRisePerSection[2])
-		elseif currentHeight >= CONFIG.TrackMaxHeight - 20 then
-			heightChange = -math.random(CONFIG.TrackDropPerSection[1], CONFIG.TrackDropPerSection[2])
-		elseif math.random() < CONFIG.TrackDropChance then
-			heightChange = -math.random(CONFIG.TrackDropPerSection[1], CONFIG.TrackDropPerSection[2])
-		else
-			heightChange = math.random(CONFIG.TrackRisePerSection[1], CONFIG.TrackRisePerSection[2])
-		end
-		
-		currentHeight = math.clamp(currentHeight + heightChange, CONFIG.TrackMinHeight, CONFIG.TrackMaxHeight)
-		
-		-- Calculate next position (X = sin, Z = cos for proper heading)
-		local dx = math.sin(currentAngle) * sectionLength
-		local dz = math.cos(currentAngle) * sectionLength
-		currentPos = currentPos + Vector3.new(dx, 0, dz)
-		currentPos = Vector3.new(currentPos.X, currentHeight, currentPos.Z)
-		
-		table.insert(points, currentPos)
-		totalDistance = totalDistance + sectionLength
+	-- Generate evenly spaced points along the straight line
+	for i = 0, numPoints - 1 do
+		local t = i / (numPoints - 1)
+		local point = startPosition:Lerp(endPosition, t)
+		table.insert(points, point)
 	end
 	
-	print(string.format("[HubService] Generated %d control points, total distance: %.1f studs", #points, totalDistance))
+	print(string.format("[HubService] Generated STRAIGHT track with %d control points, length: %.1f studs", #points, trackLength))
 	return points
 end
 
@@ -4231,6 +4188,9 @@ function HubService:CreateHub()
 		splineTrackResult = generateSplineTrack(startPos, self._hubFolder)
 		
 		if splineTrackResult then
+			-- Store the path for TramService
+			self._trackPath = splineTrackResult.path
+			
 			-- Create end shipping center (Receiving Center) at the end of the spline
 			local endPos = splineTrackResult.endPos
 			local endTangent = splineTrackResult.endTangent
@@ -5752,6 +5712,12 @@ function HubService:KnitStart()
 		
 		-- Start package chute system (drops packages from ceiling)
 		self:StartPackageChute()
+		
+		-- Start tram shuttle system via TramService
+		if self._trackPath and #self._trackPath > 10 then
+			local TramService = Knit.GetService("TramService")
+			TramService:Initialize(self._trackPath, self._hubFolder)
+		end
 		
 		print("[HubService] Hub ready!")
 	end)

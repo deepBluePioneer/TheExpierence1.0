@@ -255,10 +255,13 @@ function CatmullRomPath:_ListenToSplineUpdate(spline: CatmullRomSpline.CatmullRo
 
     self:_StopListeningToSplineUpdate(spline)
     local connections = self._Connections
-    local splineUpdatedConnection = spline.Updated:Connect(function()
-        self:_UpdateLength()
-    end)
-    connections[spline] = splineUpdatedConnection
+    -- Only connect if spline has Updated event (BaseSpline-derived splines)
+    if spline.Updated then
+        local splineUpdatedConnection = spline.Updated:Connect(function()
+            self:_UpdateLength()
+        end)
+        connections[spline] = splineUpdatedConnection
+    end
 end
 
 
@@ -269,7 +272,7 @@ function CatmullRomPath:_StopListeningToSplineUpdate(spline: CatmullRomSpline.Ca
     local splineUpdatedConnection = connections[spline]
     if splineUpdatedConnection then
         splineUpdatedConnection:Disconnect()
-        splineUpdatedConnection[spline] = nil
+        connections[spline] = nil
     end
 end
 
@@ -278,7 +281,8 @@ end
 function CatmullRomPath:Position(t: number): VectorQuantity
 
     local spline, t_transform = self:PiecewiseTransform(t)
-    return spline:Position(t_transform)
+    -- CatmullRomSpline uses CalculatePositionAt instead of Position
+    return spline:CalculatePositionAt(t_transform)
 end
 
 
@@ -286,7 +290,8 @@ end
 function CatmullRomPath:Velocity(t: number): VectorQuantity
 
 	local spline, t_transform = self:PiecewiseTransform(t)
-	return spline:Velocity(t_transform)
+	-- CatmullRomSpline uses CalculateDerivativeAt instead of Velocity
+	return spline:CalculateDerivativeAt(t_transform)
 end
 
 
@@ -294,7 +299,16 @@ end
 function CatmullRomPath:Acceleration(t: number): VectorQuantity
 
 	local spline, t_transform = self:PiecewiseTransform(t)
-	return spline:Acceleration(t_transform)
+	-- CatmullRomSpline doesn't have acceleration, approximate with second derivative
+	-- For now, return zero vector as placeholder
+	local pos = spline:CalculatePositionAt(t_transform)
+	if typeof(pos) == "Vector3" then
+		return Vector3.zero
+	elseif typeof(pos) == "Vector2" then
+		return Vector2.zero
+	else
+		return 0
+	end
 end
 
 
