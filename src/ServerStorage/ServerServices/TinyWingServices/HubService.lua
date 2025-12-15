@@ -104,8 +104,8 @@ local CONFIG = {
 	SplineSegmentLength = 8,                     -- Length of each track segment (overlap with neighbors)
 	
 	-- Track control points generation (Logistics conveyor path)
-	TrackTotalLength = 800,                      -- Compact delivery route
-	TrackNumControlPoints = 20,                  -- Minimal control points
+	TrackTotalLength = 1500,                     -- Extended bridge length
+	TrackNumControlPoints = 30,                  -- More control points for longer bridge
 	TrackMaxTurnAngle = 50,                      -- Tight industrial turns
 	TrackMinSectionLength = 30,                  -- Short sections for snake-like curves
 	TrackMaxSectionLength = 70,                  -- Keep sections short for more turns
@@ -4170,33 +4170,56 @@ function HubService:CreateHub()
 	end
 	
 	-- ══════════════════════════════════════════════════════════════════════
-	-- TRACK GENERATION (SPLINE or SEGMENT-BASED)
+	-- TRACK GENERATION (Using BridgeSplineService)
 	-- ══════════════════════════════════════════════════════════════════════
 	
 	local splineTrackResult = nil
 	
 	if CONFIG.UseSplineTrack then
-		-- Use the new spline-based track generation
-		print("[HubService] Using SPLINE-based track generation")
+		-- Use BridgeSplineService for track generation
+		print("[HubService] Using BridgeSplineService for track generation")
+		
+		local BridgeSplineService = Knit.GetService("BridgeSplineService")
+		
+		-- Configure the bridge service with our settings
+		BridgeSplineService:SetConfig("TrackWidth", CONFIG.SlideWidth)
+		BridgeSplineService:SetConfig("TrackThickness", CONFIG.SlideThickness)
+		BridgeSplineService:SetConfig("TrackColor", CONFIG.SlideColor)
+		BridgeSplineService:SetConfig("TrackMaterial", CONFIG.SlideMaterial)
+		BridgeSplineService:SetConfig("TrackTotalLength", CONFIG.TrackTotalLength)
+		BridgeSplineService:SetConfig("TrackMinHeight", CONFIG.TrackMinHeight)
+		BridgeSplineService:SetConfig("RailEnabled", false)  -- No side rails
 		
 		local startPos = Vector3.new(
 			CONFIG.StartPlatformPosition.X,
-			startPlatformTopY,
+			startPlatformTopY - CONFIG.SlideThickness / 2,
 			startPlatformFrontZ
 		)
 		
-		splineTrackResult = generateSplineTrack(startPos, self._hubFolder)
+		-- Bridge is FLAT - same Y at both ends
+		local bridgeHeight = startPlatformTopY - CONFIG.SlideThickness / 2
+		local endPos = Vector3.new(
+			CONFIG.StartPlatformPosition.X,
+			bridgeHeight,  -- Same height as start for flat bridge
+			startPlatformFrontZ + CONFIG.TrackTotalLength
+		)
+		
+		splineTrackResult = BridgeSplineService:GenerateBridge(startPos, endPos, {
+			parent = self._hubFolder,
+			width = CONFIG.SlideWidth,
+			color = CONFIG.SlideColor,
+		})
 		
 		if splineTrackResult then
 			-- Store the path for TramService
 			self._trackPath = splineTrackResult.path
 			
-			-- Create end shipping center (Receiving Center) at the end of the spline
-			local endPos = splineTrackResult.endPos
+			-- Create end shipping center (Receiving Center) at the end of the bridge
+			local bridgeEndPos = splineTrackResult.endPos
 			local endTangent = splineTrackResult.endTangent
 			
 			-- Position entrance at track end, flush with the path
-			local entrancePos = endPos - Vector3.new(0, CONFIG.SlideThickness / 2, 0)
+			local entrancePos = bridgeEndPos - Vector3.new(0, CONFIG.SlideThickness / 2, 0)
 			local endPlatformSize = CONFIG.FinalLandingSize
 			
 			-- Create the receiving center rotated to face the incoming track
@@ -4207,9 +4230,9 @@ function HubService:CreateHub()
 				self:SetupPackageCollection(endCenterResult.collectionZone)
 			end
 			
-			print(string.format("[HubService] Spline track complete! Total length: %.0f studs", splineTrackResult.totalLength))
+			print(string.format("[HubService] Bridge track complete! Total length: %.0f studs", splineTrackResult.totalLength))
 		else
-			warn("[HubService] Spline track generation failed! Falling back to segment-based...")
+			warn("[HubService] Bridge track generation failed! Falling back to segment-based...")
 		end
 	end
 	
