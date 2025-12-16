@@ -216,7 +216,10 @@ function TramService:CreateStation(position, facingDirection, isStart)
 	
 	local size = CONFIG.StationSize
 	
-	-- Platform
+	-- ═══════════════════════════════════════════════════════════════════════════
+	-- PLATFORM (simple elevated platform inside the building)
+	-- ═══════════════════════════════════════════════════════════════════════════
+	
 	local platform = Instance.new("Part")
 	platform.Name = "Platform"
 	platform.Size = size
@@ -229,7 +232,7 @@ function TramService:CreateStation(position, facingDirection, isStart)
 	
 	stationFolder.PrimaryPart = platform
 	
-	-- Yellow safety line
+	-- Yellow safety line along track edge
 	local safetyLine = Instance.new("Part")
 	safetyLine.Name = "SafetyLine"
 	safetyLine.Size = Vector3.new(2, 0.2, size.Z)
@@ -240,200 +243,160 @@ function TramService:CreateStation(position, facingDirection, isStart)
 	safetyLine.CanCollide = false
 	safetyLine.Parent = stationFolder
 	
-	-- Station sign
-	local signPost = Instance.new("Part")
-	signPost.Name = "SignPost"
-	signPost.Size = Vector3.new(1, 15, 1)
-	signPost.Position = position + Vector3.new(-size.X / 2 + 2, size.Y / 2 + 7.5, 0)
-	signPost.Color = Color3.fromRGB(50, 55, 60)
-	signPost.Material = Enum.Material.Metal
-	signPost.Anchored = true
-	signPost.CanCollide = false
-	signPost.Parent = stationFolder
+	-- ═══════════════════════════════════════════════════════════════════════════
+	-- SAFETY RAILINGS (around the platform edges except track side)
+	-- ═══════════════════════════════════════════════════════════════════════════
 	
-	local sign = Instance.new("Part")
-	sign.Name = "Sign"
-	sign.Size = Vector3.new(0.5, 6, 12)
-	sign.Position = signPost.Position + Vector3.new(0, 6, 0)
-	sign.Color = CONFIG.BodyColor
-	sign.Material = Enum.Material.SmoothPlastic
-	sign.Anchored = true
-	sign.CanCollide = false
-	sign.Parent = stationFolder
+	local railHeight = 3.5
+	local railColor = Color3.fromRGB(255, 200, 0)  -- Yellow safety rails
 	
-	-- Sign text
-	local signGui = Instance.new("SurfaceGui")
-	signGui.Name = "SignGui"
-	signGui.Face = Enum.NormalId.Right
-	signGui.Parent = sign
+	-- Back railing (-X side)
+	local backRail = Instance.new("Part")
+	backRail.Name = "BackRailing"
+	backRail.Size = Vector3.new(0.2, railHeight, size.Z)
+	backRail.Position = position + Vector3.new(-size.X / 2 + 0.1, size.Y / 2 + railHeight / 2, 0)
+	backRail.Color = railColor
+	backRail.Material = Enum.Material.Metal
+	backRail.Anchored = true
+	backRail.CanCollide = true
+	backRail.Parent = stationFolder
 	
-	local signText = Instance.new("TextLabel")
-	signText.Size = UDim2.new(1, 0, 0.5, 0)
-	signText.Position = UDim2.new(0, 0, 0, 0)
-	signText.BackgroundTransparency = 1
-	signText.Text = "🚃 TRAM"
-	signText.TextColor3 = Color3.new(1, 1, 1)
-	signText.TextScaled = true
-	signText.Font = Enum.Font.GothamBold
-	signText.Parent = signGui
+	-- Side railings (Z sides)
+	for side = -1, 1, 2 do
+		local sideRail = Instance.new("Part")
+		sideRail.Name = "SideRailing_" .. side
+		sideRail.Size = Vector3.new(size.X - 4, railHeight, 0.2)  -- Leave gap at track side
+		sideRail.Position = position + Vector3.new(-2, size.Y / 2 + railHeight / 2, side * (size.Z / 2 - 0.1))
+		sideRail.Color = railColor
+		sideRail.Material = Enum.Material.Metal
+		sideRail.Anchored = true
+		sideRail.CanCollide = true
+		sideRail.Parent = stationFolder
+	end
 	
-	local costText = Instance.new("TextLabel")
-	costText.Size = UDim2.new(1, 0, 0.3, 0)
-	costText.Position = UDim2.new(0, 0, 0.5, 0)
-	costText.BackgroundTransparency = 1
-	costText.Text = "⭐ " .. CONFIG.Cost .. " Kudos"
-	costText.TextColor3 = Color3.fromRGB(255, 215, 0)
-	costText.TextScaled = true
-	costText.Font = Enum.Font.Gotham
-	costText.Parent = signGui
+	-- ═══════════════════════════════════════════════════════════════════════════
+	-- INTEGRATED STAIRS (built into the platform)
+	-- ═══════════════════════════════════════════════════════════════════════════
 	
-	local destText = Instance.new("TextLabel")
-	destText.Size = UDim2.new(1, 0, 0.2, 0)
-	destText.Position = UDim2.new(0, 0, 0.8, 0)
-	destText.BackgroundTransparency = 1
-	destText.Text = isStart and "→ End Station" or "→ Start Station"
-	destText.TextColor3 = Color3.fromRGB(200, 200, 200)
-	destText.TextScaled = true
-	destText.Font = Enum.Font.Gotham
-	destText.Parent = signGui
+	local platformTopY = position.Y + size.Y / 2
+	local groundLevel = 0
+	local totalHeight = platformTopY - groundLevel
 	
-	-- Also add to other side
-	local signGui2 = signGui:Clone()
-	signGui2.Face = Enum.NormalId.Left
-	signGui2.Parent = sign
+	local stepHeight = 0.5
+	local stepDepth = 1.0
+	local stairWidth = 6
+	local numSteps = math.ceil(totalHeight / stepHeight)
 	
-	-- Boarding prompt zone
+	-- Stairs at the back of the platform, going down in -X direction
+	local stairStartX = position.X - size.X / 2
+	local stairZ = position.Z
+	
+	-- Solid stair base (fills underneath the steps)
+	local stairBase = Instance.new("WedgePart")
+	stairBase.Name = "StairBase"
+	stairBase.Size = Vector3.new(stairWidth, totalHeight, numSteps * stepDepth)
+	stairBase.CFrame = CFrame.new(
+		stairStartX - numSteps * stepDepth / 2,
+		groundLevel + totalHeight / 2,
+		stairZ
+	) * CFrame.Angles(0, math.rad(-90), 0)
+	stairBase.Color = CONFIG.StationColor
+	stairBase.Material = Enum.Material.Concrete
+	stairBase.Anchored = true
+	stairBase.CanCollide = true
+	stairBase.Parent = stationFolder
+	
+	-- Individual step treads on top
+	for i = 0, numSteps - 1 do
+		local stepY = groundLevel + i * stepHeight + stepHeight / 2
+		local stepX = stairStartX - (numSteps - i - 0.5) * stepDepth
+		
+		local step = Instance.new("Part")
+		step.Name = "Step_" .. i
+		step.Size = Vector3.new(stepDepth + 0.1, 0.15, stairWidth)
+		step.Position = Vector3.new(stepX, stepY + stepHeight / 2, stairZ)
+		step.Color = Color3.fromRGB(80, 85, 90)
+		step.Material = Enum.Material.Concrete
+		step.Anchored = true
+		step.CanCollide = true
+		step.Parent = stationFolder
+		
+		-- Yellow safety edge on each step
+		local stepEdge = Instance.new("Part")
+		stepEdge.Name = "StepEdge_" .. i
+		stepEdge.Size = Vector3.new(0.1, 0.18, stairWidth - 0.2)
+		stepEdge.Position = Vector3.new(stepX + stepDepth / 2, stepY + stepHeight / 2 + 0.02, stairZ)
+		stepEdge.Color = CONFIG.AccentColor
+		stepEdge.Material = Enum.Material.Neon
+		stepEdge.Anchored = true
+		stepEdge.CanCollide = false
+		stepEdge.Parent = stationFolder
+	end
+	
+	-- Stair handrails
+	for side = -1, 1, 2 do
+		local railZ = stairZ + side * (stairWidth / 2 + 0.15)
+		
+		-- Posts
+		for i = 0, numSteps, math.floor(numSteps / 3) do
+			local postY = groundLevel + i * stepHeight
+			local postX = stairStartX - (numSteps - i) * stepDepth
+			
+			local post = Instance.new("Part")
+			post.Name = "StairPost_" .. side .. "_" .. i
+			post.Size = Vector3.new(0.15, 3.5, 0.15)
+			post.Position = Vector3.new(postX, postY + 1.75, railZ)
+			post.Color = railColor
+			post.Material = Enum.Material.Metal
+			post.Anchored = true
+			post.CanCollide = true
+			post.Parent = stationFolder
+		end
+		
+		-- Angled top rail
+		local railStartX = stairStartX - numSteps * stepDepth
+		local railEndX = stairStartX
+		local railStartY = groundLevel + 3.5
+		local railEndY = platformTopY + 3.5
+		
+		local railLength = math.sqrt((railEndX - railStartX)^2 + (railEndY - railStartY)^2)
+		local railAngle = math.atan2(railEndY - railStartY, railEndX - railStartX)
+		
+		local handrail = Instance.new("Part")
+		handrail.Name = "StairHandrail_" .. side
+		handrail.Size = Vector3.new(railLength, 0.12, 0.12)
+		handrail.CFrame = CFrame.new(
+			(railStartX + railEndX) / 2,
+			(railStartY + railEndY) / 2,
+			railZ
+		) * CFrame.Angles(0, 0, railAngle)
+		handrail.Color = railColor
+		handrail.Material = Enum.Material.Metal
+		handrail.Anchored = true
+		handrail.CanCollide = true
+		handrail.Parent = stationFolder
+	end
+	
+	-- ═══════════════════════════════════════════════════════════════════════════
+	-- BOARDING ZONE AND PROMPT
+	-- ═══════════════════════════════════════════════════════════════════════════
+	
 	local boardingZone = Instance.new("Part")
 	boardingZone.Name = "BoardingZone"
-	boardingZone.Size = Vector3.new(size.X, 10, size.Z)
-	boardingZone.Position = position + Vector3.new(0, 5, 0)
+	boardingZone.Size = Vector3.new(size.X, 8, size.Z)
+	boardingZone.Position = position + Vector3.new(0, 4, 0)
 	boardingZone.Transparency = 1
 	boardingZone.CanCollide = false
 	boardingZone.Anchored = true
 	boardingZone.Parent = stationFolder
 	
-	-- ProximityPrompt for boarding
 	local boardPrompt = Instance.new("ProximityPrompt")
 	boardPrompt.Name = "BoardTramPrompt"
 	boardPrompt.ActionText = "Board Tram"
 	boardPrompt.ObjectText = "⭐ " .. CONFIG.Cost .. " Kudos"
 	boardPrompt.HoldDuration = 0.5
-	boardPrompt.MaxActivationDistance = 15
+	boardPrompt.MaxActivationDistance = 12
 	boardPrompt.Parent = boardingZone
-	
-	-- ═══════════════════════════════════════════════════════════════════════════
-	-- STATION LIGHTING
-	-- ═══════════════════════════════════════════════════════════════════════════
-	
-	-- Overhead lamp posts (two at each end of platform)
-	for z = -1, 1, 2 do
-		local lampPost = Instance.new("Part")
-		lampPost.Name = "LampPost_" .. z
-		lampPost.Size = Vector3.new(0.5, 12, 0.5)
-		lampPost.Position = position + Vector3.new(-size.X / 2 + 2, size.Y / 2 + 6, z * (size.Z / 2 - 3))
-		lampPost.Color = Color3.fromRGB(60, 65, 70)
-		lampPost.Material = Enum.Material.Metal
-		lampPost.Anchored = true
-		lampPost.CanCollide = false
-		lampPost.Parent = stationFolder
-		
-		-- Lamp arm extending over platform
-		local lampArm = Instance.new("Part")
-		lampArm.Name = "LampArm_" .. z
-		lampArm.Size = Vector3.new(6, 0.3, 0.3)
-		lampArm.Position = lampPost.Position + Vector3.new(3, 5.5, 0)
-		lampArm.Color = Color3.fromRGB(60, 65, 70)
-		lampArm.Material = Enum.Material.Metal
-		lampArm.Anchored = true
-		lampArm.CanCollide = false
-		lampArm.Parent = stationFolder
-		
-		local armWeld = Instance.new("WeldConstraint")
-		armWeld.Part0 = lampPost
-		armWeld.Part1 = lampArm
-		armWeld.Parent = lampArm
-		
-		-- Lamp head (light fixture)
-		local lampHead = Instance.new("Part")
-		lampHead.Name = "LampHead_" .. z
-		lampHead.Size = Vector3.new(2, 0.5, 2)
-		lampHead.Position = lampArm.Position + Vector3.new(2.5, -0.5, 0)
-		lampHead.Color = Color3.fromRGB(255, 245, 220)
-		lampHead.Material = Enum.Material.Neon
-		lampHead.Anchored = true
-		lampHead.CanCollide = false
-		lampHead.Parent = stationFolder
-		
-		local lampWeld = Instance.new("WeldConstraint")
-		lampWeld.Part0 = lampArm
-		lampWeld.Part1 = lampHead
-		lampWeld.Parent = lampHead
-		
-		-- Actual light source
-		local stationLight = Instance.new("PointLight")
-		stationLight.Name = "StationLight"
-		stationLight.Brightness = 1.5
-		stationLight.Range = 30
-		stationLight.Color = Color3.fromRGB(255, 245, 220)
-		stationLight.Parent = lampHead
-	end
-	
-	-- Platform edge lights (along the safety line)
-	for i = -2, 2 do
-		local edgeLight = Instance.new("Part")
-		edgeLight.Name = "EdgeLight_" .. i
-		edgeLight.Size = Vector3.new(0.5, 0.3, 0.5)
-		edgeLight.Position = position + Vector3.new(size.X / 2 - 1, size.Y / 2 + 0.3, i * (size.Z / 5))
-		edgeLight.Color = CONFIG.AccentColor
-		edgeLight.Material = Enum.Material.Neon
-		edgeLight.Anchored = true
-		edgeLight.CanCollide = false
-		edgeLight.Parent = stationFolder
-		
-		-- Small point light for each edge light
-		local edgePointLight = Instance.new("PointLight")
-		edgePointLight.Brightness = 0.5
-		edgePointLight.Range = 6
-		edgePointLight.Color = CONFIG.AccentColor
-		edgePointLight.Parent = edgeLight
-	end
-	
-	-- Sign illumination light
-	local signLight = Instance.new("Part")
-	signLight.Name = "SignLight"
-	signLight.Size = Vector3.new(0.3, 0.3, 10)
-	signLight.Position = sign.Position + Vector3.new(1, 3.5, 0)
-	signLight.Color = Color3.fromRGB(255, 255, 255)
-	signLight.Material = Enum.Material.Neon
-	signLight.Anchored = true
-	signLight.CanCollide = false
-	signLight.Parent = stationFolder
-	
-	local signSpotLight = Instance.new("SpotLight")
-	signSpotLight.Brightness = 2
-	signSpotLight.Range = 15
-	signSpotLight.Angle = 60
-	signSpotLight.Face = Enum.NormalId.Left
-	signSpotLight.Color = Color3.fromRGB(255, 255, 255)
-	signSpotLight.Parent = signLight
-	
-	-- Under-platform ambient glow
-	local platformGlow = Instance.new("Part")
-	platformGlow.Name = "PlatformGlow"
-	platformGlow.Size = Vector3.new(size.X - 2, 0.3, size.Z - 2)
-	platformGlow.Position = position + Vector3.new(0, -size.Y / 2 - 0.2, 0)
-	platformGlow.Color = Color3.fromRGB(100, 150, 255)
-	platformGlow.Material = Enum.Material.Neon
-	platformGlow.Transparency = 0.6
-	platformGlow.Anchored = true
-	platformGlow.CanCollide = false
-	platformGlow.Parent = stationFolder
-	
-	local platformGlowLight = Instance.new("PointLight")
-	platformGlowLight.Brightness = 0.6
-	platformGlowLight.Range = 15
-	platformGlowLight.Color = Color3.fromRGB(100, 150, 255)
-	platformGlowLight.Parent = platformGlow
 	
 	return stationFolder, boardPrompt
 end

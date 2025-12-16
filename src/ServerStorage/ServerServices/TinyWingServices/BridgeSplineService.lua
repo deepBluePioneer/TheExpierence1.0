@@ -323,7 +323,7 @@ function BridgeSplineService:CreateTower(position, deckHeight, options)
 		cap.Color = CONFIG.TowerColor
 		cap.Material = CONFIG.TowerMaterial
 		cap.Anchored = true
-		cap.CanCollide = false
+		cap.CanCollide = true
 		cap.Parent = towerFolder
 		
 		-- Cable saddle at top (positioned above deck edge where cable runs)
@@ -334,7 +334,7 @@ function BridgeSplineService:CreateTower(position, deckHeight, options)
 		saddle.Color = Color3.fromRGB(40, 45, 50)
 		saddle.Material = Enum.Material.Metal
 		saddle.Anchored = true
-		saddle.CanCollide = false
+		saddle.CanCollide = true
 		saddle.Shape = Enum.PartType.Cylinder
 		saddle.CFrame = CFrame.new(saddle.Position) * CFrame.Angles(0, 0, math.rad(90))
 		saddle.Parent = towerFolder
@@ -348,7 +348,7 @@ function BridgeSplineService:CreateTower(position, deckHeight, options)
 		arm.Color = CONFIG.TowerColor
 		arm.Material = CONFIG.TowerMaterial
 		arm.Anchored = true
-		arm.CanCollide = false
+		arm.CanCollide = true
 		arm.Parent = towerFolder
 	end
 	
@@ -361,7 +361,7 @@ function BridgeSplineService:CreateTower(position, deckHeight, options)
 	crossBeam.Color = CONFIG.TowerColor
 	crossBeam.Material = CONFIG.TowerMaterial
 	crossBeam.Anchored = true
-	crossBeam.CanCollide = false
+	crossBeam.CanCollide = true
 	crossBeam.Parent = towerFolder
 	
 	if parent then
@@ -411,7 +411,7 @@ function BridgeSplineService:CreateAnchorage(position, facingDirection, options)
 		clamp.Color = Color3.fromRGB(50, 55, 60)
 		clamp.Material = Enum.Material.Metal
 		clamp.Anchored = true
-		clamp.CanCollide = false
+		clamp.CanCollide = true
 		clamp.Parent = anchorFolder
 	end
 	
@@ -504,7 +504,7 @@ function BridgeSplineService:CreateMainCable(startPos, endPos, towerPositions, d
 			cable.Color = CONFIG.MainCableColor
 			cable.Material = CONFIG.MainCableMaterial
 			cable.Anchored = true
-			cable.CanCollide = false
+			cable.CanCollide = true
 			cable.CastShadow = false
 			cable.Parent = cableFolder
 		end
@@ -632,7 +632,7 @@ function BridgeSplineService:CreateHangers(path, startPos, endPos, towerPosition
 				hanger.Color = CONFIG.HangerColor
 				hanger.Material = CONFIG.HangerMaterial
 				hanger.Anchored = true
-				hanger.CanCollide = false
+				hanger.CanCollide = true
 				hanger.CastShadow = false
 				hanger.Parent = hangerFolder
 				
@@ -645,7 +645,7 @@ function BridgeSplineService:CreateHangers(path, startPos, endPos, towerPosition
 				spire.Color = Color3.fromRGB(40, 45, 50)
 				spire.Material = Enum.Material.Metal
 				spire.Anchored = true
-				spire.CanCollide = false
+				spire.CanCollide = true
 				spire.CastShadow = false
 				spire.Parent = hangerFolder
 				
@@ -658,7 +658,7 @@ function BridgeSplineService:CreateHangers(path, startPos, endPos, towerPosition
 				lightBulb.Material = Enum.Material.Neon
 				lightBulb.Shape = Enum.PartType.Ball
 				lightBulb.Anchored = true
-				lightBulb.CanCollide = false
+				lightBulb.CanCollide = true
 				lightBulb.CastShadow = false
 				lightBulb.Parent = hangerFolder
 				
@@ -831,6 +831,20 @@ function BridgeSplineService:GenerateBridge(startPos, endPos, options)
 	local totalLength = (endPos - startPos).Magnitude
 	print(string.format("[BridgeSplineService] Suspension bridge complete! %d deck segments, %.0f studs", segmentCount, totalLength))
 	
+	-- Spawn random vehicles on the bridge
+	local vehicleFolder = self:SpawnVehiclesOnBridge(smoothPath, {
+		parent = bridgeFolder,
+		count = 60,  -- Number of vehicles to spawn
+		width = width,
+	})
+	
+	-- Spawn random debris on the bridge
+	local debrisFolder = self:SpawnDebrisOnBridge(smoothPath, {
+		parent = bridgeFolder,
+		count = 50,  -- Number of debris to spawn
+		width = width,
+	})
+	
 	return {
 		folder = bridgeFolder,
 		path = smoothPath,
@@ -839,6 +853,8 @@ function BridgeSplineService:GenerateBridge(startPos, endPos, options)
 		endPos = endPos,
 		totalLength = totalLength,
 		endTangent = (#smoothPath >= 2) and (smoothPath[#smoothPath] - smoothPath[#smoothPath - 1]).Unit or Vector3.new(0, 0, 1),
+		vehicles = vehicleFolder,
+		debris = debrisFolder,
 	}
 end
 
@@ -876,6 +892,274 @@ end
 -- ╔════════════════════════════════════════════════════════════════════════════╗
 -- ║                         KNIT LIFECYCLE                                      ║
 -- ╚════════════════════════════════════════════════════════════════════════════╝
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║                         VEHICLE SPAWNING                                    ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+function BridgeSplineService:SpawnVehiclesOnBridge(path, options)
+	options = options or {}
+	local parent = options.parent or Workspace
+	local numVehicles = options.count or 10
+	local width = options.width or CONFIG.TrackWidth
+	
+	local vehicleFolder = Instance.new("Folder")
+	vehicleFolder.Name = "BridgeVehicles"
+	vehicleFolder.Parent = parent
+	
+	-- Get car prefabs from ReplicatedStorage
+	local prefabFolder = ReplicatedStorage:FindFirstChild("Prefabs")
+	if not prefabFolder then
+		warn("[BridgeSplineService] Prefabs folder not found in ReplicatedStorage!")
+		return vehicleFolder
+	end
+	
+	local carsFolder = prefabFolder:FindFirstChild("Cars")
+	if not carsFolder then
+		warn("[BridgeSplineService] Cars folder not found in Prefabs!")
+		return vehicleFolder
+	end
+	
+	-- Get all car models
+	local carModels = {}
+	for _, child in ipairs(carsFolder:GetChildren()) do
+		if child:IsA("Model") and child.PrimaryPart then
+			table.insert(carModels, child)
+		end
+	end
+	
+	if #carModels == 0 then
+		warn("[BridgeSplineService] No car models with PrimaryPart found in Cars folder!")
+		return vehicleFolder
+	end
+	
+	print(string.format("[BridgeSplineService] Found %d car models, spawning %d vehicles on bridge", #carModels, numVehicles))
+	
+	-- Spawn vehicles at random positions along the path
+	local pathLength = #path
+	local usedPositions = {}  -- Track used positions to avoid overlap
+	local minSpacing = 15  -- Minimum spacing between vehicles
+	
+	for i = 1, numVehicles do
+		-- Pick a random car model
+		local carTemplate = carModels[math.random(1, #carModels)]
+		
+		-- Find a valid position that doesn't overlap with others
+		local attempts = 0
+		local validPosition = nil
+		local pathIndex = nil
+		
+		while attempts < 20 and not validPosition do
+			-- Pick a random point along the path (avoid very start and end)
+			pathIndex = math.random(math.floor(pathLength * 0.1), math.floor(pathLength * 0.9))
+			local pos = path[pathIndex]
+			
+			-- Check if position is too close to existing vehicles
+			local tooClose = false
+			for _, usedIdx in ipairs(usedPositions) do
+				if math.abs(pathIndex - usedIdx) < minSpacing / 2 then
+					tooClose = true
+					break
+				end
+			end
+			
+			if not tooClose then
+				validPosition = pos
+				table.insert(usedPositions, pathIndex)
+			end
+			
+			attempts = attempts + 1
+		end
+		
+		if validPosition and pathIndex then
+			-- Clone the car
+			local car = carTemplate:Clone()
+			car.Name = carTemplate.Name .. "_" .. i
+			
+			-- Calculate direction along path for rotation
+			local nextIndex = math.min(pathIndex + 1, pathLength)
+			local prevIndex = math.max(pathIndex - 1, 1)
+			local direction = (path[nextIndex] - path[prevIndex]).Unit
+			
+			-- Random lane offset (left or right side of bridge)
+			local laneOffset = (math.random() > 0.5 and 1 or -1) * (width / 4)
+			
+			-- Position the car on the bridge surface
+			local carPos = validPosition + Vector3.new(laneOffset, CONFIG.TrackThickness / 2 + 2, 0)
+			
+			-- Create CFrame looking in the direction of the path
+			-- Randomly face forward or backward (simulating traffic in both directions)
+			local facingDirection = math.random() > 0.5 and direction or -direction
+			local carCFrame = CFrame.lookAt(carPos, carPos + facingDirection)
+			
+			-- Pivot the model to position (spawn slightly above to fall and settle)
+			local spawnCFrame = carCFrame + Vector3.new(0, 3, 0)
+			car:PivotTo(spawnCFrame)
+			
+			-- Start with parts UNANCHORED but collidable so they can settle with physics
+			for _, part in ipairs(car:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.Anchored = false
+					part.CanCollide = true
+				end
+			end
+			
+			car.Parent = vehicleFolder
+			
+			print(string.format("[BridgeSplineService] Spawned %s at path index %d", car.Name, pathIndex))
+		end
+	end
+	
+	print(string.format("[BridgeSplineService] Spawned %d vehicles on bridge - waiting for physics settle...", #vehicleFolder:GetChildren()))
+	
+	-- Wait for vehicles to settle with physics, then anchor them
+	task.spawn(function()
+		task.wait(3)  -- Wait 3 seconds for physics to settle
+		
+		for _, car in ipairs(vehicleFolder:GetChildren()) do
+			if car:IsA("Model") then
+				for _, part in ipairs(car:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.Anchored = true
+					end
+				end
+			end
+		end
+		
+		print("[BridgeSplineService] Vehicles anchored after settling")
+	end)
+	
+	return vehicleFolder
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║                         DEBRIS SPAWNING                                     ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+function BridgeSplineService:SpawnDebrisOnBridge(path, options)
+	options = options or {}
+	local parent = options.parent or Workspace
+	local numDebris = options.count or 40
+	local width = options.width or CONFIG.TrackWidth
+	
+	local debrisFolder = Instance.new("Folder")
+	debrisFolder.Name = "BridgeDebris"
+	debrisFolder.Parent = parent
+	
+	-- Get debris prefabs from ReplicatedStorage
+	local prefabFolder = ReplicatedStorage:FindFirstChild("Prefabs")
+	if not prefabFolder then
+		warn("[BridgeSplineService] Prefabs folder not found in ReplicatedStorage!")
+		return debrisFolder
+	end
+	
+	local debrisPrefabFolder = prefabFolder:FindFirstChild("Debris")
+	if not debrisPrefabFolder then
+		warn("[BridgeSplineService] Debris folder not found in Prefabs!")
+		return debrisFolder
+	end
+	
+	-- Get all debris models
+	local debrisModels = {}
+	for _, child in ipairs(debrisPrefabFolder:GetChildren()) do
+		if child:IsA("Model") or child:IsA("BasePart") then
+			table.insert(debrisModels, child)
+		end
+	end
+	
+	if #debrisModels == 0 then
+		warn("[BridgeSplineService] No debris models found in Debris folder!")
+		return debrisFolder
+	end
+	
+	print(string.format("[BridgeSplineService] Found %d debris models, spawning %d debris on bridge", #debrisModels, numDebris))
+	
+	-- Spawn debris at random positions along the path
+	local pathLength = #path
+	
+	for i = 1, numDebris do
+		-- Pick a random debris model
+		local debrisTemplate = debrisModels[math.random(1, #debrisModels)]
+		
+		-- Pick a random point along the path
+		local pathIndex = math.random(1, pathLength)
+		local pos = path[pathIndex]
+		
+		-- Random offset across the width of the bridge
+		local xOffset = (math.random() - 0.5) * (width * 0.8)
+		
+		-- Random rotation
+		local randomRotation = math.random() * math.pi * 2
+		
+		-- Clone the debris
+		local debris
+		if debrisTemplate:IsA("Model") then
+			debris = debrisTemplate:Clone()
+			debris.Name = debrisTemplate.Name .. "_" .. i
+			
+			-- Position the debris above the bridge surface (will fall and settle)
+			local debrisPos = pos + Vector3.new(xOffset, CONFIG.TrackThickness / 2 + 3, 0)
+			local debrisCFrame = CFrame.new(debrisPos) * CFrame.Angles(0, randomRotation, 0)
+			
+			if debris.PrimaryPart then
+				debris:PivotTo(debrisCFrame)
+			else
+				-- If no primary part, move all parts
+				for _, part in ipairs(debris:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.CFrame = debrisCFrame
+						break
+					end
+				end
+			end
+		else
+			-- It's a BasePart
+			debris = debrisTemplate:Clone()
+			debris.Name = debrisTemplate.Name .. "_" .. i
+			
+			local debrisPos = pos + Vector3.new(xOffset, CONFIG.TrackThickness / 2 + debris.Size.Y / 2 + 3, 0)
+			debris.CFrame = CFrame.new(debrisPos) * CFrame.Angles(0, randomRotation, 0)
+		end
+		
+		-- Start with parts UNANCHORED but collidable so they can settle with physics
+		if debris:IsA("Model") then
+			for _, part in ipairs(debris:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.Anchored = false
+					part.CanCollide = true
+				end
+			end
+		else
+			debris.Anchored = false
+			debris.CanCollide = true
+		end
+		
+		debris.Parent = debrisFolder
+	end
+	
+	print(string.format("[BridgeSplineService] Spawned %d debris on bridge - waiting for physics settle...", #debrisFolder:GetChildren()))
+	
+	-- Wait for debris to settle with physics, then anchor them
+	task.spawn(function()
+		task.wait(3)  -- Wait 3 seconds for physics to settle
+		
+		for _, debris in ipairs(debrisFolder:GetChildren()) do
+			if debris:IsA("Model") then
+				for _, part in ipairs(debris:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.Anchored = true
+					end
+				end
+			elseif debris:IsA("BasePart") then
+				debris.Anchored = true
+			end
+		end
+		
+		print("[BridgeSplineService] Debris anchored after settling")
+	end)
+	
+	return debrisFolder
+end
 
 function BridgeSplineService:KnitInit()
 	print("[BridgeSplineService] Initializing...")

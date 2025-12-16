@@ -30,6 +30,9 @@ local PROFILE_TEMPLATE = {
 	-- Upgrades
 	StackCapacity = 1,  -- Starting stack capacity (boxes player can carry)
 	
+	-- Skills (Skill Tree unlocks)
+	UnlockedSkills = {},  -- Array of skill IDs that player has unlocked
+	
 	-- Stats
 	TotalPackagesDelivered = 0,
 	TotalKudosEarned = 0,
@@ -168,6 +171,61 @@ function PlayerDataService:IncrementStackCapacity(player)
 end
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
+-- ║                         SKILLS METHODS                                      ║
+-- ╚════════════════════════════════════════════════════════════════════════════╝
+
+function PlayerDataService:GetUnlockedSkills(player)
+	local profile = Profiles[player]
+	if profile then
+		return profile.Data.UnlockedSkills or {}
+	end
+	return {}
+end
+
+function PlayerDataService:HasSkill(player, skillId)
+	local profile = Profiles[player]
+	if profile and profile.Data.UnlockedSkills then
+		for _, id in ipairs(profile.Data.UnlockedSkills) do
+			if id == skillId then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+function PlayerDataService:UnlockSkill(player, skillId)
+	local profile = Profiles[player]
+	if profile then
+		-- Check if already unlocked
+		if self:HasSkill(player, skillId) then
+			return false, "Already unlocked"
+		end
+		
+		-- Initialize skills array if needed
+		if not profile.Data.UnlockedSkills then
+			profile.Data.UnlockedSkills = {}
+		end
+		
+		-- Add skill to unlocked list
+		table.insert(profile.Data.UnlockedSkills, skillId)
+		
+		print(string.format("[PlayerDataService] %s unlocked skill: %s", player.Name, skillId))
+		return true, nil
+	end
+	return false, "Profile not loaded"
+end
+
+function PlayerDataService:SetUnlockedSkills(player, skillsList)
+	local profile = Profiles[player]
+	if profile then
+		profile.Data.UnlockedSkills = skillsList or {}
+		return true
+	end
+	return false
+end
+
+-- ╔════════════════════════════════════════════════════════════════════════════╗
 -- ║                         STATS METHODS                                       ║
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
@@ -227,13 +285,14 @@ function PlayerDataService:OnPlayerAdded(player)
 			end
 			profile.Data.LastJoinTime = os.time()
 			
-			print(string.format("[PlayerDataService] Profile loaded for %s: %d kudos, %d stack capacity", 
-				player.Name, profile.Data.Kudos, profile.Data.StackCapacity))
+			print(string.format("[PlayerDataService] Profile loaded for %s: %d kudos, %d stack capacity, %d skills", 
+				player.Name, profile.Data.Kudos, profile.Data.StackCapacity, #(profile.Data.UnlockedSkills or {})))
 			
 			-- Notify client that data is ready
 			self.Client.DataLoaded:Fire(player, {
 				Kudos = profile.Data.Kudos,
 				StackCapacity = profile.Data.StackCapacity,
+				UnlockedSkills = profile.Data.UnlockedSkills or {},
 			})
 			
 			-- Start play time tracking
@@ -278,6 +337,7 @@ function PlayerDataService.Client:GetMyData(player)
 			StackCapacity = profile.Data.StackCapacity,
 			TotalPackagesDelivered = profile.Data.TotalPackagesDelivered,
 			TotalKudosEarned = profile.Data.TotalKudosEarned,
+			UnlockedSkills = profile.Data.UnlockedSkills or {},
 		}
 	end
 	return nil
