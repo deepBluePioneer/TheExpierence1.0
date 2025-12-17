@@ -7,6 +7,8 @@ local LobbyPlaceID = 116406282300852
 local TestingPlaceID = 111394067928168
 local NewGamePlaceID = 110712408304598
 local TinyWingsPlaceID = 95282361907606
+local TungTungLobbyPlaceID = 126368140107328
+local TungTungMainGamePlaceID = 140527591728688
 
 -- References to controller directories
 local ClientControllers = StarterPlayerScripts.Source.ClientControllers
@@ -15,6 +17,7 @@ local Level_1Controllers = ClientControllers.Level_1Controllers
 local TestingControllers = ClientControllers.TestingControllers
 local NewGameControllers = ClientControllers.NewGameControllers
 local TinyWingControllers = ClientControllers.TinyWingControllers
+local WheresTungTungControllers = ClientControllers.WheresTungTungControllers
 
 -- Function to require controllers recursively
 local function requireControllers(directory)
@@ -40,6 +43,8 @@ local function loadControllersForPlace(placeId)
         controllerDirectory = NewGameControllers
     elseif placeId == TinyWingsPlaceID then
         controllerDirectory = TinyWingControllers
+    elseif placeId == TungTungLobbyPlaceID or placeId == TungTungMainGamePlaceID then
+        controllerDirectory = WheresTungTungControllers
     else
         warn("Unrecognized Place ID, no controllers loaded")
         return

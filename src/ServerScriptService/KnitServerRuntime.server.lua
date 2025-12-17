@@ -12,6 +12,8 @@ local LobbyPlaceID = 116406282300852
 local TestingPlaceID = 111394067928168
 local NewGamePlaceID = 110712408304598
 local TinyWingsPlaceID = 95282361907606
+local TungTungLobbyPlaceID = 126368140107328
+local TungTungMainGamePlaceID = 140527591728688
 
 -- Define service directories based on game type
 local LobbyServices = ServerServices.LobbyServices
@@ -19,6 +21,7 @@ local Level_1Services = ServerServices.Level_1Services
 local TestingServices = ServerServices.TestingServices
 local NewGameServices = ServerServices.NewGameServices
 local TinyWingServices = ServerServices.TinyWingServices
+local WheresTungTungServices = ServerServices.WheresTungTungServices
 
 -- Function to require services recursively
 local function requireServices(directory)
@@ -44,6 +47,8 @@ local function loadServicesForPlace(placeId)
         serviceDirectory = NewGameServices
     elseif placeId == TinyWingsPlaceID then
         serviceDirectory = TinyWingServices
+    elseif placeId == TungTungLobbyPlaceID or placeId == TungTungMainGamePlaceID then
+        serviceDirectory = WheresTungTungServices
     else
         warn("Unrecognized Place ID, no services loaded")
         return
