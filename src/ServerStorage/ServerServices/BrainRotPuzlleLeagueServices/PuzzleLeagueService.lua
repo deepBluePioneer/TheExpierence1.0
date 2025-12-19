@@ -54,6 +54,12 @@ local nextMatchId = 1
 	@param player The player to create replica for
 	@return Replica
 ]]
+-- Available background asset IDs
+local BACKGROUND_ASSETS = {
+	"rbxassetid://114775471895446",
+	"rbxassetid://99750803009155",
+}
+
 local function createPlayerReplica(player)
 	local replica = ReplicaService.NewReplica({
 		ClassToken = PlayerReplicaToken,
@@ -70,6 +76,12 @@ local function createPlayerReplica(player)
 			MatchStartedAt = 0, -- Game timer start time
 			MyCursor = { x = 1, y = 1 }, -- Player's own cursor
 			OppCursor = { x = 1, y = 1 }, -- Opponent's cursor (replicated)
+			-- Clear batch system (server-driven)
+			ClearBatchId = 0, -- Incremented on each resolve
+			MyClearBatch = {}, -- Array of {x, y, colorId} for player's board clears
+			OppClearBatch = {}, -- Array of {x, y, colorId} for opponent's board clears
+			-- Background (same for both players in a match)
+			BackgroundAssetId = "",
 		},
 		Replication = player,
 	})
@@ -177,6 +189,9 @@ function createMatch(player1, player2)
 	-- Calculate countdown end time
 	local countdownEndsAt = workspace:GetServerTimeNow() + Config.COUNTDOWN_SECONDS
 	
+	-- Select random background (same for both players)
+	local backgroundAssetId = BACKGROUND_ASSETS[math.random(1, #BACKGROUND_ASSETS)]
+	
 	-- Create match data
 	local match = {
 		id = matchId,
@@ -190,6 +205,13 @@ function createMatch(player1, player2)
 		winner = nil,
 		cursor1 = { x = math.floor(Config.BOARD_WIDTH / 2), y = 1 },
 		cursor2 = { x = math.floor(Config.BOARD_WIDTH / 2), y = 1 },
+		-- Swap lock per board (prevents overlapping swaps)
+		board1SwapLockedUntil = 0,
+		board2SwapLockedUntil = 0,
+		-- Clear batch ID (incremented each resolve)
+		clearBatchId = 0,
+		-- Background for this match
+		backgroundAssetId = backgroundAssetId,
 	}
 	
 	activeMatches[matchId] = match
@@ -208,6 +230,10 @@ function createMatch(player1, player2)
 		replica1:SetValue({"MatchStartedAt"}, 0)
 		replica1:SetValue({"MyCursor"}, { x = match.cursor1.x, y = match.cursor1.y })
 		replica1:SetValue({"OppCursor"}, { x = match.cursor2.x, y = match.cursor2.y })
+		replica1:SetValue({"ClearBatchId"}, 0)
+		replica1:SetValue({"MyClearBatch"}, {})
+		replica1:SetValue({"OppClearBatch"}, {})
+		replica1:SetValue({"BackgroundAssetId"}, backgroundAssetId)
 	end
 	
 	-- Update player 2 replica
@@ -224,6 +250,10 @@ function createMatch(player1, player2)
 		replica2:SetValue({"MatchStartedAt"}, 0)
 		replica2:SetValue({"MyCursor"}, { x = match.cursor2.x, y = match.cursor2.y })
 		replica2:SetValue({"OppCursor"}, { x = match.cursor1.x, y = match.cursor1.y })
+		replica2:SetValue({"ClearBatchId"}, 0)
+		replica2:SetValue({"MyClearBatch"}, {})
+		replica2:SetValue({"OppClearBatch"}, {})
+		replica2:SetValue({"BackgroundAssetId"}, backgroundAssetId)
 	end
 	
 	print("[PuzzleLeagueService] Match", matchId, "created:", player1.Name, "vs", player2.Name)
@@ -343,12 +373,150 @@ end
 -- ║                         GAME SIMULATION                                     ║
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
--- Delay between swap and clear processing (so client sees swap complete first)
-local SWAP_TO_CLEAR_DELAY = 0.30
+-- Delay between swap and resolve processing (so client sees swap complete first)
+local SWAP_RESOLVE_DELAY = Config.SWAP_RESOLVE_DELAY
+
+--[[
+	Gets the swap lock time for a player's board.
+	@param match The match data
+	@param player The player
+	@return swapLockedUntil time
+]]
+local function getSwapLock(match, player)
+	if match.player1 == player then
+		return match.board1SwapLockedUntil
+	else
+		return match.board2SwapLockedUntil
+	end
+end
+
+--[[
+	Sets the swap lock time for a player's board.
+	@param match The match data
+	@param player The player
+	@param lockUntil The server time to lock until
+]]
+local function setSwapLock(match, player, lockUntil)
+	if match.player1 == player then
+		match.board1SwapLockedUntil = lockUntil
+	else
+		match.board2SwapLockedUntil = lockUntil
+	end
+end
+
+--[[
+	Orders cleared tiles starting from the trigger position (swap location).
+	Tiles closest to trigger come first.
+	@param clearedTiles Array of {x, y, colorId}
+	@param triggerX The x position of the swap
+	@param triggerY The y position of the swap
+	@return Ordered array of cleared tiles
+]]
+local function orderClearedTilesFromTrigger(clearedTiles, triggerX, triggerY)
+	-- Calculate distance from trigger for each tile
+	local tilesWithDistance = {}
+	for _, tile in ipairs(clearedTiles) do
+		local distance = math.abs(tile.x - triggerX) + math.abs(tile.y - triggerY)
+		table.insert(tilesWithDistance, {
+			tile = tile,
+			distance = distance,
+		})
+	end
+	
+	-- Sort by distance (closest to trigger first)
+	table.sort(tilesWithDistance, function(a, b)
+		return a.distance < b.distance
+	end)
+	
+	-- Extract ordered tiles
+	local ordered = {}
+	for _, entry in ipairs(tilesWithDistance) do
+		table.insert(ordered, entry.tile)
+	end
+	
+	return ordered
+end
+
+--[[
+	Emits clear batches to both players.
+	@param match The match data
+	@param clearingPlayer The player whose board had clears
+	@param clearedTiles Array of {x, y, colorId}
+	@param triggerX Optional x position of the swap that triggered the clear
+	@param triggerY Optional y position of the swap that triggered the clear
+]]
+local function emitClearBatches(match, clearingPlayer, clearedTiles, triggerX, triggerY)
+	print("[Server] emitClearBatches called")
+	print("[Server]   clearingPlayer:", clearingPlayer.Name)
+	print("[Server]   clearedTiles count:", #clearedTiles)
+	print("[Server]   triggerX:", triggerX or "nil", "triggerY:", triggerY or "nil")
+	
+	if #clearedTiles == 0 then
+		print("[Server]   No tiles to clear, returning")
+		return
+	end
+	
+	-- Log all cleared tiles before ordering
+	print("[Server]   Cleared tiles (before ordering):")
+	for i, tile in ipairs(clearedTiles) do
+		print(string.format("[Server]     [%d] x=%d, y=%d, colorId=%d", i, tile.x, tile.y, tile.colorId))
+	end
+	
+	-- Order tiles from trigger position if provided
+	local orderedTiles = clearedTiles
+	if triggerX and triggerY then
+		orderedTiles = orderClearedTilesFromTrigger(clearedTiles, triggerX, triggerY)
+		print("[Server]   Cleared tiles (after ordering from trigger):")
+		for i, tile in ipairs(orderedTiles) do
+			print(string.format("[Server]     [%d] x=%d, y=%d, colorId=%d", i, tile.x, tile.y, tile.colorId))
+		end
+	end
+	
+	-- Increment clear batch ID
+	match.clearBatchId = match.clearBatchId + 1
+	local batchId = match.clearBatchId
+	print("[Server]   New batchId:", batchId)
+	
+	-- Get replicas
+	local replica1 = getPlayerReplica(match.player1)
+	local replica2 = getPlayerReplica(match.player2)
+	
+	-- IMPORTANT: Set batch DATA first, then batch ID last!
+	-- Client listens to ClearBatchId changes and reads batch data.
+	-- If we set ID first, client might read stale data.
+	
+	-- For player1: if clearing player is player1, it's "MyClearBatch", otherwise "OppClearBatch"
+	if replica1 then
+		-- Set batch data FIRST
+		if clearingPlayer == match.player1 then
+			replica1:SetValue({"MyClearBatch"}, orderedTiles)
+			replica1:SetValue({"OppClearBatch"}, {})
+		else
+			replica1:SetValue({"MyClearBatch"}, {})
+			replica1:SetValue({"OppClearBatch"}, orderedTiles)
+		end
+		-- Set batch ID LAST (this triggers client listener)
+		replica1:SetValue({"ClearBatchId"}, batchId)
+	end
+	
+	-- For player2: roles are reversed
+	if replica2 then
+		-- Set batch data FIRST
+		if clearingPlayer == match.player2 then
+			replica2:SetValue({"MyClearBatch"}, orderedTiles)
+			replica2:SetValue({"OppClearBatch"}, {})
+		else
+			replica2:SetValue({"MyClearBatch"}, {})
+			replica2:SetValue({"OppClearBatch"}, orderedTiles)
+		end
+		-- Set batch ID LAST (this triggers client listener)
+		replica2:SetValue({"ClearBatchId"}, batchId)
+	end
+end
 
 --[[
 	Processes a swap action from a player.
-	Sends swap update first, then processes clears after a delay.
+	Two-phase: swap immediately, then resolve after delay.
 	@param player The player
 	@param matchId The match ID
 	@param x Column position
@@ -371,38 +539,124 @@ local function processSwap(player, matchId, x, y)
 		return false
 	end
 	
+	-- Check swap lock - reject if board is locked
+	local currentTime = workspace:GetServerTimeNow()
+	local swapLockedUntil = getSwapLock(match, player)
+	if currentTime < swapLockedUntil then
+		return false
+	end
+	
 	-- Get player's board
 	local board = getBoardForPlayer(match, player)
+	
+	print("[Server] processSwap: player=", player.Name, "x=", x, "y=", y)
+	
+	-- Log the tiles at swap positions BEFORE swap
+	local leftTile = BoardLogic.GetCell(board, x, y)
+	local rightTile = BoardLogic.GetCell(board, x + 1, y)
+	print(string.format("[Server]   Before swap: (%d,%d)=%s, (%d,%d)=%s", 
+		x, y, tostring(leftTile), x+1, y, tostring(rightTile)))
 	
 	-- Perform swap only (no match processing yet)
 	local swapped = BoardLogic.Swap(board, x, y)
 	if not swapped then
+		print("[Server]   Swap FAILED")
 		return false
 	end
 	
+	-- Log after swap
+	leftTile = BoardLogic.GetCell(board, x, y)
+	rightTile = BoardLogic.GetCell(board, x + 1, y)
+	print(string.format("[Server]   After swap: (%d,%d)=%s, (%d,%d)=%s", 
+		x, y, tostring(leftTile), x+1, y, tostring(rightTile)))
+	
+	-- Set swap lock
+	local lockUntil = currentTime + SWAP_RESOLVE_DELAY
+	setSwapLock(match, player, lockUntil)
+	
 	-- Replicate the swap immediately (tiles move to new positions)
+	print("[Server]   Replicating swap immediately...")
 	replicateBoards(match)
 	
-	-- After a short delay, process matches and gravity
-	task.delay(SWAP_TO_CLEAR_DELAY, function()
-		-- Make sure match still exists
+	-- Store swap position for ordering clear effects later
+	local swapX, swapY = x, y
+	
+	-- After delay, process matches and gravity (resolve phase)
+	print(string.format("[Server]   Scheduling resolve in %.2f seconds...", SWAP_RESOLVE_DELAY))
+	task.delay(SWAP_RESOLVE_DELAY, function()
+		print("[Server] Resolve phase starting for swap at x=", swapX, "y=", swapY)
+		
+		-- Make sure match still exists and is still in progress
 		if not activeMatches[matchId] then
+			print("[Server]   Match no longer exists, aborting")
+			return
+		end
+		if match.phase ~= Config.PHASE.IN_MATCH then
+			print("[Server]   Match not in IN_MATCH phase, aborting")
 			return
 		end
 		
-		-- Process matches and gravity
-		local cleared = BoardLogic.ProcessUntilStable(board)
-		
-		-- Only replicate if something was cleared
-		if cleared > 0 then
-			replicateBoards(match)
+		-- Process with phased clear-then-gravity (handles chain reactions)
+		local function processClearGravityCycle(triggerX, triggerY)
+			local maxChains = 20 -- Safety limit for chain reactions
+			local chainCount = 0
+			
+			while chainCount < maxChains do
+				chainCount = chainCount + 1
+				
+				-- Step 1: Find and capture matches
+				local matches = BoardLogic.FindMatches(board)
+				local clearedTiles = BoardLogic.CaptureClearedTiles(board, matches)
+				local cleared = BoardLogic.ClearMatches(board, matches)
+				
+				-- Step 2: If clears happened, show effects before gravity
+				if cleared > 0 then
+					print("[Server]   Chain", chainCount, "- Cleared:", cleared, "tiles")
+					
+					-- Replicate board with holes (BEFORE gravity)
+					replicateBoards(match)
+					
+					-- Emit clear batch
+					emitClearBatches(match, player, clearedTiles, triggerX, triggerY)
+					-- Only use trigger position for first chain
+					triggerX, triggerY = nil, nil
+					
+					-- Wait for client clear effects to finish (white + flash + buffer)
+					local clearEffectTime = Config.CLEAR_EFFECT_WHITE_DURATION 
+						+ Config.CLEAR_EFFECT_FLASH_DURATION 
+						+ Config.CLEAR_EFFECT_BUFFER
+					print(string.format("[Server]   Waiting %.2fs for clear effects...", clearEffectTime))
+					task.wait(clearEffectTime)
+				end
+				
+				-- Step 3: Apply gravity (ALWAYS, even if no clears)
+				local anyFell = BoardLogic.ApplyGravity(board)
+				
+				-- Step 4: Replicate board with tiles in new positions
+				if cleared > 0 or anyFell then
+					print("[Server]   Gravity applied, anyFell:", anyFell)
+					replicateBoards(match)
+				end
+				
+				-- Step 5: If nothing happened this iteration, we're stable
+				if cleared == 0 and not anyFell then
+					print("[Server]   Board is stable")
+					break
+				end
+				
+				-- Loop will check for chain reactions (new matches from gravity)
+			end
 		end
+		
+		processClearGravityCycle(swapX, swapY)
 		
 		-- Check for top-out
 		if BoardLogic.IsTopOut(board) then
 			local opponent = getOpponentForPlayer(match, player)
 			endMatch(match, opponent)
 		end
+		
+		print("[Server] Resolve phase complete")
 	end)
 	
 	return true
@@ -413,6 +667,52 @@ end
 	@param match The match data
 	@param dt Delta time
 ]]
+--[[
+	Process clears with phased gravity (spawns coroutine, doesn't block).
+	Used for rising board clears where we don't want to block the main loop.
+	@param match The match
+	@param board The board
+	@param player The player whose board this is
+]]
+local function processRisingBoardClears(match, board, player)
+	-- Step 1: Find and clear matches (no gravity yet)
+	local matches = BoardLogic.FindMatches(board)
+	local clearedTiles = BoardLogic.CaptureClearedTiles(board, matches)
+	local cleared = BoardLogic.ClearMatches(board, matches)
+	
+	if cleared == 0 then
+		return -- No matches
+	end
+	
+	print("[Server] Rising board caused", cleared, "clears")
+	
+	-- Step 2: Replicate board with holes (BEFORE gravity)
+	replicateBoards(match)
+	
+	-- Step 3: Emit clear batch
+	emitClearBatches(match, player, clearedTiles)
+	
+	-- Step 4: Spawn async task to wait then apply gravity
+	task.spawn(function()
+		local clearEffectTime = Config.CLEAR_EFFECT_WHITE_DURATION 
+			+ Config.CLEAR_EFFECT_FLASH_DURATION 
+			+ Config.CLEAR_EFFECT_BUFFER
+		
+		task.wait(clearEffectTime)
+		
+		-- Check match still exists
+		if not activeMatches[match.matchId] then return end
+		if match.phase ~= Config.PHASE.IN_MATCH then return end
+		
+		-- Apply gravity
+		BoardLogic.ApplyGravity(board)
+		replicateBoards(match)
+		
+		-- Check for chain reactions (recursively)
+		processRisingBoardClears(match, board, player)
+	end)
+end
+
 local function updateRisingBoard(match, dt)
 	-- Update both boards
 	for _, boardData in ipairs({{match.board1, match.player1}, {match.board2, match.player2}}) do
@@ -430,8 +730,8 @@ local function updateRisingBoard(match, dt)
 			local newRow = BoardLogic.GenerateNewRow(board)
 			BoardLogic.PushBoardUp(board, newRow)
 			
-			-- Process any matches caused by the new row
-			BoardLogic.ProcessUntilStable(board)
+			-- Process any matches caused by the new row (async, won't block)
+			processRisingBoardClears(match, board, player)
 			
 			-- Check for top-out
 			if BoardLogic.IsTopOut(board) then

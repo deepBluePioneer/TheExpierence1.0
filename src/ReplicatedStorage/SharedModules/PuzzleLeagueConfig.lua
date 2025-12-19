@@ -22,6 +22,14 @@ local PuzzleLeagueConfig = {
 	-- Gravity animation
 	GRAVITY_FALL_SPEED = 8, -- cells per second for falling animation
 	
+	-- Clear effect timing (server waits for client effects before gravity)
+	CLEAR_EFFECT_WHITE_DURATION = 0.5, -- All tiles stay white for this duration
+	CLEAR_EFFECT_FLASH_DURATION = 0.15, -- Flash fade out animation
+	CLEAR_EFFECT_BUFFER = 0.1,         -- Extra buffer time
+	
+	-- Swap resolution
+	SWAP_RESOLVE_DELAY = 0.25, -- Time after swap before match detection
+	
 	-- Countdown
 	COUNTDOWN_SECONDS = 3,
 	

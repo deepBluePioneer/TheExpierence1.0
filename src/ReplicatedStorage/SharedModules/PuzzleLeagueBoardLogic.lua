@@ -280,25 +280,63 @@ end
 -- ╚════════════════════════════════════════════════════════════════════════════╝
 
 --[[
+	Captures cleared tile positions BEFORE clearing them.
+	@param board The board table
+	@param matches Set of indices to clear { [index] = true }
+	@return Array of { x, y, colorId }
+]]
+function PuzzleLeagueBoardLogic.CaptureClearedTiles(board, matches)
+	local clearedTiles = {}
+	print("[BoardLogic] CaptureClearedTiles called")
+	
+	local matchCount = 0
+	for _ in pairs(matches) do matchCount = matchCount + 1 end
+	print("[BoardLogic]   Match indices count:", matchCount)
+	
+	for index in pairs(matches) do
+		local colorId = board.cells[index]
+		if colorId and colorId ~= Config.EMPTY_TILE then
+			-- Convert index to x,y coordinates
+			local y = math.floor((index - 1) / board.w) + 1
+			local x = ((index - 1) % board.w) + 1
+			table.insert(clearedTiles, { x = x, y = y, colorId = colorId })
+			print(string.format("[BoardLogic]   Captured: index=%d -> x=%d, y=%d, colorId=%d", index, x, y, colorId))
+		end
+	end
+	
+	print("[BoardLogic]   Total captured:", #clearedTiles)
+	return clearedTiles
+end
+
+--[[
 	Processes all matches and gravity until the board is stable.
 	Tiles snap instantly to new positions (no animation).
 	@param board The board table
-	@return Total number of tiles cleared
+	@return totalCleared (number), clearedTiles (array of {x, y, colorId})
 ]]
 function PuzzleLeagueBoardLogic.ProcessUntilStable(board)
 	local totalCleared = 0
+	local allClearedTiles = {}
 	local maxIterations = 100 -- Safety limit
 	local iterations = 0
 	
 	repeat
 		iterations = iterations + 1
 		
-		-- Find and clear matches
+		-- Find matches
 		local matches = PuzzleLeagueBoardLogic.FindMatches(board)
+		
+		-- Capture cleared tiles BEFORE clearing
+		local capturedTiles = PuzzleLeagueBoardLogic.CaptureClearedTiles(board, matches)
+		for _, tile in ipairs(capturedTiles) do
+			table.insert(allClearedTiles, tile)
+		end
+		
+		-- Clear matches
 		local cleared = PuzzleLeagueBoardLogic.ClearMatches(board, matches)
 		totalCleared = totalCleared + cleared
 		
-		-- Apply gravity (tiles snap instantly)
+		-- Apply gravity (tiles snap instantly, column-only)
 		local anyFell = PuzzleLeagueBoardLogic.ApplyGravity(board)
 		
 		-- Continue if we cleared anything or tiles fell
@@ -307,7 +345,7 @@ function PuzzleLeagueBoardLogic.ProcessUntilStable(board)
 		end
 	until iterations >= maxIterations
 	
-	return totalCleared
+	return totalCleared, allClearedTiles
 end
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -316,6 +354,8 @@ end
 
 --[[
 	Generates a new random row of tiles.
+	Avoids horizontal matches within the row AND vertical matches with
+	the current bottom row (which will be pushed up when this row is added).
 	@param board The board table
 	@return Array of tile IDs for the new row
 ]]
@@ -323,16 +363,49 @@ function PuzzleLeagueBoardLogic.GenerateNewRow(board)
 	local row = {}
 	
 	for x = 1, board.w do
-		-- Simple random, avoiding horizontal matches
+		local attempts = 0
+		local maxAttempts = 20
 		local color = math.random(1, Config.NUM_COLORS)
 		
-		-- Avoid horizontal match with previous 2 tiles in this row
-		if x >= 3 then
-			local attempts = 0
-			while row[x - 1] == color and row[x - 2] == color and attempts < 10 do
-				color = math.random(1, Config.NUM_COLORS)
-				attempts = attempts + 1
+		while attempts < maxAttempts do
+			local hasMatch = false
+			
+			-- Check horizontal match with previous 2 tiles in this new row
+			if x >= 3 then
+				if row[x - 1] == color and row[x - 2] == color then
+					hasMatch = true
+				end
 			end
+			
+			-- Check vertical match with tile above (current y=1 and y=2, which will become y=2 and y=3)
+			-- After push, this new tile will be at y=1, current y=1 will be at y=2, current y=2 will be at y=3
+			-- So we need to avoid: newTile == current[y=1] == current[y=2]
+			if not hasMatch then
+				local above1 = PuzzleLeagueBoardLogic.GetCell(board, x, 1) -- Will be at y=2
+				local above2 = PuzzleLeagueBoardLogic.GetCell(board, x, 2) -- Will be at y=3
+				if above1 and above2 and color == above1 and color == above2 then
+					hasMatch = true
+				end
+			end
+			
+			-- Also avoid matching just the tile directly above to reduce chain reaction on rise
+			-- This makes the game more strategic (player must set up matches)
+			if not hasMatch then
+				local above1 = PuzzleLeagueBoardLogic.GetCell(board, x, 1)
+				if above1 and color == above1 then
+					-- Only reject if we have other options (soft constraint)
+					if attempts < maxAttempts / 2 then
+						hasMatch = true
+					end
+				end
+			end
+			
+			if not hasMatch then
+				break
+			end
+			
+			color = math.random(1, Config.NUM_COLORS)
+			attempts = attempts + 1
 		end
 		
 		row[x] = color
