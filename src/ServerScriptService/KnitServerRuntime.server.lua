@@ -14,6 +14,9 @@ local NewGamePlaceID = 110712408304598
 local TinyWingsPlaceID = 95282361907606
 local TungTungLobbyPlaceID = 126368140107328
 local TungTungMainGamePlaceID = 140527591728688
+local SnapABrainRotPlaceID = 74172117295119
+local ArrowGamePlaceID = 117931712857687
+local BrainRotPuzzleLeaguePlaceID = 127615998073512
 
 -- Define service directories based on game type
 local LobbyServices = ServerServices.LobbyServices
@@ -22,6 +25,9 @@ local TestingServices = ServerServices.TestingServices
 local NewGameServices = ServerServices.NewGameServices
 local TinyWingServices = ServerServices.TinyWingServices
 local WheresTungTungServices = ServerServices.WheresTungTungServices
+local SnapABrainRotServices = ServerServices.SnapABrainRotServices
+local ArrowGameServices = ServerServices.ArrowGameServices
+local BrainRotPuzzleLeagueServices = ServerServices.BrainRotPuzlleLeagueServices
 
 -- Function to require services recursively
 local function requireServices(directory)
@@ -49,8 +55,15 @@ local function loadServicesForPlace(placeId)
         serviceDirectory = TinyWingServices
     elseif placeId == TungTungLobbyPlaceID or placeId == TungTungMainGamePlaceID then
         serviceDirectory = WheresTungTungServices
+    elseif placeId == SnapABrainRotPlaceID then
+        serviceDirectory = SnapABrainRotServices
+    elseif placeId == BrainRotPuzzleLeaguePlaceID then
+        serviceDirectory = BrainRotPuzzleLeagueServices
+    elseif placeId == ArrowGamePlaceID or placeId == 0 then
+        -- Also load ArrowGame services when place ID is 0 (unpublished Studio testing)
+        serviceDirectory = ArrowGameServices
     else
-        warn("Unrecognized Place ID, no services loaded")
+        warn("Unrecognized Place ID:", placeId, "- no services loaded")
         return
     end
 
