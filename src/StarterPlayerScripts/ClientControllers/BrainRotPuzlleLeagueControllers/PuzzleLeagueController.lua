@@ -51,6 +51,10 @@ local countdownSeconds = Value(Config.COUNTDOWN_SECONDS)
 local matchStartedAt = Value(0)
 local backgroundAssetId = Value("") -- Background image for the match
 
+-- Garbage system
+local pendingGarbage = Value(0) -- Incoming garbage queued for player
+local chainCount = Value(0) -- Current chain level
+
 -- Cursor state (local player)
 local cursorX = Value(1)
 local cursorY = Value(1)
@@ -92,8 +96,8 @@ local oppCellRefs = {} -- { ["x_y"] = Frame } for opponent board cells
 
 -- Animation tracking
 local TweenService = game:GetService("TweenService")
-local TILE_MOVE_DURATION = 0.15 -- Duration for tile movement animations
-local GRAVITY_FALL_DURATION = 0.12 -- Duration per cell for gravity fall
+local TILE_MOVE_DURATION = 0.18 -- Duration for tile movement animations
+local GRAVITY_FALL_DURATION = 0.15 -- Duration per cell for gravity fall (higher = slower)
 
 
 -- ╔════════════════════════════════════════════════════════════════════════════╗
@@ -378,7 +382,7 @@ local function createFallingGroup(container, x, tiles, fallDistance, boardId)
 	end
 	
 	-- Calculate duration based on fall distance
-	local duration = math.min(fallDistance * GRAVITY_FALL_DURATION, 0.5)
+	local duration = math.min(fallDistance * GRAVITY_FALL_DURATION, 0.8)
 	
 	-- Animate the entire group
 	local tween = TweenService:Create(
@@ -469,33 +473,40 @@ local function animateBoardChanges(oldBoard, newBoard, animationLayer, isMyBoard
 		end
 	end
 	
-	-- Second pass: detect vertical falling groups per column
+	-- Second pass: detect vertical falling - SIMPLE approach
+	-- Only animate tiles that: moved from empty source to empty destination
 	for x = 1, w do
-		-- Build a list of tiles that fell in this column
-		local fallingTiles = {} -- { { fromY, toY, colorId }, ... }
+		local fallingTiles = {}
 		
 		for y = 1, h do
 			local index = (y - 1) * w + x
 			if handled[index] then continue end
 			
 			local newTile = newCells[index]
-			if not newTile or newTile == Config.EMPTY_TILE then continue end
-			if newTile == oldCells[index] then continue end
+			local oldTile = oldCells[index]
 			
-			-- Find where this tile came from (above in same column)
-			for checkY = y + 1, h do
-				local checkIndex = (checkY - 1) * w + x
-				if oldCells[checkIndex] == newTile then
-					if newCells[checkIndex] ~= newTile then
-						table.insert(fallingTiles, {
-							fromY = checkY,
-							toY = y,
-							colorId = newTile,
-							fallDistance = checkY - y
-						})
-						handled[index] = true
-						break
-					end
+			-- Skip empty cells
+			if not newTile or newTile == Config.EMPTY_TILE then continue end
+			
+			-- Only animate if this position was EMPTY before
+			if oldTile ~= Config.EMPTY_TILE then continue end
+			
+			-- Find where this tile came from (look above for matching tile that's now empty)
+			for sourceY = y + 1, h do
+				local sourceIndex = (sourceY - 1) * w + x
+				local sourceOldTile = oldCells[sourceIndex]
+				local sourceNewTile = newCells[sourceIndex]
+				
+				-- Source must have had this tile AND must now be empty
+				if sourceOldTile == newTile and sourceNewTile == Config.EMPTY_TILE then
+					table.insert(fallingTiles, {
+						fromY = sourceY,
+						toY = y,
+						colorId = newTile,
+						fallDistance = sourceY - y
+					})
+					handled[index] = true
+					break
 				end
 			end
 		end
@@ -616,8 +627,13 @@ local function createCell(x, y, boardState, isMyBoard, showOppCursor)
 			local index = (y - 1) * board.w + x
 			local tileId = board.cells[index]
 			
+			-- Handle colored tiles (1-5)
 			if tileId and tileId > 0 then
 				return Config.TILE_COLORS[tileId] or COLORS.EMPTY_CELL
+			end
+			-- Handle garbage tiles (-1)
+			if tileId and tileId == Config.GARBAGE_TILE then
+				return Config.GARBAGE_COLOR
 			end
 			return COLORS.EMPTY_CELL
 		end),
@@ -791,6 +807,79 @@ local function createBoard(boardState, isMyBoard, title, showOppCursor)
 			-- Cursor overlay (player's cursor on own board, opponent's cursor on their board)
 			isMyBoard and createCursorOverlay(cursorX, cursorY, Color3.new(1, 1, 1), boardState) or nil,
 			showOppCursor and createCursorOverlay(oppCursorX, oppCursorY, Color3.fromRGB(255, 200, 150), boardState) or nil,
+			
+			-- Garbage bar (only on player's own board - positioned inside on left edge)
+			isMyBoard and New "Frame" {
+				Name = "GarbageBar",
+				Size = UDim2.new(0, 8, 0, Config.BOARD_HEIGHT * CELL_SIZE - 10),
+				Position = UDim2.new(0, 4, 0, 30 + BOARD_PADDING + 5),
+				BackgroundColor3 = Color3.fromRGB(30, 30, 40),
+				BorderSizePixel = 0,
+				ZIndex = 15,
+				Visible = Computed(function()
+					return pendingGarbage:get() > 0
+				end),
+				
+				[Children] = {
+					New "UICorner" { CornerRadius = UDim.new(0, 3) },
+					
+					-- Garbage fill (grows from bottom)
+					New "Frame" {
+						Name = "GarbageFill",
+						Size = Computed(function()
+							local garbage = pendingGarbage:get()
+							-- Each garbage row = BOARD_WIDTH tiles
+							-- Show as percentage of board height (max 100%)
+							local maxGarbage = Config.BOARD_HEIGHT * Config.BOARD_WIDTH
+							local fillPercent = math.min(1, garbage / maxGarbage)
+							return UDim2.new(1, -2, fillPercent, 0)
+						end),
+						Position = UDim2.new(0, 1, 1, -1),
+						AnchorPoint = Vector2.new(0, 1),
+						BackgroundColor3 = Computed(function()
+							local garbage = pendingGarbage:get()
+							-- Color intensity based on amount
+							if garbage > Config.BOARD_WIDTH * 4 then
+								return Color3.fromRGB(255, 60, 60) -- Critical (red)
+							elseif garbage > Config.BOARD_WIDTH * 2 then
+								return Color3.fromRGB(255, 150, 50) -- Warning (orange)
+							else
+								return Color3.fromRGB(255, 200, 80) -- Normal (yellow)
+							end
+						end),
+						BorderSizePixel = 0,
+						
+						[Children] = {
+							New "UICorner" { CornerRadius = UDim.new(0, 2) },
+						},
+					},
+				},
+			} or nil,
+			
+			-- Chain indicator (shows current chain level - positioned at bottom of board)
+			isMyBoard and New "TextLabel" {
+				Name = "ChainIndicator",
+				Size = UDim2.new(1, 0, 0, 30),
+				Position = UDim2.new(0.5, 0, 1, -5),
+				AnchorPoint = Vector2.new(0.5, 1),
+				BackgroundTransparency = 1,
+				Text = Computed(function()
+					local chain = chainCount:get()
+					if chain > 1 then
+						return "CHAIN x" .. chain .. "!"
+					end
+					return ""
+				end),
+				TextColor3 = Color3.fromRGB(255, 220, 100),
+				TextSize = 20,
+				Font = Enum.Font.GothamBold,
+				TextStrokeTransparency = 0.5,
+				TextStrokeColor3 = Color3.new(0, 0, 0),
+				ZIndex = 15,
+				Visible = Computed(function()
+					return chainCount:get() > 1
+				end),
+			} or nil,
 		},
 	}
 end
@@ -1106,24 +1195,24 @@ local function createResultScreen()
 				Position = UDim2.new(0.5, 0, 0.35, 0),
 				AnchorPoint = Vector2.new(0.5, 0.5),
 				BackgroundTransparency = 1,
-				Text = Computed(function()
-					local winner = winnerUserId:get()
-					if winner == player.UserId then
-						return "YOU WIN!"
-					elseif winner > 0 then
-						return "YOU LOSE"
-					end
-					return "DRAW"
-				end),
-				TextColor3 = Computed(function()
-					local winner = winnerUserId:get()
-					if winner == player.UserId then
-						return COLORS.WIN
-					elseif winner > 0 then
-						return COLORS.LOSE
-					end
-					return COLORS.TEXT
-				end),
+			Text = Computed(function()
+				local winner = winnerUserId:get()
+				if winner == player.UserId then
+					return "YOU WIN!"
+				elseif winner ~= 0 then
+					return "YOU LOSE"
+				end
+				return "DRAW"
+			end),
+			TextColor3 = Computed(function()
+				local winner = winnerUserId:get()
+				if winner == player.UserId then
+					return COLORS.WIN
+				elseif winner ~= 0 then
+					return COLORS.LOSE
+				end
+				return COLORS.TEXT
+			end),
 				TextSize = 64,
 				Font = Enum.Font.GothamBlack,
 			},
@@ -1258,6 +1347,8 @@ local function setupReplicaListener()
 		countdownSeconds:set(data.CountdownSeconds)
 		matchStartedAt:set(data.MatchStartedAt or 0)
 		backgroundAssetId:set(data.BackgroundAssetId or "")
+		pendingGarbage:set(data.PendingGarbage or 0)
+		chainCount:set(data.ChainCount or 0)
 		
 		-- Initialize cursor state
 		if data.MyCursor then
@@ -1385,6 +1476,14 @@ local function setupReplicaListener()
 		
 		replica:ListenToChange({"BackgroundAssetId"}, function(newValue)
 			backgroundAssetId:set(newValue or "")
+		end)
+		
+		replica:ListenToChange({"PendingGarbage"}, function(newValue)
+			pendingGarbage:set(newValue or 0)
+		end)
+		
+		replica:ListenToChange({"ChainCount"}, function(newValue)
+			chainCount:set(newValue or 0)
 		end)
 		
 		print("[PuzzleLeagueController] Connected to player replica")

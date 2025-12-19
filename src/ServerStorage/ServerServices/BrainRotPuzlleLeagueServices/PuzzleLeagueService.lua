@@ -82,6 +82,9 @@ local function createPlayerReplica(player)
 			OppClearBatch = {}, -- Array of {x, y, colorId} for opponent's board clears
 			-- Background (same for both players in a match)
 			BackgroundAssetId = "",
+			-- Garbage system
+			PendingGarbage = 0, -- Incoming garbage queued for this player
+			ChainCount = 0, -- Current chain level (for display)
 		},
 		Replication = player,
 	})
@@ -212,6 +215,11 @@ function createMatch(player1, player2)
 		clearBatchId = 0,
 		-- Background for this match
 		backgroundAssetId = backgroundAssetId,
+		-- Garbage system
+		pendingGarbage1 = 0, -- Garbage queued to spawn on player 1's board
+		pendingGarbage2 = 0, -- Garbage queued to spawn on player 2's board
+		chainCount1 = 0, -- Current chain level for player 1
+		chainCount2 = 0, -- Current chain level for player 2
 	}
 	
 	activeMatches[matchId] = match
@@ -234,6 +242,8 @@ function createMatch(player1, player2)
 		replica1:SetValue({"MyClearBatch"}, {})
 		replica1:SetValue({"OppClearBatch"}, {})
 		replica1:SetValue({"BackgroundAssetId"}, backgroundAssetId)
+		replica1:SetValue({"PendingGarbage"}, 0)
+		replica1:SetValue({"ChainCount"}, 0)
 	end
 	
 	-- Update player 2 replica
@@ -254,9 +264,12 @@ function createMatch(player1, player2)
 		replica2:SetValue({"MyClearBatch"}, {})
 		replica2:SetValue({"OppClearBatch"}, {})
 		replica2:SetValue({"BackgroundAssetId"}, backgroundAssetId)
+		replica2:SetValue({"PendingGarbage"}, 0)
+		replica2:SetValue({"ChainCount"}, 0)
 	end
 	
 	print("[PuzzleLeagueService] Match", matchId, "created:", player1.Name, "vs", player2.Name)
+	print("[PuzzleLeagueService]   Initial garbage state: pendingGarbage1=", match.pendingGarbage1, "pendingGarbage2=", match.pendingGarbage2)
 end
 
 --[[
@@ -329,23 +342,38 @@ end
 	@param winner The winning player (or nil for draw)
 ]]
 local function endMatch(match, winner)
+	-- Prevent double-ending
+	if match.phase == Config.PHASE.RESULT then
+		print("[PuzzleLeagueService] WARNING: Attempted to end match", match.id, "that already ended")
+		return
+	end
+	
 	match.phase = Config.PHASE.RESULT
 	match.winner = winner
 	
 	local winnerUserId = winner and winner.UserId or 0
+	local winnerName = winner and winner.Name or "Nobody"
+	
+	print("[PuzzleLeagueService] Ending match", match.id, "- Winner:", winnerName, "UserId:", winnerUserId)
 	
 	-- Update player 1 replica
 	local replica1 = getPlayerReplica(match.player1)
 	if replica1 then
+		print("[PuzzleLeagueService]   Setting Player1 replica: Phase=RESULT, WinnerUserId=", winnerUserId)
 		replica1:SetValue({"Phase"}, Config.PHASE.RESULT)
 		replica1:SetValue({"WinnerUserId"}, winnerUserId)
+	else
+		print("[PuzzleLeagueService]   WARNING: Player1 replica is nil!")
 	end
 	
 	-- Update player 2 replica
 	local replica2 = getPlayerReplica(match.player2)
 	if replica2 then
+		print("[PuzzleLeagueService]   Setting Player2 replica: Phase=RESULT, WinnerUserId=", winnerUserId)
 		replica2:SetValue({"Phase"}, Config.PHASE.RESULT)
 		replica2:SetValue({"WinnerUserId"}, winnerUserId)
+	else
+		print("[PuzzleLeagueService]   WARNING: Player2 replica is nil!")
 	end
 	
 	-- Remove match from active matches after a delay
@@ -353,7 +381,6 @@ local function endMatch(match, winner)
 		activeMatches[match.id] = nil
 	end)
 	
-	local winnerName = winner and winner.Name or "Nobody"
 	print("[PuzzleLeagueService] Match", match.id, "ended. Winner:", winnerName)
 end
 
@@ -596,10 +623,15 @@ local function processSwap(player, matchId, x, y)
 			return
 		end
 		
+		-- Determine which player this is and their opponent (used in processClearGravityCycle and garbage scheduling)
+		local isPlayer1 = (player == match.player1)
+		local opponent = isPlayer1 and match.player2 or match.player1
+		
 		-- Process with phased clear-then-gravity (handles chain reactions)
 		local function processClearGravityCycle(triggerX, triggerY)
 			local maxChains = 20 -- Safety limit for chain reactions
 			local chainCount = 0
+			local totalGarbageSent = 0
 			
 			while chainCount < maxChains do
 				chainCount = chainCount + 1
@@ -609,9 +641,35 @@ local function processSwap(player, matchId, x, y)
 				local clearedTiles = BoardLogic.CaptureClearedTiles(board, matches)
 				local cleared = BoardLogic.ClearMatches(board, matches)
 				
-				-- Step 2: If clears happened, show effects before gravity
+				-- Step 2: If clears happened, process garbage and show effects
 				if cleared > 0 then
 					print("[Server]   Chain", chainCount, "- Cleared:", cleared, "tiles")
+					
+					-- Calculate garbage to send to opponent
+					local garbageAmount = BoardLogic.CalculateGarbageSent(cleared, chainCount)
+					totalGarbageSent = totalGarbageSent + garbageAmount
+					
+					if garbageAmount > 0 then
+						print("[Server]   Sending", garbageAmount, "garbage (chain level:", chainCount, ")")
+					end
+					
+					-- Update chain count display
+					if isPlayer1 then
+						match.chainCount1 = chainCount
+					else
+						match.chainCount2 = chainCount
+					end
+					local replica = getPlayerReplica(player)
+					if replica then
+						replica:SetValue({"ChainCount"}, chainCount)
+					end
+					
+					-- Find and convert garbage adjacent to cleared tiles
+					local adjacentGarbage = BoardLogic.FindAdjacentGarbage(board, matches)
+					if next(adjacentGarbage) then
+						local convertedTiles = BoardLogic.ConvertGarbage(board, adjacentGarbage)
+						print("[Server]   Converted", #convertedTiles, "garbage tiles")
+					end
 					
 					-- Replicate board with holes (BEFORE gravity)
 					replicateBoards(match)
@@ -646,14 +704,106 @@ local function processSwap(player, matchId, x, y)
 				
 				-- Loop will check for chain reactions (new matches from gravity)
 			end
+			
+			-- After resolve cycle: reset chain count and queue garbage for opponent
+			if isPlayer1 then
+				match.chainCount1 = 0
+				match.pendingGarbage2 = match.pendingGarbage2 + totalGarbageSent
+			else
+				match.chainCount2 = 0
+				match.pendingGarbage1 = match.pendingGarbage1 + totalGarbageSent
+			end
+			
+			-- Update opponent's pending garbage display
+			local opponentReplica = getPlayerReplica(opponent)
+			if opponentReplica and totalGarbageSent > 0 then
+				local pendingGarbage = isPlayer1 and match.pendingGarbage2 or match.pendingGarbage1
+				opponentReplica:SetValue({"PendingGarbage"}, pendingGarbage)
+				print("[Server]   Opponent now has", pendingGarbage, "pending garbage")
+			end
+			
+			-- Reset player's chain count display
+			local playerReplica = getPlayerReplica(player)
+			if playerReplica then
+				playerReplica:SetValue({"ChainCount"}, 0)
+			end
+			
+			return totalGarbageSent
 		end
 		
-		processClearGravityCycle(swapX, swapY)
+		print("[Server] Starting processClearGravityCycle for matchId:", matchId)
+		local garbageSent = processClearGravityCycle(swapX, swapY)
+		print("[Server] processClearGravityCycle returned garbageSent:", garbageSent)
 		
-		-- Check for top-out
+		-- If garbage was sent, schedule it to drop on opponent's board after delay
+		if garbageSent > 0 then
+			local opponentBoard = isPlayer1 and match.board2 or match.board1
+			local garbageTarget = isPlayer1 and "player2" or "player1"
+			-- Capture the winner (the player who sent the garbage) for the callback
+			local garbageSender = player
+			local capturedMatchId = matchId
+			
+			print("[Server] Scheduling garbage drop for matchId:", capturedMatchId, "target:", garbageTarget, "amount:", garbageSent, "isPlayer1:", isPlayer1, "player:", player.Name, "match.player1:", match.player1.Name)
+			
+			-- Schedule garbage drop after delay
+			task.delay(Config.GARBAGE_DROP_DELAY, function()
+				-- Make sure match still exists
+				local currentMatch = activeMatches[capturedMatchId]
+				if not currentMatch then 
+					print("[Server] Garbage callback: match", capturedMatchId, "no longer exists")
+					return 
+				end
+				if currentMatch.phase ~= Config.PHASE.IN_MATCH then 
+					print("[Server] Garbage callback: match", capturedMatchId, "phase is", currentMatch.phase, "not IN_MATCH")
+					return 
+				end
+				
+				-- Get current pending garbage
+				local pending = garbageTarget == "player1" and currentMatch.pendingGarbage1 or currentMatch.pendingGarbage2
+				if pending <= 0 then 
+					print("[Server] Garbage callback: pending is 0 for", garbageTarget)
+					return 
+				end
+				
+				-- Calculate rows to drop (6 cells = 1 row)
+				local garbageRows = math.ceil(pending / Config.BOARD_WIDTH)
+				garbageRows = math.min(garbageRows, 4) -- Cap at 4 rows per drop
+				
+				print("[Server] Dropping", garbageRows, "garbage rows on", garbageTarget)
+				
+				-- Drop garbage from top
+				local targetBoard = garbageTarget == "player1" and currentMatch.board1 or currentMatch.board2
+				BoardLogic.DropGarbageFromTop(targetBoard, garbageRows)
+				replicateBoards(currentMatch)
+				
+				-- Reduce pending garbage
+				local used = garbageRows * Config.BOARD_WIDTH
+				if garbageTarget == "player1" then
+					currentMatch.pendingGarbage1 = math.max(0, currentMatch.pendingGarbage1 - used)
+				else
+					currentMatch.pendingGarbage2 = math.max(0, currentMatch.pendingGarbage2 - used)
+				end
+				
+				-- Update opponent's pending garbage display
+				local targetPlayer = garbageTarget == "player1" and currentMatch.player1 or currentMatch.player2
+				local targetReplica = getPlayerReplica(targetPlayer)
+				if targetReplica then
+					local remaining = garbageTarget == "player1" and currentMatch.pendingGarbage1 or currentMatch.pendingGarbage2
+					targetReplica:SetValue({"PendingGarbage"}, remaining)
+				end
+				
+				-- Check for top-out on opponent (garbage sender wins)
+				if BoardLogic.IsTopOut(targetBoard) then
+					print("[Server] Top-out from garbage! Winner:", garbageSender.Name)
+					endMatch(currentMatch, garbageSender)
+				end
+			end)
+		end
+		
+		-- Check for top-out on current player
 		if BoardLogic.IsTopOut(board) then
-			local opponent = getOpponentForPlayer(match, player)
-			endMatch(match, opponent)
+			local opponentPlayer = getOpponentForPlayer(match, player)
+			endMatch(match, opponentPlayer)
 		end
 		
 		print("[Server] Resolve phase complete")
