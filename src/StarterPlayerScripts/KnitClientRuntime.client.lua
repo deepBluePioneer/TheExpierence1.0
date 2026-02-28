@@ -1,42 +1,47 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local StarterPlayer = game:GetService("StarterPlayer")
 local StarterPlayerScripts = StarterPlayer.StarterPlayerScripts
 local Knit = require(ReplicatedStorage.Packages.Knit)
 
--- Define the Place IDs for different game environments
-local DungeonPlaceID = 102436797186064
-local HubWorldServiceID = 128423752054643
--- References to controller directories
+-- Place IDs
+local HubPlaceID = 91627323095607
+local CityTrialPlaceID = 107271232251787
+
+-- Controller directories
 local ClientControllers = StarterPlayerScripts.Source.ClientControllers
-local HubWorldControllers = ClientControllers.HubWorldControllers
-local DungeonControllers = ClientControllers.DungeonControllers
+local HubControllers = ClientControllers.HubControllers
+local CityTrialControllers = ClientControllers.CityTrialControllers
 
 -- Function to require controllers recursively
 local function requireControllers(directory)
-    for _, controller in ipairs(directory:GetChildren()) do
-        if controller:IsA("ModuleScript") and controller.Name:match("Controller$") then
-            require(controller)
-        elseif controller:IsA("Folder") then
-            requireControllers(controller)
-        end
-    end
+	for _, controller in ipairs(directory:GetChildren()) do
+		if controller:IsA("ModuleScript") and controller.Name:match("Controller$") then
+			local ok, err = pcall(require, controller)
+			if ok then
+				print("[KnitClientRuntime] Loaded controller: " .. controller.Name)
+			else
+				warn("[KnitClientRuntime] FAILED to load controller: " .. controller.Name .. " -- " .. tostring(err))
+			end
+		elseif controller:IsA("Folder") then
+			requireControllers(controller)
+		end
+	end
 end
 
--- Function to require controllers based on the place id
+-- Load controllers based on place ID
 local function loadControllersForPlace(placeId)
-    local controllerDirectory
-    if placeId == HubWorldServiceID then
-        controllerDirectory = HubWorldControllers
-        print(controllerDirectory)
-    elseif placeId == DungeonPlaceID then
-        controllerDirectory = DungeonControllers
-        print(controllerDirectory)
-    else
-        warn("Unrecognized Place ID, no controllers loaded")
-        return
-    end
-
-    requireControllers(controllerDirectory)
+	if placeId == HubPlaceID then
+		requireControllers(HubControllers)
+	elseif placeId == CityTrialPlaceID then
+		requireControllers(CityTrialControllers)
+	elseif RunService:IsStudio() then
+		warn("Studio detected with PlaceId " .. placeId .. " -- loading Hub controllers for testing")
+		requireControllers(HubControllers)
+	else
+		warn("Unrecognized Place ID: " .. placeId .. ", no controllers loaded")
+		return
+	end
 end
 
 -- Load the controllers appropriate for the current game's place ID
@@ -44,7 +49,7 @@ loadControllersForPlace(game.PlaceId)
 
 -- Start Knit
 Knit.Start():andThen(function()
-    print("Knit Started on the Client")
+	print("Knit Started on the Client")
 end):catch(function(err)
-    warn("Error starting Knit: ", err)
+	warn("Error starting Knit: ", err)
 end)

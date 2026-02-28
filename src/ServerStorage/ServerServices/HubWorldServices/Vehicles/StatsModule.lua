@@ -40,5 +40,51 @@ StatModule.Abilities = {
     }
 }
 
+-- Compute effective stats from base stats + collected patch counts using PatchesConfig.
+-- baseStats: table from MachinesConfig (e.g. { topSpeed = 85, acceleration = 6, ... })
+-- patchCounts: table { [patchType] = count } (e.g. { speed = 3, handling = 2 })
+-- patchesConfig: the PatchesConfig module table
+function StatModule.RecalculateStats(baseStats, patchCounts, patchesConfig)
+    local result = {}
+    for key, value in pairs(baseStats) do
+        result[key] = value
+    end
+
+    for patchType, count in pairs(patchCounts) do
+        local patchDef = patchesConfig.patches[patchType]
+        if not patchDef then continue end
+
+        if patchDef.statKeys then
+            for i, statKey in ipairs(patchDef.statKeys) do
+                local delta = patchDef.deltas[i] * count
+                local cap = patchDef.softCaps[i]
+                if cap > 0 then
+                    delta = math.min(delta, cap)
+                else
+                    delta = math.max(delta, cap)
+                end
+                result[statKey] = (result[statKey] or 0) + delta
+            end
+        elseif patchDef.statKey then
+            local delta = patchDef.delta * count
+            local cap = patchDef.softCap
+            if patchDef.floor ~= nil then
+                delta = math.max(delta, cap)
+                result[patchDef.statKey] = math.max(
+                    (result[patchDef.statKey] or 0) + delta,
+                    patchDef.floor
+                )
+            elseif cap >= 0 then
+                delta = math.min(delta, cap)
+                result[patchDef.statKey] = (result[patchDef.statKey] or 0) + delta
+            else
+                delta = math.max(delta, cap)
+                result[patchDef.statKey] = (result[patchDef.statKey] or 0) + delta
+            end
+        end
+    end
+
+    return result
+end
 
 return StatModule
