@@ -51,12 +51,13 @@ function LakelandCameraController:_activate()
 	self._currentCFrame = camera.CFrame
 	camera.CameraType = Enum.CameraType.Scriptable
 
-	self._renderConn = RunService.RenderStepped:Connect(function(dt)
+	RunService:BindToRenderStep("LakelandCameraUpdate", Enum.RenderPriority.Camera.Value + 1, function(dt)
 		self:_update(dt)
 	end)
+	self._renderConn = true
 	self._trove:Add(function()
 		if self._renderConn then
-			self._renderConn:Disconnect()
+			RunService:UnbindFromRenderStep("LakelandCameraUpdate")
 			self._renderConn = nil
 		end
 	end)
@@ -68,6 +69,10 @@ function LakelandCameraController:_deactivate()
 	if not self._active then return end
 	self._active = false
 
+	if self._renderConn then
+		RunService:UnbindFromRenderStep("LakelandCameraUpdate")
+		self._renderConn = nil
+	end
 	self._trove:Clean()
 
 	local camera = Workspace.CurrentCamera
@@ -78,19 +83,16 @@ end
 
 function LakelandCameraController:_update(dt)
 	local camera = Workspace.CurrentCamera
-	local machine = Workspace:FindFirstChild("ActiveMachine")
 
-	if not machine then return end
+	local machineCF = self._raceController:GetMachineCFrame()
+	if machineCF == CFrame.new() then return end
 
-	local targetCFrame = machine:GetPivot()
-
-	local behind = targetCFrame * CFrame.new(FOLLOW_OFFSET)
-	local lookTarget = targetCFrame.Position + targetCFrame.LookVector * LOOK_AHEAD
+	local behind = machineCF * CFrame.new(FOLLOW_OFFSET)
+	local lookTarget = machineCF.Position + machineCF.LookVector * LOOK_AHEAD
 
 	local desiredCFrame = CFrame.lookAt(behind.Position, lookTarget)
 
-	self._currentCFrame = self._currentCFrame:Lerp(desiredCFrame, math.min(SMOOTH_SPEED * dt, 1))
-	camera.CFrame = self._currentCFrame
+	camera.CFrame = desiredCFrame
 
 	local boosting = self._raceController:IsBoosting()
 	self._targetFOV = boosting and BOOST_FOV or BASE_FOV

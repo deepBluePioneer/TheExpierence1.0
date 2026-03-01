@@ -14,12 +14,12 @@ local CatmullRomSpline = require(CustomPackages.Splines.CatmullRomSpline)
 
 local LANE_COUNT = 3
 local LANE_SPACING = 10
-local TRACK_LENGTH = 10000
+local TRACK_LENGTH = 50000
 local TRACK_HEIGHT = 3
 local TRACK_START_Z = 50
 local SPLINE_TENSION = 0.5
 
-local CURVE_SEGMENTS = 40
+local CURVE_SEGMENTS = 160
 local CURVE_AMPLITUDE = 70
 
 local ELEVATION_PROFILE = {
@@ -56,56 +56,61 @@ local ELEVATION_PROFILE = {
 
 local MOVE_SPEED = 80
 local BOOST_ACCEL = 120
-local MAX_SPEED = 220
+local MAX_SPEED = 350
 local LANE_SWITCH_SPEED = 8
 
 local MAX_BANK_ANGLE = math.rad(12)
 local BANK_SMOOTH_SPEED = 14
 local LANE_SWITCH_BANK = math.rad(10)
 
-local BOOST_LENGTH = 0.025
-local BOOST_ZONES = {
-	{ lane = 1, tStart = 0.08 },
-	{ lane = 3, tStart = 0.15 },
-	{ lane = 2, tStart = 0.22 },
-	{ lane = 1, tStart = 0.32 },
-	{ lane = 3, tStart = 0.38 },
-	{ lane = 2, tStart = 0.48 },
-	{ lane = 1, tStart = 0.55 },
-	{ lane = 3, tStart = 0.62 },
-	{ lane = 2, tStart = 0.70 },
-	{ lane = 1, tStart = 0.78 },
-	{ lane = 3, tStart = 0.85 },
-	{ lane = 2, tStart = 0.92 },
-}
+local BOOST_LENGTH = 0.008
+local BOOST_ZONES = {}
+do
+	local boostLanes = {1, 3, 2}
+	local boostSections = {
+		{from = 0.01, to = 0.33, gap = 0.012},
+		{from = 0.33, to = 0.66, gap = 0.009},
+		{from = 0.66, to = 0.99, gap = 0.006},
+	}
+	local idx = 1
+	for _, sec in ipairs(boostSections) do
+		local t = sec.from
+		while t < sec.to do
+			table.insert(BOOST_ZONES, {
+				lane = boostLanes[((idx - 1) % 3) + 1],
+				tStart = math.floor(t * 1000 + 0.5) / 1000,
+			})
+			t = t + sec.gap
+			idx = idx + 1
+		end
+	end
+end
 
 local MAX_HEALTH = 100
-local HAZARD_DAMAGE = 20
-local HAZARD_HIT_COOLDOWN = 0.8
-local HAZARD_SIZE = 0.001
+local HAZARD_DAMAGE = 25
+local HAZARD_HIT_COOLDOWN = 0.5
+local HAZARD_SIZE = 0.0015
 
-local HAZARDS = {
-	{ lane = 2, t = 0.05 },
-	{ lane = 1, t = 0.11 },
-	{ lane = 3, t = 0.11 },
-	{ lane = 2, t = 0.18 },
-	{ lane = 1, t = 0.25 },
-	{ lane = 3, t = 0.30 },
-	{ lane = 1, t = 0.35 },
-	{ lane = 2, t = 0.42 },
-	{ lane = 3, t = 0.42 },
-	{ lane = 1, t = 0.50 },
-	{ lane = 2, t = 0.57 },
-	{ lane = 3, t = 0.57 },
-	{ lane = 1, t = 0.64 },
-	{ lane = 2, t = 0.64 },
-	{ lane = 3, t = 0.72 },
-	{ lane = 1, t = 0.76 },
-	{ lane = 2, t = 0.82 },
-	{ lane = 3, t = 0.82 },
-	{ lane = 1, t = 0.88 },
-	{ lane = 2, t = 0.94 },
-}
+local HAZARDS = {}
+do
+	local hazLanes = {2, 1, 3}
+	local hazSections = {
+		{from = 0.005, to = 0.33, gap = 0.006},
+		{from = 0.333, to = 0.66, gap = 0.004},
+		{from = 0.663, to = 0.99, gap = 0.003},
+	}
+	local idx = 1
+	for _, sec in ipairs(hazSections) do
+		local t = sec.from
+		while t < sec.to do
+			local lane = hazLanes[((idx - 1) % 3) + 1]
+			local tRound = math.floor(t * 1000 + 0.5) / 1000
+			table.insert(HAZARDS, {lane = lane, t = tRound})
+			t = t + sec.gap
+			idx = idx + 1
+		end
+	end
+end
 
 local LakelandRaceController = Knit.CreateController({
 	Name = "LakelandRaceController",
@@ -126,6 +131,10 @@ local LakelandRaceController = Knit.CreateController({
 	_switchDir = 0,
 	_health = MAX_HEALTH,
 	_hitCooldown = 0,
+	_totalDistance = 0,
+	_laneEntryT = 0,
+	_lastEffectiveLane = 2,
+	_lastCFrame = CFrame.new(),
 
 	LaneChanged = Signal.new(),
 	RaceProgress = Signal.new(),
@@ -244,7 +253,7 @@ function LakelandRaceController:_visualizeLanes()
 	folder.Parent = Workspace
 	self._trove:Add(folder)
 
-	local SEGMENTS = 500
+	local SEGMENTS = 1500
 	local LANE_COLORS = {
 		Color3.fromRGB(255, 80, 80),
 		Color3.fromRGB(80, 200, 80),
@@ -302,7 +311,7 @@ function LakelandRaceController:_visualizeLanes()
 		endMarker.Parent = folder
 	end
 
-	local DASH_COUNT = 350
+	local DASH_COUNT = 800
 
 	for laneIndex = 1, LANE_COUNT - 1 do
 		local splineA = self._splines[laneIndex].spline
@@ -346,7 +355,7 @@ function LakelandRaceController:_visualizeLanes()
 end
 
 function LakelandRaceController:_visualizeBoostZones(folder)
-	local BOOST_SEGMENTS = 15
+	local BOOST_SEGMENTS = 10
 	local BOOST_COLOR = Color3.fromRGB(255, 200, 0)
 	local BOOST_WIDTH = LANE_SPACING * 0.7
 
@@ -449,6 +458,9 @@ function LakelandRaceController:PositionAtStart()
 	self._switchDir = 0
 	self._health = MAX_HEALTH
 	self._hitCooldown = 0
+	self._totalDistance = 0
+	self._laneEntryT = 0
+	self._lastEffectiveLane = 2
 
 	task.spawn(function()
 		local machine = Workspace:WaitForChild("ActiveMachine", 5)
@@ -465,7 +477,9 @@ function LakelandRaceController:PositionAtStart()
 		end
 		dir = dir.Unit
 
-		machine:PivotTo(CFrame.lookAt(pos, pos + dir))
+		local startCF = CFrame.lookAt(pos, pos + dir)
+		machine:PivotTo(startCF)
+		self._lastCFrame = startCF
 		print("[LakelandRaceController] Machine positioned at spline start")
 	end)
 end
@@ -487,7 +501,7 @@ function LakelandRaceController:StopRace()
 	self._inputTrove:Clean()
 
 	if self._renderConn then
-		self._renderConn:Disconnect()
+		RunService:UnbindFromRenderStep("LakelandMachineUpdate")
 		self._renderConn = nil
 	end
 
@@ -537,17 +551,19 @@ end
 
 function LakelandRaceController:_startRenderLoop()
 	if self._renderConn then
-		self._renderConn:Disconnect()
+		RunService:UnbindFromRenderStep("LakelandMachineUpdate")
+		self._renderConn = nil
 	end
 
-	self._renderConn = RunService.RenderStepped:Connect(function(dt)
+	RunService:BindToRenderStep("LakelandMachineUpdate", Enum.RenderPriority.Camera.Value - 1, function(dt)
 		if not self._running then return end
 		self:_updateMovement(dt)
 	end)
+	self._renderConn = true
 
 	self._trove:Add(function()
 		if self._renderConn then
-			self._renderConn:Disconnect()
+			RunService:UnbindFromRenderStep("LakelandMachineUpdate")
 			self._renderConn = nil
 		end
 	end)
@@ -573,7 +589,7 @@ end
 function LakelandRaceController:_isInHazard()
 	local lane = self:_getEffectiveLane()
 	for _, hazard in ipairs(HAZARDS) do
-		if hazard.lane == lane and self._t >= hazard.t and self._t <= hazard.t + HAZARD_SIZE then
+		if hazard.lane == lane and hazard.t >= self._laneEntryT and self._t >= hazard.t and self._t <= hazard.t + HAZARD_SIZE then
 			return true
 		end
 	end
@@ -607,7 +623,9 @@ function LakelandRaceController:_updateMovement(dt)
 
 	self.SpeedChanged:Fire(self._currentSpeed)
 
-	self._t = self._t + (self._currentSpeed / TRACK_LENGTH) * dt
+	local tDelta = (self._currentSpeed / TRACK_LENGTH) * dt
+	self._totalDistance = self._totalDistance + self._currentSpeed * dt
+	self._t = self._t + tDelta
 	if self._t > 1 then
 		self._t = self._t - 1
 	end
@@ -616,6 +634,12 @@ function LakelandRaceController:_updateMovement(dt)
 	if self._laneBlend >= 1 then
 		self._laneBlend = 0
 		self._currentLane = self._targetLane
+	end
+
+	local effectiveLane = self:_getEffectiveLane()
+	if effectiveLane ~= self._lastEffectiveLane then
+		self._laneEntryT = self._t
+		self._lastEffectiveLane = effectiveLane
 	end
 
 	local currentSpline = self._splines[self._currentLane].spline
@@ -656,7 +680,9 @@ function LakelandRaceController:_updateMovement(dt)
 
 	local lookTarget = finalPos + dir
 	local baseCF = CFrame.lookAt(finalPos, lookTarget)
-	machine:PivotTo(baseCF * CFrame.Angles(0, 0, self._currentRoll))
+	local finalCF = baseCF * CFrame.Angles(0, 0, self._currentRoll)
+	machine:PivotTo(finalCF)
+	self._lastCFrame = finalCF
 
 	self.RaceProgress:Fire(self._t)
 end
@@ -673,6 +699,14 @@ function LakelandRaceController:GetCurrentSpeed()
 	return self._currentSpeed
 end
 
+function LakelandRaceController:GetMachineCFrame()
+	return self._lastCFrame
+end
+
+function LakelandRaceController:GetMaxSpeed()
+	return MAX_SPEED
+end
+
 function LakelandRaceController:IsBoosting()
 	return self._boosting
 end
@@ -683,6 +717,14 @@ end
 
 function LakelandRaceController:GetMaxHealth()
 	return MAX_HEALTH
+end
+
+function LakelandRaceController:GetDistance()
+	return self._totalDistance
+end
+
+function LakelandRaceController:GetTrackLength()
+	return TRACK_LENGTH
 end
 
 return LakelandRaceController

@@ -18,6 +18,8 @@ local LakelandNameEntryUI = require(ControllersFolder.LakelandNameEntryUI)
 local LakelandCountdownUI = require(ControllersFolder.LakelandCountdownUI)
 local LakelandRaceTimerUI = require(ControllersFolder.LakelandRaceTimerUI)
 local LakelandHealthBarUI = require(ControllersFolder.LakelandHealthBarUI)
+local LakelandDistanceUI = require(ControllersFolder.LakelandDistanceUI)
+local LakelandSpeedUI = require(ControllersFolder.LakelandSpeedUI)
 
 local RACE_DURATION = 120
 
@@ -112,6 +114,16 @@ function LakelandGameController:_createUI()
 	self._trove:Add(function()
 		self._healthBar.destroy()
 	end)
+
+	self._distanceUI = LakelandDistanceUI.new(playerGui, self._gameState)
+	self._trove:Add(function()
+		self._distanceUI.destroy()
+	end)
+
+	self._speedUI = LakelandSpeedUI.new(playerGui, self._gameState)
+	self._trove:Add(function()
+		self._speedUI.destroy()
+	end)
 end
 
 function LakelandGameController:_setState(newState)
@@ -151,6 +163,12 @@ function LakelandGameController:_onCountdownDone()
 end
 
 function LakelandGameController:_onTimeUp()
+	local finalScore = self._distanceUI.getScore()
+	if finalScore > 0 and self._currentPlayerName then
+		self:SubmitScore(finalScore)
+		print("[LakelandGameController] Submitted score: " .. finalScore)
+	end
+
 	self:_unseatPlayer()
 	self:_destroyMachine()
 
