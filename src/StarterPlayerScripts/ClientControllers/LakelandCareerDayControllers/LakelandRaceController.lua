@@ -112,6 +112,59 @@ do
 	end
 end
 
+local COIN_VALUE = 50
+local COIN_SIZE = 0.0008
+
+local COINS = {}
+do
+	local coinLanes = {1, 2, 3}
+	local coinSections = {
+		{from = 0.01,  to = 0.33, gap = 0.004},
+		{from = 0.33,  to = 0.66, gap = 0.003},
+		{from = 0.66,  to = 0.99, gap = 0.0025},
+	}
+
+	local hazardSet = {}
+	for _, h in ipairs(HAZARDS) do
+		hazardSet[h.lane .. "_" .. h.t] = true
+	end
+	local boostSet = {}
+	for _, b in ipairs(BOOST_ZONES) do
+		boostSet[b.lane .. "_" .. b.tStart] = true
+	end
+
+	local idx = 1
+	for _, sec in ipairs(coinSections) do
+		local t = sec.from
+		while t < sec.to do
+			local lane = coinLanes[((idx - 1) % 3) + 1]
+			local tRound = math.floor(t * 10000 + 0.5) / 10000
+
+			local overlaps = false
+			for _, h in ipairs(HAZARDS) do
+				if h.lane == lane and math.abs(h.t - tRound) < 0.003 then
+					overlaps = true
+					break
+				end
+			end
+			if not overlaps then
+				for _, b in ipairs(BOOST_ZONES) do
+					if b.lane == lane and tRound >= b.tStart and tRound <= b.tStart + BOOST_LENGTH then
+						overlaps = true
+						break
+					end
+				end
+			end
+
+			if not overlaps then
+				table.insert(COINS, {lane = lane, t = tRound, collected = false})
+			end
+			t = t + sec.gap
+			idx = idx + 1
+		end
+	end
+end
+
 local LakelandRaceController = Knit.CreateController({
 	Name = "LakelandRaceController",
 
@@ -135,6 +188,15 @@ local LakelandRaceController = Knit.CreateController({
 	_laneEntryT = 0,
 	_lastEffectiveLane = 2,
 	_lastCFrame = CFrame.new(),
+	_countdownDrive = false,
+	_boostVisuals = nil,
+	_hazardVisuals = nil,
+	_coinVisuals = nil,
+	_coinParts = {},
+	_coinBaseCFs = {},
+	_coinScore = 0,
+	_coinsCollected = 0,
+	_coinSpinConn = nil,
 
 	LaneChanged = Signal.new(),
 	RaceProgress = Signal.new(),
@@ -142,6 +204,7 @@ local LakelandRaceController = Knit.CreateController({
 	SpeedChanged = Signal.new(),
 	HealthChanged = Signal.new(),
 	HazardHit = Signal.new(),
+	CoinCollected = Signal.new(),
 })
 
 function LakelandRaceController:KnitInit()
@@ -153,11 +216,15 @@ end
 function LakelandRaceController:KnitStart()
 	self:_buildSplines()
 
+	self:_setObstacleVisibility(false)
+
 	local gameController = Knit.GetController("LakelandGameController")
 	gameController.GameStateChanged:Connect(function(newState)
 		if newState == "COUNTDOWN" then
+			self:_setObstacleVisibility(false)
 			self:PositionAtStart()
 		elseif newState == "PLAYING" then
+			self:_setObstacleVisibility(true)
 			self:StartRace()
 		elseif newState == "GAME_OVER" or newState == "MENU" then
 			self:StopRace()
@@ -350,6 +417,7 @@ function LakelandRaceController:_visualizeLanes()
 
 	self:_visualizeBoostZones(folder)
 	self:_visualizeHazards(folder)
+	self:_visualizeCoins(folder)
 
 	print("[LakelandRaceController] Lane visualization created")
 end
@@ -358,6 +426,11 @@ function LakelandRaceController:_visualizeBoostZones(folder)
 	local BOOST_SEGMENTS = 10
 	local BOOST_COLOR = Color3.fromRGB(255, 200, 0)
 	local BOOST_WIDTH = LANE_SPACING * 0.7
+
+	local boostFolder = Instance.new("Folder")
+	boostFolder.Name = "BoostVisuals"
+	boostFolder.Parent = folder
+	self._boostVisuals = boostFolder
 
 	for _, zone in ipairs(BOOST_ZONES) do
 		local spline = self._splines[zone.lane].spline
@@ -383,7 +456,7 @@ function LakelandRaceController:_visualizeBoostZones(folder)
 				panel.Color = BOOST_COLOR
 				panel.Material = Enum.Material.Neon
 				panel.Transparency = 0.15
-				panel.Parent = folder
+				panel.Parent = boostFolder
 			end
 		end
 
@@ -400,7 +473,7 @@ function LakelandRaceController:_visualizeBoostZones(folder)
 			arrow.Material = Enum.Material.Neon
 			arrow.Shape = Enum.PartType.Cylinder
 			arrow.Transparency = 0.1
-			arrow.Parent = folder
+			arrow.Parent = boostFolder
 		end
 	end
 
@@ -411,6 +484,11 @@ function LakelandRaceController:_visualizeHazards(folder)
 	local BOX_SIZE = Vector3.new(4, 4, 4)
 	local HAZARD_COLOR = Color3.fromRGB(200, 50, 50)
 	local WARN_COLOR = Color3.fromRGB(255, 180, 0)
+
+	local hazardFolder = Instance.new("Folder")
+	hazardFolder.Name = "HazardVisuals"
+	hazardFolder.Parent = folder
+	self._hazardVisuals = hazardFolder
 
 	for i, hazard in ipairs(HAZARDS) do
 		local spline = self._splines[hazard.lane].spline
@@ -429,7 +507,7 @@ function LakelandRaceController:_visualizeHazards(folder)
 		box.Color = HAZARD_COLOR
 		box.Material = Enum.Material.SmoothPlastic
 		box.Transparency = 0
-		box.Parent = folder
+		box.Parent = hazardFolder
 
 		local stripe = Instance.new("Part")
 		stripe.Name = "HazardStripe_" .. i
@@ -440,10 +518,94 @@ function LakelandRaceController:_visualizeHazards(folder)
 		stripe.Color = WARN_COLOR
 		stripe.Material = Enum.Material.Neon
 		stripe.Transparency = 0.1
-		stripe.Parent = folder
+		stripe.Parent = hazardFolder
 	end
 
 	print("[LakelandRaceController] Visualized " .. #HAZARDS .. " hazards")
+end
+
+function LakelandRaceController:_visualizeCoins(folder)
+	local COIN_COLOR = Color3.fromRGB(255, 220, 50)
+	local COIN_DIAMETER = 4
+	local COIN_THICKNESS = 0.5
+	local COIN_SPIN_SPEED = 3
+
+	local coinFolder = Instance.new("Folder")
+	coinFolder.Name = "CoinVisuals"
+	coinFolder.Parent = folder
+	self._coinVisuals = coinFolder
+	self._coinParts = {}
+	self._coinBaseCFs = {}
+
+	for i, coin in ipairs(COINS) do
+		local spline = self._splines[coin.lane].spline
+		local pos = spline:CalculatePositionAt(coin.t)
+		local dir = spline:CalculateDerivativeAt(coin.t)
+		if dir.Magnitude < 0.001 then
+			dir = Vector3.new(0, 0, -1)
+		end
+
+		local coinPos = pos + Vector3.new(0, 3, 0)
+		local baseCF = CFrame.lookAt(coinPos, coinPos + dir) * CFrame.Angles(0, math.rad(90), 0)
+
+		local coinPart = Instance.new("Part")
+		coinPart.Name = "Coin_" .. i
+		coinPart.Shape = Enum.PartType.Cylinder
+		coinPart.Size = Vector3.new(COIN_THICKNESS, COIN_DIAMETER, COIN_DIAMETER)
+		coinPart.CFrame = baseCF
+		coinPart.Anchored = true
+		coinPart.CanCollide = false
+		coinPart.Color = COIN_COLOR
+		coinPart.Material = Enum.Material.Neon
+		coinPart.Transparency = 0.1
+		coinPart.Parent = coinFolder
+
+		self._coinParts[i] = coinPart
+		self._coinBaseCFs[i] = baseCF
+	end
+
+	if self._coinSpinConn then
+		self._coinSpinConn:Disconnect()
+	end
+	self._coinSpinConn = RunService.Heartbeat:Connect(function()
+		local angle = tick() * COIN_SPIN_SPEED
+		local spinCF = CFrame.Angles(angle, 0, 0)
+		for i, part in ipairs(self._coinParts) do
+			if part and part.Parent and part.Transparency < 1 then
+				part.CFrame = self._coinBaseCFs[i] * spinCF
+			end
+		end
+	end)
+	self._trove:Add(self._coinSpinConn)
+
+	print("[LakelandRaceController] Visualized " .. #COINS .. " coins")
+end
+
+function LakelandRaceController:_setObstacleVisibility(show)
+	if self._boostVisuals then
+		for _, part in ipairs(self._boostVisuals:GetChildren()) do
+			if part:IsA("BasePart") then
+				part.Transparency = show and (part.Name:find("Arrow") and 0.1 or 0.15) or 1
+			end
+		end
+	end
+	if self._hazardVisuals then
+		for _, part in ipairs(self._hazardVisuals:GetChildren()) do
+			if part:IsA("BasePart") then
+				part.Transparency = show and (part.Name:find("Stripe") and 0.1 or 0) or 1
+			end
+		end
+	end
+	if self._coinVisuals then
+		for i, part in ipairs(self._coinParts) do
+			if part and part.Parent then
+				local coin = COINS[i]
+				if coin and not coin.collected then
+					part.Transparency = show and 0.1 or 1
+				end
+			end
+		end
+	end
 end
 
 function LakelandRaceController:PositionAtStart()
@@ -461,6 +623,16 @@ function LakelandRaceController:PositionAtStart()
 	self._totalDistance = 0
 	self._laneEntryT = 0
 	self._lastEffectiveLane = 2
+	self._countdownDrive = true
+	self._coinScore = 0
+	self._coinsCollected = 0
+
+	for i, coin in ipairs(COINS) do
+		coin.collected = false
+		if self._coinParts[i] and self._coinParts[i].Parent then
+			self._coinParts[i].Transparency = 1
+		end
+	end
 
 	task.spawn(function()
 		local machine = Workspace:WaitForChild("ActiveMachine", 5)
@@ -480,23 +652,30 @@ function LakelandRaceController:PositionAtStart()
 		local startCF = CFrame.lookAt(pos, pos + dir)
 		machine:PivotTo(startCF)
 		self._lastCFrame = startCF
-		print("[LakelandRaceController] Machine positioned at spline start")
+
+		self:_startRenderLoop()
+		print("[LakelandRaceController] Machine positioned at spline start — countdown drive active")
 	end)
 end
 
 function LakelandRaceController:StartRace()
 	if self._running then return end
 	self._running = true
+	self._countdownDrive = false
+	self._laneEntryT = self._t
 
 	self:_bindInput()
-	self:_startRenderLoop()
 
-	print("[LakelandRaceController] Race started on lane " .. self._currentLane)
+	if not self._renderConn then
+		self:_startRenderLoop()
+	end
+
+	print("[LakelandRaceController] Race started on lane " .. self._currentLane .. " at t=" .. string.format("%.4f", self._t))
 end
 
 function LakelandRaceController:StopRace()
-	if not self._running then return end
 	self._running = false
+	self._countdownDrive = false
 
 	self._inputTrove:Clean()
 
@@ -556,7 +735,7 @@ function LakelandRaceController:_startRenderLoop()
 	end
 
 	RunService:BindToRenderStep("LakelandMachineUpdate", Enum.RenderPriority.Camera.Value - 1, function(dt)
-		if not self._running then return end
+		if not self._running and not self._countdownDrive then return end
 		self:_updateMovement(dt)
 	end)
 	self._renderConn = true
@@ -596,50 +775,75 @@ function LakelandRaceController:_isInHazard()
 	return false
 end
 
+function LakelandRaceController:_checkCoinCollection()
+	local lane = self:_getEffectiveLane()
+	for i, coin in ipairs(COINS) do
+		if not coin.collected and coin.lane == lane and self._t >= coin.t and self._t <= coin.t + COIN_SIZE then
+			coin.collected = true
+			self._coinScore = self._coinScore + COIN_VALUE
+			self._coinsCollected = self._coinsCollected + 1
+
+			local part = self._coinParts[i]
+			if part and part.Parent then
+				part.Transparency = 1
+			end
+
+			self.CoinCollected:Fire(self._coinScore, self._coinsCollected)
+		end
+	end
+end
+
 function LakelandRaceController:_updateMovement(dt)
 	local machine = Workspace:FindFirstChild("ActiveMachine")
 	if not machine or not machine.PrimaryPart then return end
 
-	if self._hitCooldown > 0 then
-		self._hitCooldown = self._hitCooldown - dt
-	end
+	if not self._countdownDrive then
+		if self._hitCooldown > 0 then
+			self._hitCooldown = self._hitCooldown - dt
+		end
 
-	local inBoost = self:_isInBoostZone()
-	if inBoost ~= self._boosting then
-		self._boosting = inBoost
-		self.BoostChanged:Fire(inBoost)
-	end
+		local inBoost = self:_isInBoostZone()
+		if inBoost ~= self._boosting then
+			self._boosting = inBoost
+			self.BoostChanged:Fire(inBoost)
+		end
 
-	if inBoost then
-		self._currentSpeed = math.min(self._currentSpeed + BOOST_ACCEL * dt, MAX_SPEED)
-	end
+		if inBoost then
+			self._currentSpeed = math.min(self._currentSpeed + BOOST_ACCEL * dt, MAX_SPEED)
+		end
 
-	if self._hitCooldown <= 0 and self:_isInHazard() then
-		self._health = math.max(self._health - HAZARD_DAMAGE, 0)
-		self._hitCooldown = HAZARD_HIT_COOLDOWN
-		self.HealthChanged:Fire(self._health)
-		self.HazardHit:Fire(self._health)
-	end
+		if self._hitCooldown <= 0 and self:_isInHazard() then
+			self._health = math.max(self._health - HAZARD_DAMAGE, 0)
+			self._hitCooldown = HAZARD_HIT_COOLDOWN
+			self.HealthChanged:Fire(self._health)
+			self.HazardHit:Fire(self._health)
+		end
 
-	self.SpeedChanged:Fire(self._currentSpeed)
+		self:_checkCoinCollection()
+		self.SpeedChanged:Fire(self._currentSpeed)
+	end
 
 	local tDelta = (self._currentSpeed / TRACK_LENGTH) * dt
-	self._totalDistance = self._totalDistance + self._currentSpeed * dt
+	if not self._countdownDrive then
+		self._totalDistance = self._totalDistance + self._currentSpeed * dt
+	end
 	self._t = self._t + tDelta
 	if self._t > 1 then
 		self._t = self._t - 1
 	end
 
-	self._laneBlend = self._laneBlend + LANE_SWITCH_SPEED * dt
-	if self._laneBlend >= 1 then
-		self._laneBlend = 0
-		self._currentLane = self._targetLane
-	end
+	if not self._countdownDrive then
+		self._laneBlend = self._laneBlend + LANE_SWITCH_SPEED * dt
+		if self._laneBlend >= 1 then
+			self._laneBlend = 0
+			self._currentLane = self._targetLane
+		end
 
-	local effectiveLane = self:_getEffectiveLane()
-	if effectiveLane ~= self._lastEffectiveLane then
-		self._laneEntryT = self._t
-		self._lastEffectiveLane = effectiveLane
+		local effectiveLane = self:_getEffectiveLane()
+		if effectiveLane ~= self._lastEffectiveLane then
+			self._laneEntryT = self._t
+			self._lastEffectiveLane = effectiveLane
+		end
 	end
 
 	local currentSpline = self._splines[self._currentLane].spline
@@ -725,6 +929,14 @@ end
 
 function LakelandRaceController:GetTrackLength()
 	return TRACK_LENGTH
+end
+
+function LakelandRaceController:GetCoinScore()
+	return self._coinScore
+end
+
+function LakelandRaceController:GetCoinsCollected()
+	return self._coinsCollected
 end
 
 return LakelandRaceController

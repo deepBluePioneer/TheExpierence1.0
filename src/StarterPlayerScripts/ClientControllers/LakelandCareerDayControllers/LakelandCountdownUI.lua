@@ -15,6 +15,12 @@ local Spring = Fusion.Spring
 local COUNTDOWN_SECONDS = 5
 local GO_DISPLAY_TIME = 0.8
 
+local BAR_HEIGHT = 0.1
+local BAR_SLIDE_IN_SPEED = 22
+local BAR_SLIDE_IN_DAMP = 0.8
+local BAR_SLIDE_OUT_SPEED = 18
+local BAR_SLIDE_OUT_DAMP = 0.6
+
 local LakelandCountdownUI = {}
 
 function LakelandCountdownUI.new(playerGui, gameState, onCountdownDone)
@@ -24,7 +30,15 @@ function LakelandCountdownUI.new(playerGui, gameState, onCountdownDone)
 	local punchScale = Value(1)
 	local textColor = Value(Color3.fromRGB(255, 255, 255))
 
+	local barVisible = Value(0)
+
 	local animatedScale = Spring(punchScale, 30, 0.6)
+	local topBarPos = Spring(Computed(function()
+		return barVisible:get() == 1 and 0 or -BAR_HEIGHT
+	end), BAR_SLIDE_IN_SPEED, BAR_SLIDE_IN_DAMP)
+	local bottomBarPos = Spring(Computed(function()
+		return barVisible:get() == 1 and (1 - BAR_HEIGHT) or 1
+	end), BAR_SLIDE_IN_SPEED, BAR_SLIDE_IN_DAMP)
 
 	local visible = Computed(function()
 		return gameState:get() == "COUNTDOWN"
@@ -39,33 +53,57 @@ function LakelandCountdownUI.new(playerGui, gameState, onCountdownDone)
 
 		[Children] = {
 			New "Frame" {
-				Name = "Overlay",
-				Size = UDim2.fromScale(1, 1),
+				Name = "TopBar",
+				AnchorPoint = Vector2.new(0, 0),
+				Position = Computed(function()
+					return UDim2.fromScale(0, topBarPos:get())
+				end),
+				Size = UDim2.fromScale(1, BAR_HEIGHT),
 				BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-				BackgroundTransparency = 0.7,
+				BackgroundTransparency = 0,
+				BorderSizePixel = 0,
+				ZIndex = 10,
 				Visible = visible,
+			},
 
-				[Children] = {
-					New "TextLabel" {
-						Name = "CountdownNumber",
-						AnchorPoint = Vector2.new(0.5, 0.5),
-						Position = UDim2.fromScale(0.5, 0.45),
-						Size = Computed(function()
-							local s = animatedScale:get()
-							return UDim2.fromScale(0.3 * s, 0.25 * s)
-						end),
-						BackgroundTransparency = 1,
-						Text = countText,
-						TextColor3 = textColor,
-						Font = Enum.Font.GothamBlack,
-						TextScaled = true,
-					},
-				},
+			New "Frame" {
+				Name = "BottomBar",
+				AnchorPoint = Vector2.new(0, 0),
+				Position = Computed(function()
+					return UDim2.fromScale(0, bottomBarPos:get())
+				end),
+				Size = UDim2.fromScale(1, BAR_HEIGHT),
+				BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+				BackgroundTransparency = 0,
+				BorderSizePixel = 0,
+				ZIndex = 10,
+				Visible = visible,
+			},
+
+			New "TextLabel" {
+				Name = "CountdownNumber",
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromScale(0.5, 0.45),
+				Size = Computed(function()
+					local s = animatedScale:get()
+					return UDim2.fromScale(0.3 * s, 0.25 * s)
+				end),
+				BackgroundTransparency = 1,
+				Text = countText,
+				TextColor3 = textColor,
+				Font = Enum.Font.GothamBlack,
+				TextScaled = true,
+				ZIndex = 11,
+				Visible = visible,
 			},
 		},
 	}
 
 	local function runCountdown()
+		barVisible:set(1)
+
+		task.wait(0.35)
+
 		for i = COUNTDOWN_SECONDS, 1, -1 do
 			countText:set(tostring(i))
 			textColor:set(i <= 2 and Color3.fromRGB(255, 100, 80) or Color3.fromRGB(255, 255, 255))
@@ -78,6 +116,7 @@ function LakelandCountdownUI.new(playerGui, gameState, onCountdownDone)
 			task.wait(1)
 
 			if gameState:get() ~= "COUNTDOWN" then
+				barVisible:set(0)
 				return
 			end
 		end
@@ -89,7 +128,13 @@ function LakelandCountdownUI.new(playerGui, gameState, onCountdownDone)
 			punchScale:set(1)
 		end)
 
-		task.wait(GO_DISPLAY_TIME)
+		task.wait(0.3)
+
+		barVisible:set(0)
+
+		task.wait(GO_DISPLAY_TIME - 0.3)
+
+		countText:set("")
 
 		if onCountdownDone then
 			onCountdownDone()
@@ -102,6 +147,8 @@ function LakelandCountdownUI.new(playerGui, gameState, onCountdownDone)
 		if countdownThread then
 			task.cancel(countdownThread)
 		end
+		countText:set("")
+		barVisible:set(0)
 		countdownThread = task.spawn(runCountdown)
 		trove:Add(function()
 			if countdownThread then

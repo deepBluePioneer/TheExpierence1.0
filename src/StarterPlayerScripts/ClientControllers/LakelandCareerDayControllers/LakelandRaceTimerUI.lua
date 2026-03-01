@@ -24,6 +24,10 @@ function LakelandRaceTimerUI.new(playerGui, gameState, raceDuration, onTimeUp)
 		return gameState:get() == "PLAYING"
 	end)
 
+	local slideY = Spring(Computed(function()
+		return visible:get() and 0.03 or -0.08
+	end), 18, 0.75)
+
 	local timerText = Computed(function()
 		local t = math.ceil(timeRemaining:get())
 		local m = math.floor(t / 60)
@@ -56,7 +60,10 @@ function LakelandRaceTimerUI.new(playerGui, gameState, raceDuration, onTimeUp)
 			New "Frame" {
 				Name = "TimerContainer",
 				AnchorPoint = Vector2.new(0.5, 0),
-				Position = UDim2.fromScale(0.5, 0.03),
+				Position = Computed(function()
+					local y = slideY:get()
+					return UDim2.fromScale(0.5, y)
+				end),
 				Size = Computed(function()
 					local s = animatedPulse:get()
 					return UDim2.fromScale(0.15 * s, 0.06 * s)

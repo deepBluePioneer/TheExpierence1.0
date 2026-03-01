@@ -24,8 +24,12 @@ function LakelandSpeedUI.new(playerGui, gameState)
 	local boosting = Value(false)
 
 	local visible = Computed(function()
-		return gameState:get() == "PLAYING" or gameState:get() == "COUNTDOWN"
+		return gameState:get() == "PLAYING"
 	end)
+
+	local slideY = Spring(Computed(function()
+		return visible:get() and 0.97 or 1.15
+	end), 18, 0.75)
 
 	local speedFrac = Computed(function()
 		return math.clamp(speed:get() / maxSpeed:get(), 0, 1)
@@ -61,7 +65,9 @@ function LakelandSpeedUI.new(playerGui, gameState)
 			New "Frame" {
 				Name = "SpeedContainer",
 				AnchorPoint = Vector2.new(0, 1),
-				Position = UDim2.fromScale(0.02, 0.97),
+				Position = Computed(function()
+					return UDim2.fromScale(0.02, slideY:get())
+				end),
 				Size = UDim2.fromScale(0.14, 0.15),
 				BackgroundColor3 = Color3.fromRGB(20, 20, 30),
 				BackgroundTransparency = 0.3,

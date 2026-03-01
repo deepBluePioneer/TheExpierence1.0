@@ -21,10 +21,17 @@ function LakelandDistanceUI.new(playerGui, gameState)
 
 	local distance = Value(0)
 	local score = Value(0)
+	local coinPickupText = Value("")
+	local coinPickupAlpha = Value(0)
+	local animatedCoinAlpha = Spring(coinPickupAlpha, 12, 0.9)
 
 	local visible = Computed(function()
 		return gameState:get() == "PLAYING"
 	end)
+
+	local slideY = Spring(Computed(function()
+		return visible:get() and 0.12 or -0.1
+	end), 18, 0.75)
 
 	local distanceText = Computed(function()
 		local d = math.floor(distance:get())
@@ -32,10 +39,6 @@ function LakelandDistanceUI.new(playerGui, gameState)
 			return string.format("%.1fkm", d / 1000)
 		end
 		return d .. "m"
-	end)
-
-	local scoreText = Computed(function()
-		return string.format("%06d", math.floor(score:get()))
 	end)
 
 	local animatedScore = Spring(score, 12, 0.8)
@@ -54,7 +57,9 @@ function LakelandDistanceUI.new(playerGui, gameState)
 			New "Frame" {
 				Name = "DistanceContainer",
 				AnchorPoint = Vector2.new(0.5, 0),
-				Position = UDim2.fromScale(0.5, 0.12),
+				Position = Computed(function()
+					return UDim2.fromScale(0.5, slideY:get())
+				end),
 				Size = UDim2.fromScale(0.18, 0.09),
 				BackgroundColor3 = Color3.fromRGB(20, 20, 30),
 				BackgroundTransparency = 0.3,
@@ -130,24 +135,47 @@ function LakelandDistanceUI.new(playerGui, gameState)
 					},
 				},
 			},
+
+			New "TextLabel" {
+				Name = "CoinPickup",
+				AnchorPoint = Vector2.new(0.5, 0),
+				Position = UDim2.fromScale(0.5, 0.215),
+				Size = UDim2.fromScale(0.12, 0.025),
+				BackgroundTransparency = 1,
+				Text = coinPickupText,
+				TextColor3 = Color3.fromRGB(255, 220, 50),
+				Font = Enum.Font.GothamBlack,
+				TextScaled = true,
+				TextTransparency = Computed(function()
+					return 1 - animatedCoinAlpha:get()
+				end),
+				Visible = visible,
+			},
 		},
 	}
 
 	trove:Add(screenGui)
 
 	local raceController = nil
-	local updateConn = nil
 
 	local function bind()
 		raceController = Knit.GetController("LakelandRaceController")
 
-		updateConn = RunService.Heartbeat:Connect(function()
+		trove:Add(RunService.Heartbeat:Connect(function()
 			if gameState:get() ~= "PLAYING" then return end
 			local dist = raceController:GetDistance()
+			local coinBonus = raceController:GetCoinScore()
 			distance:set(dist)
-			score:set(math.floor(dist * 10))
-		end)
-		trove:Add(updateConn)
+			score:set(math.floor(dist * 10) + coinBonus)
+		end))
+
+		trove:Add(raceController.CoinCollected:Connect(function(totalCoinScore, totalCoins)
+			coinPickupText:set("+50")
+			coinPickupAlpha:set(1)
+			task.delay(0.6, function()
+				coinPickupAlpha:set(0)
+			end)
+		end))
 	end
 
 	task.spawn(bind)

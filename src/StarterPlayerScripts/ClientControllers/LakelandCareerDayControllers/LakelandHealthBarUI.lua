@@ -23,8 +23,12 @@ function LakelandHealthBarUI.new(playerGui, gameState)
 	local animatedFlash = Spring(hitFlash, 20, 0.8)
 
 	local visible = Computed(function()
-		return gameState:get() == "PLAYING" or gameState:get() == "COUNTDOWN"
+		return gameState:get() == "PLAYING"
 	end)
+
+	local slideY = Spring(Computed(function()
+		return visible:get() and 0.09 or -0.05
+	end), 18, 0.75)
 
 	local barColor = Computed(function()
 		local frac = healthFrac:get()
@@ -48,7 +52,9 @@ function LakelandHealthBarUI.new(playerGui, gameState)
 			New "Frame" {
 				Name = "HealthContainer",
 				AnchorPoint = Vector2.new(0.5, 0),
-				Position = UDim2.fromScale(0.5, 0.09),
+				Position = Computed(function()
+					return UDim2.fromScale(0.5, slideY:get())
+				end),
 				Size = UDim2.fromScale(0.2, 0.025),
 				BackgroundColor3 = Color3.fromRGB(20, 20, 30),
 				BackgroundTransparency = 0.3,
