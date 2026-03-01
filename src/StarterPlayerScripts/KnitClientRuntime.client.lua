@@ -7,11 +7,13 @@ local Knit = require(ReplicatedStorage.Packages.Knit)
 -- Place IDs
 local HubPlaceID = 91627323095607
 local CityTrialPlaceID = 107271232251787
+local LakelandCareerDayPlaceID = 108316442650035
 
 -- Controller directories
 local ClientControllers = StarterPlayerScripts.Source.ClientControllers
 local HubControllers = ClientControllers.HubControllers
 local CityTrialControllers = ClientControllers.CityTrialControllers
+local LakelandCareerDayControllers = ClientControllers.LakelandCareerDayControllers
 
 -- Function to require controllers recursively
 local function requireControllers(directory)
@@ -35,9 +37,11 @@ local function loadControllersForPlace(placeId)
 		requireControllers(HubControllers)
 	elseif placeId == CityTrialPlaceID then
 		requireControllers(CityTrialControllers)
+	elseif placeId == LakelandCareerDayPlaceID then
+		requireControllers(LakelandCareerDayControllers)
 	elseif RunService:IsStudio() then
-		warn("Studio detected with PlaceId " .. placeId .. " -- loading Hub controllers for testing")
-		requireControllers(HubControllers)
+		warn("Studio detected with PlaceId " .. placeId .. " -- loading Lakeland Career Day controllers for testing")
+		requireControllers(LakelandCareerDayControllers)
 	else
 		warn("Unrecognized Place ID: " .. placeId .. ", no controllers loaded")
 		return
