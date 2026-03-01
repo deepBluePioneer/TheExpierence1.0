@@ -21,6 +21,7 @@ local LakelandHealthBarUI = require(ControllersFolder.LakelandHealthBarUI)
 local LakelandDistanceUI = require(ControllersFolder.LakelandDistanceUI)
 local LakelandSpeedUI = require(ControllersFolder.LakelandSpeedUI)
 local LakelandEndGameUI = require(ControllersFolder.LakelandEndGameUI)
+local LakelandScoreBarUI = require(ControllersFolder.LakelandScoreBarUI)
 
 local RACE_DURATION = 120
 local END_SCREEN_DURATION = 5
@@ -134,6 +135,11 @@ function LakelandGameController:_createUI()
 	self._trove:Add(function()
 		self._endGameUI.destroy()
 	end)
+
+	self._scoreBar = LakelandScoreBarUI.new(playerGui, self._gameState, self._topScores)
+	self._trove:Add(function()
+		self._scoreBar.destroy()
+	end)
 end
 
 function LakelandGameController:_setState(newState)
@@ -163,11 +169,16 @@ function LakelandGameController:_onNameConfirmed(name)
 	self:_seatPlayer()
 
 	self._healthBar.reset()
+	self._scoreBar.reset()
 	self:_setState(STATES.COUNTDOWN)
 	self._countdown.start()
 end
 
 function LakelandGameController:_onCountdownDone()
+	-- Edge case: countdown callback must only run once; avoid double-start if already PLAYING
+	if self._gameState:get() == STATES.PLAYING then
+		return
+	end
 	self:_setState(STATES.PLAYING)
 	self._raceTimer.start()
 
@@ -195,6 +206,10 @@ function LakelandGameController:_onGameEnd(endReason)
 	if self._healthConn then
 		self._healthConn:Disconnect()
 		self._healthConn = nil
+	end
+	-- Stop race timer so it does not keep ticking in background (e.g. after death before time up)
+	if self._raceTimer and self._raceTimer.stop then
+		self._raceTimer.stop()
 	end
 
 	local finalScore = self._distanceUI.getScore()

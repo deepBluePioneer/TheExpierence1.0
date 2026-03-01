@@ -136,7 +136,8 @@ function LakelandCountdownUI.new(playerGui, gameState, onCountdownDone)
 
 		countText:set("")
 
-		if onCountdownDone then
+		-- Only fire callback if still in countdown (e.g. state wasn't changed during GO! display)
+		if gameState:get() == "COUNTDOWN" and onCountdownDone then
 			onCountdownDone()
 		end
 	end

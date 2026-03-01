@@ -17,8 +17,9 @@ local LakelandRaceTimerUI = {}
 
 function LakelandRaceTimerUI.new(playerGui, gameState, raceDuration, onTimeUp)
 	local trove = Trove.new()
-
-	local timeRemaining = Value(raceDuration)
+	-- Clamp so timer never starts with zero or negative (avoids instant time-up)
+	local safeDuration = math.max(1, tonumber(raceDuration) or 120)
+	local timeRemaining = Value(safeDuration)
 
 	local visible = Computed(function()
 		return gameState:get() == "PLAYING"
@@ -107,26 +108,31 @@ function LakelandRaceTimerUI.new(playerGui, gameState, raceDuration, onTimeUp)
 	local tickTimer = nil
 	local secondsElapsed = 0
 
-	local function start()
-		timeRemaining:set(raceDuration)
-		secondsElapsed = 0
+	local function stop()
+		if tickTimer and tickTimer:IsRunning() then
+			tickTimer:Stop()
+		end
+	end
 
+	local function start()
+		-- Only one run at a time; stop any existing timer (do not add to trove to avoid double-destroy)
 		if tickTimer then
 			tickTimer:Destroy()
+			tickTimer = nil
 		end
 
-		tickTimer = Timer.new(1)
-		trove:Add(tickTimer)
+		timeRemaining:set(safeDuration)
+		secondsElapsed = 0
 
+		tickTimer = Timer.new(1)
 		tickTimer.Tick:Connect(function()
+			if not tickTimer or not tickTimer:IsRunning() then return end
 			secondsElapsed = secondsElapsed + 1
-			local remaining = raceDuration - secondsElapsed
+			local remaining = safeDuration - secondsElapsed
 
 			if remaining <= 0 then
-				remaining = 0
 				timeRemaining:set(0)
 				tickTimer:Stop()
-
 				if onTimeUp then
 					onTimeUp()
 				end
@@ -151,12 +157,17 @@ function LakelandRaceTimerUI.new(playerGui, gameState, raceDuration, onTimeUp)
 	end
 
 	local function destroy()
+		if tickTimer then
+			tickTimer:Destroy()
+			tickTimer = nil
+		end
 		trove:Destroy()
 		screenGui:Destroy()
 	end
 
 	return {
 		start = start,
+		stop = stop,
 		destroy = destroy,
 		getTimeRemaining = getTimeRemaining,
 	}
