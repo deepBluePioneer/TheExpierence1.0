@@ -20,8 +20,10 @@ local LakelandRaceTimerUI = require(ControllersFolder.LakelandRaceTimerUI)
 local LakelandHealthBarUI = require(ControllersFolder.LakelandHealthBarUI)
 local LakelandDistanceUI = require(ControllersFolder.LakelandDistanceUI)
 local LakelandSpeedUI = require(ControllersFolder.LakelandSpeedUI)
+local LakelandEndGameUI = require(ControllersFolder.LakelandEndGameUI)
 
 local RACE_DURATION = 120
+local END_SCREEN_DURATION = 5
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -30,6 +32,7 @@ local STATES = {
 	NAME_ENTRY = "NAME_ENTRY",
 	COUNTDOWN = "COUNTDOWN",
 	PLAYING = "PLAYING",
+	GAME_OVER = "GAME_OVER",
 }
 
 local LakelandGameController = Knit.CreateController({
@@ -46,6 +49,7 @@ local LakelandGameController = Knit.CreateController({
 	_nameEntry = nil,
 	_countdown = nil,
 	_raceTimer = nil,
+	_healthConn = nil,
 })
 
 local MAX_LEADERBOARD_ENTRIES = 10
@@ -60,6 +64,7 @@ end
 
 function LakelandGameController:KnitStart()
 	self._dataService = Knit.GetService("LakelandDataService")
+	self._raceController = Knit.GetController("LakelandRaceController")
 
 	self:_loadFromServer()
 	self:_createUI()
@@ -68,7 +73,7 @@ function LakelandGameController:KnitStart()
 end
 
 function LakelandGameController:_loadCharacter()
-	self._dataService:LoadCharacter()
+	self._dataService:LoadCharacter():expect()
 
 	local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 	local humanoid = character:WaitForChild("Humanoid")
@@ -104,7 +109,7 @@ function LakelandGameController:_createUI()
 	end)
 
 	self._raceTimer = LakelandRaceTimerUI.new(playerGui, self._gameState, RACE_DURATION, function()
-		self:_onTimeUp()
+		self:_onGameEnd("TIME UP")
 	end)
 	self._trove:Add(function()
 		self._raceTimer.destroy()
@@ -123,6 +128,11 @@ function LakelandGameController:_createUI()
 	self._speedUI = LakelandSpeedUI.new(playerGui, self._gameState)
 	self._trove:Add(function()
 		self._speedUI.destroy()
+	end)
+
+	self._endGameUI = LakelandEndGameUI.new(playerGui, self._gameState)
+	self._trove:Add(function()
+		self._endGameUI.destroy()
 	end)
 end
 
@@ -143,7 +153,7 @@ end
 function LakelandGameController:_onNameConfirmed(name)
 	self._currentPlayerName = name
 
-	self._dataService:RegisterProfile(name)
+	self._dataService:RegisterProfile(name):expect()
 
 	self:_addPreviousName(name)
 	print("[LakelandGameController] Player name: " .. name)
@@ -152,6 +162,7 @@ function LakelandGameController:_onNameConfirmed(name)
 	self:_loadCharacter()
 	self:_seatPlayer()
 
+	self._healthBar.reset()
 	self:_setState(STATES.COUNTDOWN)
 	self._countdown.start()
 end
@@ -159,26 +170,87 @@ end
 function LakelandGameController:_onCountdownDone()
 	self:_setState(STATES.PLAYING)
 	self._raceTimer.start()
+
+	self:_bindHealthWatch()
+
 	print("[LakelandGameController] Player has control! Race timer started.")
 end
 
-function LakelandGameController:_onTimeUp()
-	local finalScore = self._distanceUI.getScore()
-	if finalScore > 0 and self._currentPlayerName then
-		self:SubmitScore(finalScore)
-		print("[LakelandGameController] Submitted score: " .. finalScore)
+function LakelandGameController:_bindHealthWatch()
+	if self._healthConn then
+		self._healthConn:Disconnect()
+		self._healthConn = nil
 	end
 
+	self._healthConn = self._raceController.HealthChanged:Connect(function(health)
+		if health <= 0 and self._gameState:get() == STATES.PLAYING then
+			self:_onGameEnd("DESTROYED")
+		end
+	end)
+end
+
+function LakelandGameController:_onGameEnd(endReason)
+	if self._gameState:get() == STATES.GAME_OVER then return end
+
+	if self._healthConn then
+		self._healthConn:Disconnect()
+		self._healthConn = nil
+	end
+
+	local finalScore = self._distanceUI.getScore()
+	local finalDistance = self._raceController:GetDistance()
+
+	self:_setState(STATES.GAME_OVER)
+
+	self._endGameUI.show({
+		score = finalScore,
+		distance = finalDistance,
+		name = self._currentPlayerName,
+		reason = endReason,
+	})
+
+	task.spawn(function()
+		if finalScore > 0 and self._currentPlayerName and #self._currentPlayerName > 0 then
+			local ok, err = pcall(function()
+				self:SubmitScore(finalScore)
+			end)
+			if ok then
+				self._endGameUI.setStatus("SCORE SAVED!")
+				print("[LakelandGameController] Submitted score: " .. finalScore)
+			else
+				self._endGameUI.setStatus("SAVE FAILED - RETRYING...")
+				warn("[LakelandGameController] Score save failed: " .. tostring(err))
+				task.wait(2)
+				local retryOk = pcall(function()
+					self:SubmitScore(finalScore)
+				end)
+				if retryOk then
+					self._endGameUI.setStatus("SCORE SAVED!")
+				else
+					self._endGameUI.setStatus("COULD NOT SAVE")
+					warn("[LakelandGameController] Score retry also failed")
+				end
+			end
+		else
+			self._endGameUI.setStatus("NO SCORE")
+		end
+
+		task.wait(END_SCREEN_DURATION - 1)
+		self._endGameUI.setStatus("RETURNING TO MENU...")
+		task.wait(1)
+
+		pcall(function()
+			self:_cleanup()
+		end)
+		self:_setState(STATES.MENU)
+		print("[LakelandGameController] " .. endReason .. " — returning to menu.")
+	end)
+end
+
+function LakelandGameController:_cleanup()
 	self:_unseatPlayer()
 	self:_destroyMachine()
-
-	local character = LocalPlayer.Character
-	if character then
-		character:Destroy()
-	end
-
-	self:_setState(STATES.MENU)
-	print("[LakelandGameController] Time's up! Returning to menu.")
+	self._dataService:DestroyCharacter():expect()
 end
 
 function LakelandGameController:_freezeCharacter()
@@ -210,21 +282,21 @@ end
 ----------------------------------------------------------------
 
 function LakelandGameController:_spawnMachine()
-	local machineName = self._dataService:SpawnMachine()
+	local machineName = self._dataService:SpawnMachine():expect()
 	print("[LakelandGameController] Server spawned machine: " .. tostring(machineName))
 end
 
 function LakelandGameController:_destroyMachine()
-	self._dataService:DestroyMachine()
+	self._dataService:DestroyMachine():expect()
 end
 
 function LakelandGameController:_seatPlayer()
-	self._dataService:SeatPlayerInMachine()
+	self._dataService:SeatPlayerInMachine():expect()
 	print("[LakelandGameController] Requested server to seat player")
 end
 
 function LakelandGameController:_unseatPlayer()
-	self._dataService:UnseatPlayer()
+	self._dataService:UnseatPlayer():expect()
 end
 
 ----------------------------------------------------------------
@@ -232,7 +304,7 @@ end
 ----------------------------------------------------------------
 
 function LakelandGameController:_loadFromServer()
-	local profiles = self._dataService:GetProfiles()
+	local profiles = self._dataService:GetProfiles():expect()
 
 	if type(profiles) == "table" then
 		local names = {}
@@ -249,7 +321,7 @@ function LakelandGameController:_loadFromServer()
 end
 
 function LakelandGameController:_refreshLeaderboard()
-	local leaderboard = self._dataService:GetLeaderboard()
+	local leaderboard = self._dataService:GetLeaderboard():expect()
 
 	local entries = {}
 	if type(leaderboard) == "table" then
@@ -266,6 +338,52 @@ function LakelandGameController:_refreshLeaderboard()
 		table.insert(entries, { rank = #entries + 1, name = "---", score = 0 })
 	end
 	self._topScores:set(entries)
+
+	self:_rebuildNameList(entries)
+end
+
+function LakelandGameController:_rebuildNameList(entries)
+	local scoreMap = {}
+	for _, entry in ipairs(entries) do
+		if entry.name and entry.name ~= "---" then
+			scoreMap[entry.name] = entry.score or 0
+		end
+	end
+
+	local nameSet = {}
+	local allNames = {}
+
+	for _, entry in ipairs(entries) do
+		local name = entry.name
+		if name and name ~= "---" and not nameSet[name] then
+			nameSet[name] = true
+			table.insert(allNames, name)
+		end
+	end
+
+	local profiles = self._previousNames:get()
+	for _, name in ipairs(profiles) do
+		if not nameSet[name] then
+			nameSet[name] = true
+			table.insert(allNames, name)
+		end
+	end
+
+	table.sort(allNames, function(a, b)
+		local aIsLast = (a == self._currentPlayerName)
+		local bIsLast = (b == self._currentPlayerName)
+		if aIsLast ~= bIsLast then
+			return aIsLast
+		end
+		local aScore = scoreMap[a] or 0
+		local bScore = scoreMap[b] or 0
+		if aScore ~= bScore then
+			return aScore > bScore
+		end
+		return a < b
+	end)
+
+	self._previousNames:set(allNames)
 end
 
 ----------------------------------------------------------------
@@ -292,7 +410,7 @@ end
 ----------------------------------------------------------------
 
 function LakelandGameController:SubmitScore(score)
-	self._dataService:SubmitScore(self._currentPlayerName, score)
+	self._dataService:SubmitScore(self._currentPlayerName, score):expect()
 	self:_refreshLeaderboard()
 end
 

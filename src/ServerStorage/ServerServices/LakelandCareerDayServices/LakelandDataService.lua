@@ -1,3 +1,4 @@
+local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -15,11 +16,11 @@ local ProfileService = require(CustomPackages.ProfileService.ProfileService)
 
 local STORE_NAME = "LakelandCareerDay_v1"
 local PROFILE_KEY = "LakelandArcade"
+local LEADERBOARD_STORE_NAME = "LakelandLeaderboard_v1"
 local MAX_LEADERBOARD = 10
 
 local DEFAULT_DATA = {
 	profiles = {},
-	leaderboard = {},
 }
 
 local LakelandDataService = Knit.CreateService({
@@ -29,14 +30,20 @@ local LakelandDataService = Knit.CreateService({
 	_trove = nil,
 	_profileStore = nil,
 	_profile = nil,
+	_leaderboardStore = nil,
+	_leaderboardCache = {},
+	_leaderboardCacheTime = 0,
 
 	DataLoaded = Signal.new(),
 	LeaderboardUpdated = Signal.new(),
 })
 
+local LEADERBOARD_CACHE_TTL = 10
+
 function LakelandDataService:KnitInit()
 	self._trove = Trove.new()
 	self._profileStore = ProfileService.GetProfileStore(STORE_NAME, DEFAULT_DATA)
+	self._leaderboardStore = DataStoreService:GetOrderedDataStore(LEADERBOARD_STORE_NAME)
 
 	Players.CharacterAutoLoads = false
 end
@@ -75,7 +82,7 @@ function LakelandDataService:_loadProfile()
 	end)
 
 	self.DataLoaded:Fire()
-	print("[LakelandDataService] Loaded: " .. #self:_getData().profiles .. " profiles, " .. #self:_getData().leaderboard .. " scores")
+	print("[LakelandDataService] Loaded: " .. #self:_getData().profiles .. " profiles")
 end
 
 function LakelandDataService:_getData()
@@ -90,8 +97,13 @@ end
 ----------------------------------------------------------------
 
 function LakelandDataService.Client:LoadCharacter(player)
-	if player.Character then return end
 	player:LoadCharacter()
+end
+
+function LakelandDataService.Client:DestroyCharacter(player)
+	if player.Character then
+		player.Character:Destroy()
+	end
 end
 
 function LakelandDataService.Client:SpawnMachine(_player)
@@ -221,15 +233,11 @@ function LakelandDataService:UnseatPlayer(player)
 end
 
 ----------------------------------------------------------------
--- Server methods
+-- Profiles (ProfileService)
 ----------------------------------------------------------------
 
 function LakelandDataService:GetProfiles()
 	return TableUtil.Copy(self:_getData().profiles)
-end
-
-function LakelandDataService:GetLeaderboard()
-	return TableUtil.Copy(self:_getData().leaderboard)
 end
 
 function LakelandDataService:RegisterProfile(name)
@@ -254,43 +262,6 @@ function LakelandDataService:RegisterProfile(name)
 	return true
 end
 
-function LakelandDataService:SubmitScore(name, score)
-	if type(name) ~= "string" or #name == 0 then return end
-	if type(score) ~= "number" or score < 0 then return end
-
-	local data = self:_getData()
-
-	for _, profile in data.profiles do
-		if profile.name == name then
-			profile.gamesPlayed = (profile.gamesPlayed or 0) + 1
-			if score > (profile.bestScore or 0) then
-				profile.bestScore = score
-			end
-			break
-		end
-	end
-
-	table.insert(data.leaderboard, {
-		name = name,
-		score = score,
-		timestamp = os.time(),
-	})
-
-	table.sort(data.leaderboard, function(a, b)
-		return a.score > b.score
-	end)
-
-	if #data.leaderboard > MAX_LEADERBOARD then
-		local trimmed = {}
-		for i = 1, MAX_LEADERBOARD do
-			trimmed[i] = data.leaderboard[i]
-		end
-		data.leaderboard = trimmed
-	end
-
-	self.LeaderboardUpdated:Fire()
-end
-
 function LakelandDataService:GetProfileByName(name)
 	for _, profile in self:_getData().profiles do
 		if profile.name == name then
@@ -298,6 +269,79 @@ function LakelandDataService:GetProfileByName(name)
 		end
 	end
 	return nil
+end
+
+----------------------------------------------------------------
+-- Leaderboard (OrderedDataStore)
+----------------------------------------------------------------
+
+function LakelandDataService:SubmitScore(name, score)
+	if type(name) ~= "string" or #name == 0 then return end
+	if type(score) ~= "number" or score < 0 then return end
+
+	local intScore = math.floor(score)
+	if intScore <= 0 then return end
+
+	local data = self:_getData()
+	for _, profile in data.profiles do
+		if profile.name == name then
+			profile.gamesPlayed = (profile.gamesPlayed or 0) + 1
+			if intScore > (profile.bestScore or 0) then
+				profile.bestScore = intScore
+			end
+			break
+		end
+	end
+
+	local ok, err = pcall(function()
+		self._leaderboardStore:UpdateAsync(name, function(oldValue)
+			oldValue = oldValue or 0
+			if intScore > oldValue then
+				return intScore
+			end
+			return nil
+		end)
+	end)
+
+	if not ok then
+		warn("[LakelandDataService] Failed to write leaderboard: " .. tostring(err))
+	else
+		print("[LakelandDataService] Leaderboard updated: " .. name .. " = " .. intScore)
+	end
+
+	self._leaderboardCacheTime = 0
+	self.LeaderboardUpdated:Fire()
+end
+
+function LakelandDataService:GetLeaderboard()
+	local now = os.clock()
+	if now - self._leaderboardCacheTime < LEADERBOARD_CACHE_TTL and #self._leaderboardCache > 0 then
+		return self._leaderboardCache
+	end
+
+	local entries = {}
+
+	local ok, err = pcall(function()
+		local pages = self._leaderboardStore:GetSortedAsync(false, MAX_LEADERBOARD)
+		local page = pages:GetCurrentPage()
+		for rank, entry in ipairs(page) do
+			table.insert(entries, {
+				rank = rank,
+				name = entry.key,
+				score = entry.value,
+			})
+		end
+	end)
+
+	if not ok then
+		warn("[LakelandDataService] Failed to read leaderboard: " .. tostring(err))
+		return self._leaderboardCache
+	end
+
+	self._leaderboardCache = entries
+	self._leaderboardCacheTime = now
+	print("[LakelandDataService] Fetched " .. #entries .. " leaderboard entries from OrderedDataStore")
+	return entries
 end
 
 return LakelandDataService

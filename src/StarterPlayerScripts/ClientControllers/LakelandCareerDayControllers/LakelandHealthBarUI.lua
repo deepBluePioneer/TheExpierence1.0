@@ -130,6 +130,11 @@ function LakelandHealthBarUI.new(playerGui, gameState)
 
 	task.spawn(bind)
 
+	local function reset()
+		healthFrac:set(1)
+		hitFlash:set(0)
+	end
+
 	local function destroy()
 		for _, conn in ipairs(connections) do
 			conn:Disconnect()
@@ -139,6 +144,7 @@ function LakelandHealthBarUI.new(playerGui, gameState)
 	end
 
 	return {
+		reset = reset,
 		destroy = destroy,
 	}
 end

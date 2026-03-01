@@ -159,7 +159,7 @@ function LakelandRaceController:KnitStart()
 			self:PositionAtStart()
 		elseif newState == "PLAYING" then
 			self:StartRace()
-		elseif newState == "MENU" then
+		elseif newState == "GAME_OVER" or newState == "MENU" then
 			self:StopRace()
 		end
 	end)

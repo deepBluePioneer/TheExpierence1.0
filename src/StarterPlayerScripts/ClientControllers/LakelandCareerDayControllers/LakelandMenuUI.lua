@@ -9,101 +9,121 @@ local Computed = Fusion.Computed
 local Children = Fusion.Children
 local OnEvent = Fusion.OnEvent
 local Spring = Fusion.Spring
-local ForValues = Fusion.ForValues
+local ForPairs = Fusion.ForPairs
 
 local LakelandMenuUI = {}
 
-local function createLeaderboardRow(index, entry)
-	local isTop = index <= 3
-	local rankColors = {
-		[1] = Color3.fromRGB(255, 215, 0),
-		[2] = Color3.fromRGB(200, 200, 210),
-		[3] = Color3.fromRGB(205, 127, 50),
-	}
-	local rankColor = rankColors[index] or Color3.fromRGB(180, 180, 190)
-
-	return New "Frame" {
-		Name = "Row_" .. index,
-		Size = UDim2.new(1, 0, 0, 0),
-		AutomaticSize = Enum.AutomaticSize.Y,
-		BackgroundColor3 = Color3.fromRGB(30, 30, 45),
-		BackgroundTransparency = isTop and 0.3 or 0.5,
-
-		[Children] = {
-			New "UICorner" {
-				CornerRadius = UDim.new(0, 6),
-			},
-
-			New "UIPadding" {
-				PaddingLeft = UDim.new(0.04, 0),
-				PaddingRight = UDim.new(0.04, 0),
-				PaddingTop = UDim.new(0, 4),
-				PaddingBottom = UDim.new(0, 4),
-			},
-
-			New "UIListLayout" {
-				FillDirection = Enum.FillDirection.Horizontal,
-				VerticalAlignment = Enum.VerticalAlignment.Center,
-				SortOrder = Enum.SortOrder.LayoutOrder,
-				Padding = UDim.new(0.03, 0),
-			},
-
-			New "TextLabel" {
-				Name = "Rank",
-				LayoutOrder = 1,
-				Size = UDim2.fromScale(0.1, 1),
-				AutomaticSize = Enum.AutomaticSize.Y,
-				BackgroundTransparency = 1,
-				Text = "#" .. index,
-				TextColor3 = rankColor,
-				Font = Enum.Font.GothamBold,
-				TextScaled = true,
-				TextXAlignment = Enum.TextXAlignment.Left,
-			},
-
-			New "TextLabel" {
-				Name = "PlayerName",
-				LayoutOrder = 2,
-				Size = UDim2.fromScale(0.55, 1),
-				AutomaticSize = Enum.AutomaticSize.Y,
-				BackgroundTransparency = 1,
-				Text = entry.name or "---",
-				TextColor3 = Color3.fromRGB(200, 200, 220),
-				Font = Enum.Font.Gotham,
-				TextScaled = true,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				TextTruncate = Enum.TextTruncate.AtEnd,
-			},
-
-			New "TextLabel" {
-				Name = "Score",
-				LayoutOrder = 3,
-				Size = UDim2.fromScale(0.3, 1),
-				AutomaticSize = Enum.AutomaticSize.Y,
-				BackgroundTransparency = 1,
-				Text = tostring(entry.score),
-				TextColor3 = Color3.fromRGB(255, 255, 255),
-				Font = isTop and Enum.Font.GothamBold or Enum.Font.Gotham,
-				TextScaled = true,
-				TextXAlignment = Enum.TextXAlignment.Right,
-			},
-		},
-	}
+local function formatNumber(n)
+	local s = tostring(math.floor(n))
+	local parts = {}
+	while #s > 3 do
+		table.insert(parts, 1, s:sub(-3))
+		s = s:sub(1, -4)
+	end
+	table.insert(parts, 1, s)
+	return table.concat(parts, ",")
 end
+
+local RANK_COLORS = {
+	[1] = Color3.fromRGB(255, 215, 0),
+	[2] = Color3.fromRGB(192, 192, 210),
+	[3] = Color3.fromRGB(205, 137, 63),
+}
+
+local RANK_ICONS = {
+	[1] = "1st",
+	[2] = "2nd",
+	[3] = "3rd",
+}
 
 function LakelandMenuUI.new(playerGui, gameState, topScores, onPlay)
 	local isHovered = Value(false)
 
 	local buttonScale = Spring(Computed(function()
-		return isHovered:get() and 1.08 or 1
-	end), 35, 0.7)
+		return isHovered:get() and 1.06 or 1
+	end), 30, 0.7)
 
 	local visible = Computed(function()
 		return gameState:get() == "MENU"
 	end)
 
-	local leaderboardRows = ForValues(topScores, function(entry)
-		return createLeaderboardRow(entry.rank, entry)
+	local leaderboardRows = ForPairs(topScores, function(key, entry)
+		local rank = entry.rank
+		local isTop3 = rank <= 3
+		local isEmpty = (entry.name == "---")
+		local rankColor = RANK_COLORS[rank] or Color3.fromRGB(140, 140, 155)
+		local rankText = RANK_ICONS[rank] or ("#" .. rank)
+
+		local rowBg
+		if rank == 1 then
+			rowBg = Color3.fromRGB(45, 40, 15)
+		elseif rank == 2 then
+			rowBg = Color3.fromRGB(35, 35, 42)
+		elseif rank == 3 then
+			rowBg = Color3.fromRGB(40, 30, 18)
+		else
+			rowBg = Color3.fromRGB(25, 25, 38)
+		end
+
+		return key, New "Frame" {
+			Name = "Row_" .. rank,
+			LayoutOrder = rank,
+			Size = UDim2.new(1, 0, 0, isTop3 and 36 or 28),
+			BackgroundColor3 = rowBg,
+			BackgroundTransparency = isEmpty and 0.7 or 0.15,
+
+			[Children] = {
+				New "UICorner" {
+					CornerRadius = UDim.new(0, 8),
+				},
+
+				New "UIStroke" {
+					Color = isTop3 and rankColor or Color3.fromRGB(50, 50, 65),
+					Thickness = isTop3 and 1.5 or 0,
+					Transparency = isTop3 and 0.5 or 1,
+				},
+
+				New "TextLabel" {
+					Name = "Rank",
+					AnchorPoint = Vector2.new(0, 0.5),
+					Position = UDim2.new(0.03, 0, 0.5, 0),
+					Size = UDim2.fromScale(0.12, 0.7),
+					BackgroundTransparency = 1,
+					Text = rankText,
+					TextColor3 = rankColor,
+					Font = isTop3 and Enum.Font.GothamBlack or Enum.Font.GothamBold,
+					TextScaled = true,
+					TextXAlignment = Enum.TextXAlignment.Left,
+				},
+
+				New "TextLabel" {
+					Name = "PlayerName",
+					AnchorPoint = Vector2.new(0, 0.5),
+					Position = UDim2.new(0.17, 0, 0.5, 0),
+					Size = UDim2.fromScale(0.5, 0.65),
+					BackgroundTransparency = 1,
+					Text = isEmpty and "- - -" or entry.name,
+					TextColor3 = isEmpty and Color3.fromRGB(80, 80, 95) or Color3.fromRGB(220, 220, 235),
+					Font = isTop3 and Enum.Font.GothamBold or Enum.Font.Gotham,
+					TextScaled = true,
+					TextXAlignment = Enum.TextXAlignment.Left,
+					TextTruncate = Enum.TextTruncate.AtEnd,
+				},
+
+				New "TextLabel" {
+					Name = "Score",
+					AnchorPoint = Vector2.new(1, 0.5),
+					Position = UDim2.new(0.96, 0, 0.5, 0),
+					Size = UDim2.fromScale(0.28, 0.65),
+					BackgroundTransparency = 1,
+					Text = isEmpty and "-" or formatNumber(entry.score),
+					TextColor3 = isEmpty and Color3.fromRGB(80, 80, 95) or (isTop3 and rankColor or Color3.fromRGB(200, 200, 215)),
+					Font = isTop3 and Enum.Font.GothamBlack or Enum.Font.GothamBold,
+					TextScaled = true,
+					TextXAlignment = Enum.TextXAlignment.Right,
+				},
+			},
+		}
 	end, Fusion.cleanup)
 
 	local screenGui = New "ScreenGui" {
@@ -117,17 +137,16 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, onPlay)
 			New "Frame" {
 				Name = "Background",
 				Size = UDim2.fromScale(1, 1),
-				BackgroundColor3 = Color3.fromRGB(10, 10, 20),
-				BackgroundTransparency = 0.3,
+				BackgroundColor3 = Color3.fromRGB(8, 8, 16),
+				BackgroundTransparency = 0.15,
 				Visible = visible,
 
 				[Children] = {
-					-- Left side: Title + Play
 					New "Frame" {
 						Name = "LeftPanel",
 						AnchorPoint = Vector2.new(0.5, 0.5),
-						Position = UDim2.fromScale(0.35, 0.45),
-						Size = UDim2.fromScale(0.4, 0.5),
+						Position = UDim2.fromScale(0.32, 0.5),
+						Size = UDim2.fromScale(0.38, 0.7),
 						BackgroundTransparency = 1,
 
 						[Children] = {
@@ -136,49 +155,54 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, onPlay)
 								FillDirection = Enum.FillDirection.Vertical,
 								HorizontalAlignment = Enum.HorizontalAlignment.Center,
 								VerticalAlignment = Enum.VerticalAlignment.Center,
-								Padding = UDim.new(0.04, 0),
+								Padding = UDim.new(0.03, 0),
 							},
 
 							New "TextLabel" {
 								Name = "Title",
 								LayoutOrder = 1,
-								Size = UDim2.fromScale(0.9, 0.2),
+								Size = UDim2.fromScale(0.95, 0.18),
 								BackgroundTransparency = 1,
-								Text = "Lakeland Career Day",
+								Text = "LAKELAND",
 								TextColor3 = Color3.fromRGB(255, 255, 255),
-								Font = Enum.Font.GothamBold,
+								Font = Enum.Font.GothamBlack,
 								TextScaled = true,
 							},
 
 							New "TextLabel" {
 								Name = "Subtitle",
 								LayoutOrder = 2,
-								Size = UDim2.fromScale(0.6, 0.08),
+								Size = UDim2.fromScale(0.7, 0.08),
 								BackgroundTransparency = 1,
-								Text = "The Race Begins",
-								TextColor3 = Color3.fromRGB(180, 200, 255),
-								Font = Enum.Font.Gotham,
+								Text = "CAREER DAY DASH",
+								TextColor3 = Color3.fromRGB(120, 160, 255),
+								Font = Enum.Font.GothamBold,
 								TextScaled = true,
+							},
+
+							New "Frame" {
+								Name = "Spacer",
+								LayoutOrder = 3,
+								Size = UDim2.fromScale(0.5, 0.04),
+								BackgroundTransparency = 1,
 							},
 
 							New "TextButton" {
 								Name = "PlayButton",
-								LayoutOrder = 3,
+								LayoutOrder = 4,
 								Size = Computed(function()
 									local s = buttonScale:get()
-									return UDim2.fromScale(0.35 * s, 0.12 * s)
+									return UDim2.fromScale(0.4 * s, 0.1 * s)
 								end),
-								BackgroundColor3 = Color3.fromRGB(50, 180, 80),
+								BackgroundColor3 = Color3.fromRGB(40, 170, 70),
 								Text = "PLAY",
 								TextColor3 = Color3.fromRGB(255, 255, 255),
-								Font = Enum.Font.GothamBold,
+								Font = Enum.Font.GothamBlack,
 								TextScaled = true,
 								AutoButtonColor = false,
 
 								[OnEvent "Activated"] = function()
-									if onPlay then
-										onPlay()
-									end
+									if onPlay then onPlay() end
 								end,
 
 								[OnEvent "MouseEnter"] = function()
@@ -191,71 +215,116 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, onPlay)
 
 								[Children] = {
 									New "UICorner" {
-										CornerRadius = UDim.new(0.3, 0),
+										CornerRadius = UDim.new(0.35, 0),
 									},
 
 									New "UIStroke" {
-										Color = Color3.fromRGB(80, 220, 120),
+										Color = Color3.fromRGB(70, 220, 110),
 										Thickness = 2,
-										Transparency = 0.3,
+										Transparency = 0.2,
+									},
+
+									New "UIGradient" {
+										Color = ColorSequence.new(
+											Color3.fromRGB(255, 255, 255),
+											Color3.fromRGB(200, 200, 200)
+										),
+										Rotation = 90,
 									},
 								},
+							},
+
+							New "TextLabel" {
+								Name = "HintLabel",
+								LayoutOrder = 5,
+								Size = UDim2.fromScale(0.6, 0.04),
+								BackgroundTransparency = 1,
+								Text = "Dodge hazards. Hit boosts. Go far.",
+								TextColor3 = Color3.fromRGB(100, 100, 120),
+								Font = Enum.Font.Gotham,
+								TextScaled = true,
 							},
 						},
 					},
 
-					-- Right side: Leaderboard
 					New "Frame" {
 						Name = "LeaderboardPanel",
 						AnchorPoint = Vector2.new(0.5, 0.5),
-						Position = UDim2.fromScale(0.72, 0.45),
-						Size = UDim2.fromScale(0.25, 0.55),
-						BackgroundColor3 = Color3.fromRGB(15, 15, 25),
-						BackgroundTransparency = 0.2,
+						Position = UDim2.fromScale(0.73, 0.5),
+						Size = UDim2.fromScale(0.28, 0.75),
+						BackgroundColor3 = Color3.fromRGB(12, 12, 22),
+						BackgroundTransparency = 0.05,
 
 						[Children] = {
 							New "UICorner" {
-								CornerRadius = UDim.new(0.03, 0),
+								CornerRadius = UDim.new(0.025, 0),
 							},
 
 							New "UIStroke" {
-								Color = Color3.fromRGB(80, 80, 100),
-								Thickness = 1,
-								Transparency = 0.5,
+								Color = Color3.fromRGB(60, 60, 80),
+								Thickness = 1.5,
+								Transparency = 0.3,
 							},
 
-							New "UIPadding" {
-								PaddingLeft = UDim.new(0.05, 0),
-								PaddingRight = UDim.new(0.05, 0),
-								PaddingTop = UDim.new(0.04, 0),
-								PaddingBottom = UDim.new(0.04, 0),
-							},
+							New "Frame" {
+								Name = "Header",
+								Size = UDim2.new(1, 0, 0, 40),
+								BackgroundColor3 = Color3.fromRGB(18, 18, 30),
+								BackgroundTransparency = 0.2,
 
-							New "TextLabel" {
-								Name = "LeaderboardTitle",
-								LayoutOrder = 0,
-								Size = UDim2.new(1, 0, 0.1, 0),
-								BackgroundTransparency = 1,
-								Text = "TOP SCORES",
-								TextColor3 = Color3.fromRGB(255, 215, 0),
-								Font = Enum.Font.GothamBold,
-								TextScaled = true,
+								[Children] = {
+									New "UICorner" {
+										CornerRadius = UDim.new(0.025, 0),
+									},
+
+									New "TextLabel" {
+										Name = "TrophyIcon",
+										AnchorPoint = Vector2.new(0, 0.5),
+										Position = UDim2.new(0.05, 0, 0.5, 0),
+										Size = UDim2.fromScale(0.08, 0.6),
+										BackgroundTransparency = 1,
+										Text = "T",
+										TextColor3 = Color3.fromRGB(255, 215, 0),
+										Font = Enum.Font.GothamBlack,
+										TextScaled = true,
+									},
+
+									New "TextLabel" {
+										Name = "Title",
+										AnchorPoint = Vector2.new(0, 0.5),
+										Position = UDim2.new(0.14, 0, 0.5, 0),
+										Size = UDim2.fromScale(0.7, 0.55),
+										BackgroundTransparency = 1,
+										Text = "LEADERBOARD",
+										TextColor3 = Color3.fromRGB(255, 215, 0),
+										Font = Enum.Font.GothamBlack,
+										TextScaled = true,
+										TextXAlignment = Enum.TextXAlignment.Left,
+									},
+								},
 							},
 
 							New "ScrollingFrame" {
 								Name = "ScoresList",
-								Position = UDim2.fromScale(0, 0.14),
-								Size = UDim2.fromScale(1, 0.86),
+								Position = UDim2.new(0, 0, 0, 48),
+								Size = UDim2.new(1, 0, 1, -56),
 								BackgroundTransparency = 1,
 								ScrollBarThickness = 3,
-								ScrollBarImageColor3 = Color3.fromRGB(100, 100, 120),
+								ScrollBarImageColor3 = Color3.fromRGB(80, 80, 100),
 								CanvasSize = UDim2.fromScale(0, 0),
 								AutomaticCanvasSize = Enum.AutomaticSize.Y,
 
 								[Children] = {
 									New "UIListLayout" {
 										SortOrder = Enum.SortOrder.LayoutOrder,
-										Padding = UDim.new(0, 4),
+										Padding = UDim.new(0, 5),
+									},
+
+									New "UIPadding" {
+										PaddingLeft = UDim.new(0.04, 0),
+										PaddingRight = UDim.new(0.04, 0),
+										PaddingTop = UDim.new(0, 4),
+										PaddingBottom = UDim.new(0, 4),
 									},
 
 									leaderboardRows,

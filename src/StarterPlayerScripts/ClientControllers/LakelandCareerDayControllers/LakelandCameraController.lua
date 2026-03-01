@@ -35,9 +35,9 @@ function LakelandCameraController:KnitStart()
 
 	local gameController = Knit.GetController("LakelandGameController")
 	gameController.GameStateChanged:Connect(function(newState)
-		if newState == "COUNTDOWN" or newState == "PLAYING" then
+		if newState == "COUNTDOWN" or newState == "PLAYING" or newState == "GAME_OVER" then
 			self:_activate()
-		else
+		elseif newState == "MENU" then
 			self:_deactivate()
 		end
 	end)
