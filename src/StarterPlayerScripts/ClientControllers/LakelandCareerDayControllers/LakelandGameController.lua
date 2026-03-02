@@ -22,6 +22,7 @@ local LakelandDistanceUI = require(ControllersFolder.LakelandDistanceUI)
 local LakelandSpeedUI = require(ControllersFolder.LakelandSpeedUI)
 local LakelandEndGameUI = require(ControllersFolder.LakelandEndGameUI)
 local LakelandScoreBarUI = require(ControllersFolder.LakelandScoreBarUI)
+local LakelandWipeTransition = require(ControllersFolder.LakelandWipeTransition)
 
 local RACE_DURATION = 120
 local END_SCREEN_DURATION = 5
@@ -50,6 +51,7 @@ local LakelandGameController = Knit.CreateController({
 	_nameEntry = nil,
 	_countdown = nil,
 	_raceTimer = nil,
+	_wipe = nil,
 	_healthConn = nil,
 })
 
@@ -140,6 +142,11 @@ function LakelandGameController:_createUI()
 	self._trove:Add(function()
 		self._scoreBar.destroy()
 	end)
+
+	self._wipe = LakelandWipeTransition.new(playerGui)
+	self._trove:Add(function()
+		self._wipe.destroy()
+	end)
 end
 
 function LakelandGameController:_setState(newState)
@@ -152,26 +159,35 @@ function LakelandGameController:_setState(newState)
 end
 
 function LakelandGameController:_onPlayPressed()
-	self._nameEntry.reset()
-	self:_setState(STATES.NAME_ENTRY)
+	if self._wipe.isWiping() then return end
+	task.spawn(function()
+		self._wipe.wipe(function()
+			self._nameEntry.reset()
+			self:_setState(STATES.NAME_ENTRY)
+		end)
+	end)
 end
 
 function LakelandGameController:_onNameConfirmed(name)
+	if self._wipe.isWiping() then return end
 	self._currentPlayerName = name
 
 	self._dataService:RegisterProfile(name):expect()
-
 	self:_addPreviousName(name)
 	print("[LakelandGameController] Player name: " .. name)
 
-	self:_spawnMachine()
-	self:_loadCharacter()
-	self:_seatPlayer()
+	task.spawn(function()
+		self._wipe.wipe(function()
+			self:_spawnMachine()
+			self:_loadCharacter()
+			self:_seatPlayer()
 
-	self._healthBar.reset()
-	self._scoreBar.reset()
-	self:_setState(STATES.COUNTDOWN)
-	self._countdown.start()
+			self._healthBar.reset()
+			self._scoreBar.reset()
+			self:_setState(STATES.COUNTDOWN)
+			self._countdown.start()
+		end)
+	end)
 end
 
 function LakelandGameController:_onCountdownDone()
@@ -207,7 +223,6 @@ function LakelandGameController:_onGameEnd(endReason)
 		self._healthConn:Disconnect()
 		self._healthConn = nil
 	end
-	-- Stop race timer so it does not keep ticking in background (e.g. after death before time up)
 	if self._raceTimer and self._raceTimer.stop then
 		self._raceTimer.stop()
 	end
@@ -215,16 +230,18 @@ function LakelandGameController:_onGameEnd(endReason)
 	local finalScore = self._distanceUI.getScore()
 	local finalDistance = self._raceController:GetDistance()
 
-	self:_setState(STATES.GAME_OVER)
-
-	self._endGameUI.show({
-		score = finalScore,
-		distance = finalDistance,
-		name = self._currentPlayerName,
-		reason = endReason,
-	})
-
 	task.spawn(function()
+		self._wipe.wipe(function()
+			self:_setState(STATES.GAME_OVER)
+
+			self._endGameUI.show({
+				score = finalScore,
+				distance = finalDistance,
+				name = self._currentPlayerName,
+				reason = endReason,
+			})
+		end)
+
 		if finalScore > 0 and self._currentPlayerName and #self._currentPlayerName > 0 then
 			local ok, err = pcall(function()
 				self:SubmitScore(finalScore)
@@ -254,10 +271,12 @@ function LakelandGameController:_onGameEnd(endReason)
 		self._endGameUI.setStatus("RETURNING TO MENU...")
 		task.wait(1)
 
-		pcall(function()
-			self:_cleanup()
+		self._wipe.wipe(function()
+			pcall(function()
+				self:_cleanup()
+			end)
+			self:_setState(STATES.MENU)
 		end)
-		self:_setState(STATES.MENU)
 		print("[LakelandGameController] " .. endReason .. " — returning to menu.")
 	end)
 end
