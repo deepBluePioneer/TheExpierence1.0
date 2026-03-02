@@ -293,7 +293,7 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores)
 	local function bind()
 		raceController = Knit.GetController("LakelandRaceController")
 
-		trove:Add(RunService.Heartbeat:Connect(function()
+		trove:Add(RunService.RenderStepped:Connect(function()
 			if gameState:get() ~= "PLAYING" then return end
 			local dist = raceController:GetDistance()
 			local coinBonus = raceController:GetCoinScore()

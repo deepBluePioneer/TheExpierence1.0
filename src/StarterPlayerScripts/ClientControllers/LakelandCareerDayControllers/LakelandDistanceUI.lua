@@ -24,6 +24,16 @@ function LakelandDistanceUI.new(playerGui, gameState)
 	local coinPickupText = Value("")
 	local coinPickupAlpha = Value(0)
 	local animatedCoinAlpha = Spring(coinPickupAlpha, 12, 0.9)
+	local boostActive = Value(false)
+	local boostTally = Value(0)
+	local boostAlpha = Spring(Computed(function()
+		return boostActive:get() and 1 or 0
+	end), 14, 0.8)
+	local boostPulse = Value(1)
+	local animatedBoostPulse = Spring(boostPulse, 20, 0.6)
+	local boostText = Computed(function()
+		return "BOOST +" .. tostring(boostTally:get())
+	end)
 
 	local visible = Computed(function()
 		return gameState:get() == "PLAYING"
@@ -60,7 +70,7 @@ function LakelandDistanceUI.new(playerGui, gameState)
 				Position = Computed(function()
 					return UDim2.fromScale(0.5, slideY:get())
 				end),
-				Size = UDim2.fromScale(0.18, 0.09),
+				Size = UDim2.fromScale(0.22, 0.11),
 				BackgroundColor3 = Color3.fromRGB(20, 20, 30),
 				BackgroundTransparency = 0.3,
 				Visible = visible,
@@ -139,8 +149,8 @@ function LakelandDistanceUI.new(playerGui, gameState)
 			New "TextLabel" {
 				Name = "CoinPickup",
 				AnchorPoint = Vector2.new(0.5, 0),
-				Position = UDim2.fromScale(0.5, 0.215),
-				Size = UDim2.fromScale(0.12, 0.025),
+				Position = UDim2.fromScale(0.5, 0.255),
+				Size = UDim2.fromScale(0.15, 0.04),
 				BackgroundTransparency = 1,
 				Text = coinPickupText,
 				TextColor3 = Color3.fromRGB(255, 220, 50),
@@ -150,6 +160,52 @@ function LakelandDistanceUI.new(playerGui, gameState)
 					return 1 - animatedCoinAlpha:get()
 				end),
 				Visible = visible,
+			},
+
+			New "Frame" {
+				Name = "BoostMultiplier",
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromScale(0.5, 0.42),
+				Size = Computed(function()
+					local s = animatedBoostPulse:get()
+					return UDim2.fromScale(0.14 * s, 0.055 * s)
+				end),
+				BackgroundColor3 = Color3.fromRGB(50, 200, 255),
+				BackgroundTransparency = Computed(function()
+					return 1 - boostAlpha:get() * 0.2
+				end),
+				Visible = Computed(function()
+					return boostAlpha:get() > 0.01
+				end),
+
+				[Children] = {
+					New "UICorner" {
+						CornerRadius = UDim.new(0.35, 0),
+					},
+
+					New "UIStroke" {
+						Color = Color3.fromRGB(80, 230, 255),
+						Thickness = 2,
+						Transparency = Computed(function()
+							return 1 - boostAlpha:get() * 0.6
+						end),
+					},
+
+					New "TextLabel" {
+						Name = "MultiplierText",
+						AnchorPoint = Vector2.new(0.5, 0.5),
+						Position = UDim2.fromScale(0.5, 0.5),
+						Size = UDim2.fromScale(0.9, 0.8),
+						BackgroundTransparency = 1,
+						Text = boostText,
+						TextColor3 = Color3.fromRGB(255, 255, 255),
+						Font = Enum.Font.GothamBlack,
+						TextScaled = true,
+						TextTransparency = Computed(function()
+							return 1 - boostAlpha:get()
+						end),
+					},
+				},
 			},
 		},
 	}
@@ -161,12 +217,15 @@ function LakelandDistanceUI.new(playerGui, gameState)
 	local function bind()
 		raceController = Knit.GetController("LakelandRaceController")
 
-		trove:Add(RunService.Heartbeat:Connect(function()
+		trove:Add(RunService.RenderStepped:Connect(function()
 			if gameState:get() ~= "PLAYING" then return end
 			local dist = raceController:GetDistance()
 			local coinBonus = raceController:GetCoinScore()
 			distance:set(dist)
 			score:set(math.floor(dist * 10) + coinBonus)
+			if raceController:IsBoosting() then
+				boostTally:set(raceController:GetBoostTally())
+			end
 		end))
 
 		trove:Add(raceController.CoinCollected:Connect(function(totalCoinScore, totalCoins)
@@ -175,6 +234,17 @@ function LakelandDistanceUI.new(playerGui, gameState)
 			task.delay(0.6, function()
 				coinPickupAlpha:set(0)
 			end)
+		end))
+
+		trove:Add(raceController.BoostChanged:Connect(function(isBoosting, finalTally)
+			boostActive:set(isBoosting)
+			if isBoosting then
+				boostTally:set(0)
+				boostPulse:set(1.3)
+				task.defer(function()
+					boostPulse:set(1)
+				end)
+			end
 		end))
 	end
 

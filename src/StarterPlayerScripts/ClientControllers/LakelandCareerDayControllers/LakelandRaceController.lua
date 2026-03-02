@@ -56,7 +56,7 @@ local ELEVATION_PROFILE = {
 }
 
 local MOVE_SPEED = 80
-local BOOST_ACCEL = 120
+local BOOST_ACCEL = 60
 local MAX_SPEED = 350
 local LANE_SWITCH_SPEED = 8
 
@@ -89,7 +89,7 @@ end
 
 local MAX_HEALTH = 100
 local HAZARD_DAMAGE = 25
-local HAZARD_HIT_COOLDOWN = 0.5
+local HAZARD_HIT_COOLDOWN = 1.5
 local HAZARD_SIZE = 0.0015
 
 local HAZARDS = {}
@@ -115,14 +115,13 @@ end
 
 local COIN_VALUE = 50
 local COIN_SIZE = 0.0008
+local BOOST_POINTS_PER_SEC = 30
 
 local COINS = {}
 do
 	local coinLanes = {1, 2, 3}
 	local coinSections = {
-		{from = 0.01,  to = 0.33, gap = 0.004},
-		{from = 0.33,  to = 0.66, gap = 0.003},
-		{from = 0.66,  to = 0.99, gap = 0.0025},
+		{from = 0.01, to = 0.99, gap = 0.0015},
 	}
 
 	local hazardSet = {}
@@ -257,6 +256,8 @@ local LakelandRaceController = Knit.CreateController({
 	_coinBaseCFs = {},
 	_coinScore = 0,
 	_coinsCollected = 0,
+	_boostScore = 0,
+	_currentBoostTally = 0,
 	_coinSpinConn = nil,
 	_railParts = {},
 	_railColor = Color3.fromRGB(50, 140, 255),
@@ -636,14 +637,14 @@ function LakelandRaceController:_visualizeLanes()
 		self._railColorConn:Disconnect()
 	end
 	self._railColor = RAIL_COLOR_DEFAULT
-	self._railColorConn = RunService.Heartbeat:Connect(function(dt)
+	self._railColorConn = RunService.RenderStepped:Connect(function(dt)
 		if not self._running and not self._countdownDrive then return end
 		local gameController = Knit.GetController("LakelandGameController")
 		local entries = gameController._topScores:get()
 		local score1 = (entries[1] and entries[1].score) or 0
 		local score2 = (entries[2] and entries[2].score) or 0
 		local score3 = (entries[3] and entries[3].score) or 0
-		local myScore = math.floor(self._totalDistance * 10) + self._coinScore
+		local myScore = math.floor(self._totalDistance * 10) + self._coinScore + math.floor(self._boostScore)
 		local targetColor
 		if myScore >= score1 and score1 > 0 then
 			targetColor = RAIL_COLOR_GOLD
@@ -766,10 +767,20 @@ function LakelandRaceController:_visualizeBoostZones(folder)
 end
 
 function LakelandRaceController:_visualizeHazards(folder)
-	local BOX_SIZE = Vector3.new(4, 4, 4)
-	local C_CORE = Color3.fromRGB(180, 30, 30)
-	local C_GLOW = Color3.fromRGB(255, 50, 20)
-	local C_WARN = Color3.fromRGB(255, 190, 0)
+	local prefabsFolder = ReplicatedStorage:FindFirstChild("Prefabs")
+	local spikePrefab = nil
+	if prefabsFolder then
+		for _, child in ipairs(prefabsFolder:GetChildren()) do
+			if child.Name:lower():find("spike") then
+				spikePrefab = child
+				break
+			end
+		end
+	end
+	if not spikePrefab then
+		warn("[LakelandRaceController] No spike prefab found in ReplicatedStorage.Prefabs")
+		return
+	end
 
 	local hazardFolder = Instance.new("Folder")
 	hazardFolder.Name = "HazardVisuals"
@@ -780,50 +791,28 @@ function LakelandRaceController:_visualizeHazards(folder)
 		if i % 50 == 0 then task.wait() end
 		local spline = self._splines[hazard.lane].spline
 		local pos = spline:CalculatePositionAt(hazard.t)
-		local dir = spline:CalculateDerivativeAt(hazard.t)
-		if dir.Magnitude < 0.001 then
-			dir = Vector3.new(0, 0, -1)
+
+		local clone = spikePrefab:Clone()
+		clone.Name = "Hazard_" .. i
+
+		if clone:IsA("Model") then
+			clone:PivotTo(CFrame.new(pos + Vector3.new(0, 2, 0)))
+			for _, desc in ipairs(clone:GetDescendants()) do
+				if desc:IsA("BasePart") then
+					desc.Anchored = true
+					desc.CanCollide = false
+				end
+			end
+		elseif clone:IsA("BasePart") then
+			clone.CFrame = CFrame.new(pos)
+			clone.Anchored = true
+			clone.CanCollide = false
 		end
 
-		local baseCF = CFrame.lookAt(
-			pos + Vector3.new(0, BOX_SIZE.Y / 2, 0),
-			pos + Vector3.new(0, BOX_SIZE.Y / 2, 0) + dir
-		)
-
-		local box = Instance.new("Part")
-		box.Name = "Hazard_" .. i
-		box.Size = BOX_SIZE
-		box.CFrame = baseCF
-		box.Anchored = true
-		box.CanCollide = false
-		box.Color = C_CORE
-		box.Material = Enum.Material.SmoothPlastic
-		box.Parent = hazardFolder
-
-		local glowFrame = Instance.new("Part")
-		glowFrame.Name = "HazardGlow_" .. i
-		glowFrame.Size = BOX_SIZE + Vector3.new(0.4, 0.4, 0.4)
-		glowFrame.CFrame = baseCF
-		glowFrame.Anchored = true
-		glowFrame.CanCollide = false
-		glowFrame.Color = C_GLOW
-		glowFrame.Material = Enum.Material.Neon
-		glowFrame.Transparency = 0.65
-		glowFrame.Parent = hazardFolder
-
-		local stripe = Instance.new("Part")
-		stripe.Name = "HazardStripe_" .. i
-		stripe.Size = Vector3.new(BOX_SIZE.X + 0.1, 0.8, BOX_SIZE.Z + 0.1)
-		stripe.CFrame = baseCF * CFrame.new(0, 0.8, 0)
-		stripe.Anchored = true
-		stripe.CanCollide = false
-		stripe.Color = C_WARN
-		stripe.Material = Enum.Material.Neon
-		stripe.Transparency = 0.1
-		stripe.Parent = hazardFolder
+		clone.Parent = hazardFolder
 	end
 
-	print("[LakelandRaceController] Visualized " .. #HAZARDS .. " hazards")
+	print("[LakelandRaceController] Visualized " .. #HAZARDS .. " hazards (spike prefab)")
 end
 
 function LakelandRaceController:_visualizeCoins(folder)
@@ -941,15 +930,15 @@ function LakelandRaceController:_setObstacleVisibility(show)
 		end
 	end
 	if self._hazardVisuals then
-		for _, part in ipairs(self._hazardVisuals:GetChildren()) do
-			if part:IsA("BasePart") then
-				if part.Name:find("Glow") then
-					part.Transparency = show and 0.65 or 1
-				elseif part.Name:find("Stripe") then
-					part.Transparency = show and 0.1 or 1
-				else
-					part.Transparency = show and 0 or 1
+		for _, child in ipairs(self._hazardVisuals:GetChildren()) do
+			if child:IsA("Model") then
+				for _, desc in ipairs(child:GetDescendants()) do
+					if desc:IsA("BasePart") then
+						desc.Transparency = show and 0 or 1
+					end
 				end
+			elseif child:IsA("BasePart") then
+				child.Transparency = show and 0 or 1
 			end
 		end
 	end
@@ -980,13 +969,18 @@ function LakelandRaceController:PositionAtStart()
 	self._lastXPos = 0
 	self._switchDir = 0
 	self._health = MAX_HEALTH
-	self._hitCooldown = 0
 	self._totalDistance = 0
+
+	for _, hazard in ipairs(HAZARDS) do
+		hazard._hit = false
+	end
 	self._laneEntryT = 0
 	self._lastEffectiveLane = 2
 	self._countdownDrive = true
 	self._coinScore = 0
 	self._coinsCollected = 0
+	self._boostScore = 0
+	self._currentBoostTally = 0
 
 	for i, coin in ipairs(COINS) do
 		coin.collected = false
@@ -1131,14 +1125,14 @@ function LakelandRaceController:_isInBoostZone()
 	return false
 end
 
-function LakelandRaceController:_isInHazard()
+function LakelandRaceController:_getHitHazard()
 	local lane = self:_getEffectiveLane()
 	for _, hazard in ipairs(HAZARDS) do
 		if hazard.lane == lane and hazard.t >= self._laneEntryT and self._t >= hazard.t and self._t <= hazard.t + HAZARD_SIZE then
-			return true
+			return hazard
 		end
 	end
-	return false
+	return nil
 end
 
 function LakelandRaceController:_checkCoinCollection()
@@ -1168,23 +1162,25 @@ function LakelandRaceController:_updateMovement(dt)
 	if not machine or not machine.PrimaryPart then return end
 
 	if not self._countdownDrive then
-		if self._hitCooldown > 0 then
-			self._hitCooldown = self._hitCooldown - dt
-		end
-
 		local inBoost = self:_isInBoostZone()
 		if inBoost ~= self._boosting then
 			self._boosting = inBoost
-			self.BoostChanged:Fire(inBoost)
+			if inBoost then
+				self._currentBoostTally = 0
+			end
+			self.BoostChanged:Fire(inBoost, math.floor(self._currentBoostTally))
 		end
 
 		if inBoost then
 			self._currentSpeed = math.min(self._currentSpeed + BOOST_ACCEL * dt, MAX_SPEED)
+			self._boostScore = self._boostScore + BOOST_POINTS_PER_SEC * dt
+			self._currentBoostTally = self._currentBoostTally + BOOST_POINTS_PER_SEC * dt
 		end
 
-		if self._hitCooldown <= 0 and self:_isInHazard() then
+		local hitHazard = self:_getHitHazard()
+		if hitHazard and not hitHazard._hit then
+			hitHazard._hit = true
 			self._health = math.max(self._health - HAZARD_DAMAGE, 0)
-			self._hitCooldown = HAZARD_HIT_COOLDOWN
 			self.HealthChanged:Fire(self._health)
 			self.HazardHit:Fire(self._health)
 		end
@@ -1285,6 +1281,10 @@ function LakelandRaceController:IsBoosting()
 	return self._boosting
 end
 
+function LakelandRaceController:GetBoostTally()
+	return math.floor(self._currentBoostTally)
+end
+
 function LakelandRaceController:GetHealth()
 	return self._health
 end
@@ -1302,7 +1302,7 @@ function LakelandRaceController:GetTrackLength()
 end
 
 function LakelandRaceController:GetCoinScore()
-	return self._coinScore
+	return self._coinScore + math.floor(self._boostScore)
 end
 
 function LakelandRaceController:GetCoinsCollected()

@@ -173,7 +173,7 @@ function LakelandSpeedUI.new(playerGui, gameState)
 		local raceController = Knit.GetController("LakelandRaceController")
 		maxSpeed:set(raceController:GetMaxSpeed())
 
-		trove:Add(RunService.Heartbeat:Connect(function()
+		trove:Add(RunService.RenderStepped:Connect(function()
 			if gameState:get() ~= "PLAYING" then return end
 			speed:set(raceController:GetCurrentSpeed())
 			boosting:set(raceController:IsBoosting())
