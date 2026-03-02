@@ -52,10 +52,10 @@ function LakelandEndGameUI.new(playerGui, gameState)
 
 		[Children] = {
 			New "Frame" {
-				Name = "Overlay",
-				Size = UDim2.fromScale(1, 1),
-				BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-				BackgroundTransparency = 0.4,
+			Name = "Overlay",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+			BackgroundTransparency = 1,
 				Visible = visible,
 
 				[Children] = {
@@ -67,8 +67,8 @@ function LakelandEndGameUI.new(playerGui, gameState)
 							local s = animatedScale:get()
 							return UDim2.fromScale(0.35 * s, 0.45 * s)
 						end),
-						BackgroundColor3 = Color3.fromRGB(20, 20, 35),
-						BackgroundTransparency = 0.1,
+				BackgroundColor3 = Color3.fromRGB(20, 20, 35),
+				BackgroundTransparency = 0.1,
 
 						[Children] = {
 							New "UICorner" {

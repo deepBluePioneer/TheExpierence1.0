@@ -59,18 +59,19 @@ function LakelandSpeedUI.new(playerGui, gameState)
 		ResetOnSpawn = false,
 		IgnoreGuiInset = true,
 		DisplayOrder = 53,
+		Enabled = visible,
 		Parent = playerGui,
 
 		[Children] = {
 			New "Frame" {
-				Name = "SpeedContainer",
-				AnchorPoint = Vector2.new(0, 1),
-				Position = Computed(function()
-					return UDim2.fromScale(0.02, slideY:get())
-				end),
-				Size = UDim2.fromScale(0.14, 0.15),
-				BackgroundColor3 = Color3.fromRGB(20, 20, 30),
-				BackgroundTransparency = 0.3,
+			Name = "SpeedContainer",
+			AnchorPoint = Vector2.new(0, 1),
+			Position = Computed(function()
+				return UDim2.fromScale(0.02, slideY:get())
+			end),
+			Size = UDim2.fromScale(0.14, 0.15),
+			BackgroundColor3 = Color3.fromRGB(20, 20, 30),
+			BackgroundTransparency = 0.3,
 				Visible = visible,
 
 				[Children] = {

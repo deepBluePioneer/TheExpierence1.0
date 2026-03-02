@@ -56,7 +56,7 @@ local ELEVATION_PROFILE = {
 }
 
 local MOVE_SPEED = 80
-local BOOST_ACCEL = 60
+local BOOST_ACCEL = 35
 local MAX_SPEED = 350
 local LANE_SWITCH_SPEED = 8
 
@@ -1036,6 +1036,13 @@ end
 function LakelandRaceController:StopRace()
 	self._running = false
 	self._countdownDrive = false
+
+	if self._boosting then
+		self._boosting = false
+		self.BoostChanged:Fire(false, math.floor(self._currentBoostTally))
+	end
+	self._currentBoostTally = 0
+	self._boostScore = 0
 
 	self._inputTrove:Clean()
 

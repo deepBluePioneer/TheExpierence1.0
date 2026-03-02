@@ -7,10 +7,13 @@ local Knit = require(Packages.Knit)
 local Trove = require(Packages.Trove)
 local Signal = require(Packages.Signal)
 
+local Workspace = game:GetService("Workspace")
+
 local CustomPackages = ReplicatedStorage.CustomPackages
 local Fusion = require(CustomPackages.FusionRoot.Fusion)
 local Value = Fusion.Value
 local TableUtil = require(Packages.TableUtil)
+local CutsceneService = require(CustomPackages.CutsceneService.CutsceneService)
 
 local ControllersFolder = StarterPlayer.StarterPlayerScripts.Source.ClientControllers.LakelandCareerDayControllers
 local LakelandMenuUI = require(ControllersFolder.LakelandMenuUI)
@@ -53,6 +56,7 @@ local LakelandGameController = Knit.CreateController({
 	_raceTimer = nil,
 	_wipe = nil,
 	_healthConn = nil,
+	_introCutscene = nil,
 })
 
 local MAX_LEADERBOARD_ENTRIES = 10
@@ -71,6 +75,16 @@ function LakelandGameController:KnitStart()
 
 	self:_loadFromServer()
 	self:_createUI()
+
+	local character = LocalPlayer.Character
+	if character then
+		local hrp = character:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			hrp.CFrame = CFrame.new(0, -500, 0)
+		end
+	end
+
+	self:_startIntroCutscene()
 
 	print("[LakelandGameController] Ready - showing menu")
 end
@@ -147,6 +161,38 @@ function LakelandGameController:_createUI()
 	self._trove:Add(function()
 		self._wipe.destroy()
 	end)
+
+	self._trove:Add(function()
+		self:_stopIntroCutscene()
+	end)
+end
+
+function LakelandGameController:_startIntroCutscene()
+	local folder = Workspace:FindFirstChild("IntroCutscene")
+	if not folder then
+		warn("[LakelandGameController] IntroCutscene folder not found in Workspace")
+		return
+	end
+
+	if self._introCutscene then
+		pcall(function() self._introCutscene:Cancel() end)
+		pcall(function() self._introCutscene:Destroy() end)
+		self._introCutscene = nil
+	end
+
+	local cutscene = CutsceneService:Create(folder, 12, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+	self._introCutscene = cutscene
+
+	cutscene.Next = cutscene
+	cutscene:Play()
+end
+
+function LakelandGameController:_stopIntroCutscene()
+	if not self._introCutscene then return end
+
+	pcall(function() self._introCutscene:Cancel() end)
+	pcall(function() self._introCutscene:Destroy() end)
+	self._introCutscene = nil
 end
 
 function LakelandGameController:_setState(newState)
@@ -178,6 +224,8 @@ function LakelandGameController:_onNameConfirmed(name)
 
 	task.spawn(function()
 		self._wipe.wipe(function()
+			self:_stopIntroCutscene()
+
 			self:_spawnMachine()
 			self:_loadCharacter()
 			self:_seatPlayer()
@@ -276,6 +324,7 @@ function LakelandGameController:_onGameEnd(endReason)
 				self:_cleanup()
 			end)
 			self:_setState(STATES.MENU)
+			self:_startIntroCutscene()
 		end)
 		print("[LakelandGameController] " .. endReason .. " — returning to menu.")
 	end)

@@ -151,6 +151,7 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores)
 		ResetOnSpawn = false,
 		IgnoreGuiInset = true,
 		DisplayOrder = 55,
+		Enabled = visible,
 		Parent = playerGui,
 
 		[Children] = {
@@ -160,9 +161,9 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores)
 				Position = Computed(function()
 					return UDim2.fromScale(0.5, slideY:get())
 				end),
-				Size = UDim2.fromScale(0.5, 0.045),
-				BackgroundColor3 = BAR_BG,
-				BackgroundTransparency = 0.25,
+			Size = UDim2.fromScale(0.5, 0.045),
+			BackgroundColor3 = BAR_BG,
+			BackgroundTransparency = 0.25,
 				Visible = visible,
 
 				[Children] = {

@@ -55,6 +55,7 @@ function LakelandRaceTimerUI.new(playerGui, gameState, raceDuration, onTimeUp)
 		ResetOnSpawn = false,
 		IgnoreGuiInset = true,
 		DisplayOrder = 50,
+		Enabled = visible,
 		Parent = playerGui,
 
 		[Children] = {
@@ -69,19 +70,19 @@ function LakelandRaceTimerUI.new(playerGui, gameState, raceDuration, onTimeUp)
 					local s = animatedPulse:get()
 					return UDim2.fromScale(0.15 * s, 0.06 * s)
 				end),
-				BackgroundColor3 = Color3.fromRGB(20, 20, 30),
-				BackgroundTransparency = 0.3,
-				Visible = visible,
+			BackgroundColor3 = Color3.fromRGB(20, 20, 30),
+			BackgroundTransparency = 0.3,
+			Visible = visible,
 
-				[Children] = {
-					New "UICorner" {
-						CornerRadius = UDim.new(0.3, 0),
-					},
+			[Children] = {
+				New "UICorner" {
+					CornerRadius = UDim.new(0.3, 0),
+				},
 
-					New "UIStroke" {
-						Color = Computed(function()
-							if isLow:get() then
-								return Color3.fromRGB(255, 60, 40)
+				New "UIStroke" {
+					Color = Computed(function()
+						if isLow:get() then
+							return Color3.fromRGB(255, 60, 40)
 							end
 							return Color3.fromRGB(100, 100, 120)
 						end),

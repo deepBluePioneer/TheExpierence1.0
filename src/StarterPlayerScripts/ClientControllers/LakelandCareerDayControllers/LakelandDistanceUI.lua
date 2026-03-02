@@ -61,18 +61,19 @@ function LakelandDistanceUI.new(playerGui, gameState)
 		ResetOnSpawn = false,
 		IgnoreGuiInset = true,
 		DisplayOrder = 52,
+		Enabled = visible,
 		Parent = playerGui,
 
 		[Children] = {
 			New "Frame" {
-				Name = "DistanceContainer",
-				AnchorPoint = Vector2.new(0.5, 0),
-				Position = Computed(function()
-					return UDim2.fromScale(0.5, slideY:get())
-				end),
-				Size = UDim2.fromScale(0.22, 0.11),
-				BackgroundColor3 = Color3.fromRGB(20, 20, 30),
-				BackgroundTransparency = 0.3,
+			Name = "DistanceContainer",
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = Computed(function()
+				return UDim2.fromScale(0.5, slideY:get())
+			end),
+			Size = UDim2.fromScale(0.22, 0.11),
+			BackgroundColor3 = Color3.fromRGB(20, 20, 30),
+			BackgroundTransparency = 0.3,
 				Visible = visible,
 
 				[Children] = {
@@ -174,9 +175,9 @@ function LakelandDistanceUI.new(playerGui, gameState)
 				BackgroundTransparency = Computed(function()
 					return 1 - boostAlpha:get() * 0.2
 				end),
-				Visible = Computed(function()
-					return boostAlpha:get() > 0.01
-				end),
+			Visible = Computed(function()
+				return visible:get() and boostAlpha:get() > 0.01
+			end),
 
 				[Children] = {
 					New "UICorner" {

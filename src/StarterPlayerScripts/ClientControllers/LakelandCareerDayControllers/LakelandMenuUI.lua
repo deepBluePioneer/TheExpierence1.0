@@ -137,16 +137,15 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, onPlay)
 			New "Frame" {
 				Name = "Background",
 				Size = UDim2.fromScale(1, 1),
-				BackgroundColor3 = Color3.fromRGB(8, 8, 16),
-				BackgroundTransparency = 0.15,
+				BackgroundTransparency = 1,
 				Visible = visible,
 
 				[Children] = {
 					New "Frame" {
-						Name = "LeftPanel",
-						AnchorPoint = Vector2.new(0.5, 0.5),
-						Position = UDim2.fromScale(0.32, 0.5),
-						Size = UDim2.fromScale(0.38, 0.7),
+						Name = "HeroGroup",
+						AnchorPoint = Vector2.new(0.5, 0),
+						Position = UDim2.fromScale(0.5, 0.08),
+						Size = UDim2.fromScale(0.6, 0.42),
 						BackgroundTransparency = 1,
 
 						[Children] = {
@@ -155,44 +154,39 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, onPlay)
 								FillDirection = Enum.FillDirection.Vertical,
 								HorizontalAlignment = Enum.HorizontalAlignment.Center,
 								VerticalAlignment = Enum.VerticalAlignment.Center,
-								Padding = UDim.new(0.03, 0),
+								Padding = UDim.new(0.02, 0),
 							},
 
 							New "TextLabel" {
 								Name = "Title",
 								LayoutOrder = 1,
-								Size = UDim2.fromScale(0.95, 0.18),
+								Size = UDim2.fromScale(1, 0.38),
 								BackgroundTransparency = 1,
 								Text = "LAKELAND",
 								TextColor3 = Color3.fromRGB(255, 255, 255),
 								Font = Enum.Font.GothamBlack,
 								TextScaled = true,
+
+								[Children] = {
+									New "UITextSizeConstraint" {
+										MaxTextSize = 72,
+									},
+								},
 							},
 
-							New "TextLabel" {
-								Name = "Subtitle",
-								LayoutOrder = 2,
-								Size = UDim2.fromScale(0.7, 0.08),
-								BackgroundTransparency = 1,
-								Text = "CAREER DAY DASH",
-								TextColor3 = Color3.fromRGB(120, 160, 255),
-								Font = Enum.Font.GothamBold,
-								TextScaled = true,
-							},
+						New "Frame" {
+							Name = "Spacer",
+							LayoutOrder = 2,
+							Size = UDim2.fromScale(1, 0.04),
+							BackgroundTransparency = 1,
+						},
 
-							New "Frame" {
-								Name = "Spacer",
-								LayoutOrder = 3,
-								Size = UDim2.fromScale(0.5, 0.04),
-								BackgroundTransparency = 1,
-							},
-
-							New "TextButton" {
-								Name = "PlayButton",
-								LayoutOrder = 4,
+						New "TextButton" {
+							Name = "PlayButton",
+							LayoutOrder = 3,
 								Size = Computed(function()
 									local s = buttonScale:get()
-									return UDim2.fromScale(0.4 * s, 0.1 * s)
+									return UDim2.fromScale(0.35 * s, 0.14 * s)
 								end),
 								BackgroundColor3 = Color3.fromRGB(40, 170, 70),
 								Text = "PLAY",
@@ -231,33 +225,43 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, onPlay)
 										),
 										Rotation = 90,
 									},
+
+									New "UITextSizeConstraint" {
+										MaxTextSize = 32,
+									},
 								},
 							},
 
-							New "TextLabel" {
-								Name = "HintLabel",
-								LayoutOrder = 5,
-								Size = UDim2.fromScale(0.6, 0.04),
-								BackgroundTransparency = 1,
-								Text = "Dodge hazards. Hit boosts. Go far.",
-								TextColor3 = Color3.fromRGB(100, 100, 120),
-								Font = Enum.Font.Gotham,
-								TextScaled = true,
+						New "TextLabel" {
+							Name = "HintLabel",
+							LayoutOrder = 4,
+							Size = UDim2.fromScale(0.6, 0.08),
+							BackgroundTransparency = 1,
+							Text = "< >  Arrow keys to switch lanes",
+							TextColor3 = Color3.fromRGB(150, 150, 175),
+							Font = Enum.Font.GothamMedium,
+							TextScaled = true,
+
+							[Children] = {
+								New "UITextSizeConstraint" {
+									MaxTextSize = 18,
+								},
 							},
+						},
 						},
 					},
 
 					New "Frame" {
 						Name = "LeaderboardPanel",
-						AnchorPoint = Vector2.new(0.5, 0.5),
-						Position = UDim2.fromScale(0.73, 0.5),
-						Size = UDim2.fromScale(0.28, 0.75),
+						AnchorPoint = Vector2.new(0.5, 1),
+						Position = UDim2.fromScale(0.5, 0.96),
+						Size = UDim2.fromScale(0.5, 0.38),
 						BackgroundColor3 = Color3.fromRGB(12, 12, 22),
 						BackgroundTransparency = 0.05,
 
 						[Children] = {
 							New "UICorner" {
-								CornerRadius = UDim.new(0.025, 0),
+								CornerRadius = UDim.new(0.03, 0),
 							},
 
 							New "UIStroke" {
@@ -268,20 +272,20 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, onPlay)
 
 							New "Frame" {
 								Name = "Header",
-								Size = UDim2.new(1, 0, 0, 40),
+								Size = UDim2.new(1, 0, 0, 36),
 								BackgroundColor3 = Color3.fromRGB(18, 18, 30),
 								BackgroundTransparency = 0.2,
 
 								[Children] = {
 									New "UICorner" {
-										CornerRadius = UDim.new(0.025, 0),
+										CornerRadius = UDim.new(0.03, 0),
 									},
 
 									New "TextLabel" {
 										Name = "TrophyIcon",
-										AnchorPoint = Vector2.new(0, 0.5),
-										Position = UDim2.new(0.05, 0, 0.5, 0),
-										Size = UDim2.fromScale(0.08, 0.6),
+										AnchorPoint = Vector2.new(0.5, 0.5),
+										Position = UDim2.fromScale(0.44, 0.5),
+										Size = UDim2.fromScale(0.04, 0.6),
 										BackgroundTransparency = 1,
 										Text = "T",
 										TextColor3 = Color3.fromRGB(255, 215, 0),
@@ -292,8 +296,8 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, onPlay)
 									New "TextLabel" {
 										Name = "Title",
 										AnchorPoint = Vector2.new(0, 0.5),
-										Position = UDim2.new(0.14, 0, 0.5, 0),
-										Size = UDim2.fromScale(0.7, 0.55),
+										Position = UDim2.fromScale(0.47, 0.5),
+										Size = UDim2.fromScale(0.3, 0.55),
 										BackgroundTransparency = 1,
 										Text = "LEADERBOARD",
 										TextColor3 = Color3.fromRGB(255, 215, 0),
@@ -306,8 +310,8 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, onPlay)
 
 							New "ScrollingFrame" {
 								Name = "ScoresList",
-								Position = UDim2.new(0, 0, 0, 48),
-								Size = UDim2.new(1, 0, 1, -56),
+								Position = UDim2.new(0, 0, 0, 40),
+								Size = UDim2.new(1, 0, 1, -46),
 								BackgroundTransparency = 1,
 								ScrollBarThickness = 3,
 								ScrollBarImageColor3 = Color3.fromRGB(80, 80, 100),
@@ -317,12 +321,12 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, onPlay)
 								[Children] = {
 									New "UIListLayout" {
 										SortOrder = Enum.SortOrder.LayoutOrder,
-										Padding = UDim.new(0, 5),
+										Padding = UDim.new(0, 4),
 									},
 
 									New "UIPadding" {
-										PaddingLeft = UDim.new(0.04, 0),
-										PaddingRight = UDim.new(0.04, 0),
+										PaddingLeft = UDim.new(0.03, 0),
+										PaddingRight = UDim.new(0.03, 0),
 										PaddingTop = UDim.new(0, 4),
 										PaddingBottom = UDim.new(0, 4),
 									},

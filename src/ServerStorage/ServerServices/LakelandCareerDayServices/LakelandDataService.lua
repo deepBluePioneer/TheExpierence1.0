@@ -51,6 +51,18 @@ end
 function LakelandDataService:KnitStart()
 	self:_loadProfile()
 
+	self._trove:Add(Players.PlayerAdded:Connect(function(player)
+		player:LoadCharacter()
+	end), "Disconnect")
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		if not player.Character then
+			task.spawn(function()
+				player:LoadCharacter()
+			end)
+		end
+	end
+
 	self._trove:Add(Players.PlayerRemoving:Connect(function(_player)
 		if #Players:GetPlayers() <= 1 and self._profile then
 			self._profile:Release()

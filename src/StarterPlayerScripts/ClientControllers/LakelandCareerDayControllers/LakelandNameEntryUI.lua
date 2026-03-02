@@ -74,14 +74,14 @@ function LakelandNameEntryUI.new(playerGui, gameState, previousNames, onNameConf
 				end
 				return Color3.fromRGB(30, 30, 42)
 			end),
-			BackgroundTransparency = 0.1,
-			Text = "",
-			AutoButtonColor = false,
+		BackgroundTransparency = 0.1,
+		Text = "",
+		AutoButtonColor = false,
 
-			[OnEvent "Activated"] = function()
-				selectedName:set(name)
-				typedName:set("")
-			end,
+		[OnEvent "Activated"] = function()
+			selectedName:set(name)
+			typedName:set("")
+		end,
 
 			[Children] = {
 				New "UICorner" {
@@ -147,20 +147,20 @@ function LakelandNameEntryUI.new(playerGui, gameState, previousNames, onNameConf
 
 		[Children] = {
 			New "Frame" {
-				Name = "Overlay",
-				Size = UDim2.fromScale(1, 1),
-				BackgroundColor3 = Color3.fromRGB(6, 6, 14),
-				BackgroundTransparency = 0.15,
+			Name = "Overlay",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Color3.fromRGB(6, 6, 14),
+			BackgroundTransparency = 1,
 				Visible = visible,
 
 				[Children] = {
 					New "Frame" {
-						Name = "Panel",
-						AnchorPoint = Vector2.new(0.5, 0.5),
-						Position = UDim2.fromScale(0.5, 0.48),
-						Size = UDim2.fromScale(0.32, 0.65),
-						BackgroundColor3 = Color3.fromRGB(16, 16, 28),
-						BackgroundTransparency = 0.05,
+					Name = "Panel",
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					Position = UDim2.fromScale(0.5, 0.48),
+					Size = UDim2.fromScale(0.32, 0.65),
+					BackgroundColor3 = Color3.fromRGB(16, 16, 28),
+					BackgroundTransparency = 0.05,
 
 						[Children] = {
 							New "UICorner" {
@@ -210,11 +210,11 @@ function LakelandNameEntryUI.new(playerGui, gameState, previousNames, onNameConf
 							},
 
 							New "Frame" {
-								Name = "InputWrap",
-								LayoutOrder = 3,
-								Size = UDim2.fromScale(1, 0.1),
-								BackgroundColor3 = Color3.fromRGB(30, 30, 45),
-								BackgroundTransparency = 0.1,
+							Name = "InputWrap",
+							LayoutOrder = 3,
+							Size = UDim2.fromScale(1, 0.1),
+						BackgroundColor3 = Color3.fromRGB(30, 30, 45),
+						BackgroundTransparency = 0.1,
 
 								[Children] = {
 									New "UICorner" {
