@@ -3,6 +3,7 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
 
 local Packages = ReplicatedStorage.Packages
 local Knit = require(Packages.Knit)
@@ -58,6 +59,7 @@ local ELEVATION_PROFILE = {
 local MOVE_SPEED = 80
 local BOOST_ACCEL = 35
 local MAX_SPEED = 350
+local LAUNCH_ACCEL = 160
 local LANE_SWITCH_SPEED = 8
 
 local MAX_BANK_ANGLE = math.rad(12)
@@ -168,44 +170,44 @@ end
 local TRACK_ZONES = {
 	{
 		from = 0.00, to = 0.16,
-		roadColor = Color3.fromRGB(25, 28, 42),
-		roadMat = Enum.Material.SmoothPlastic,
-		roadAlpha = 0,
+		roadColor = Color3.fromRGB(5, 5, 10),
+		roadMat = Enum.Material.Glass,
+		roadAlpha = 0.05,
 		accent = Color3.fromRGB(50, 140, 255),
 	},
 	{
 		from = 0.16, to = 0.32,
-		roadColor = Color3.fromRGB(35, 65, 85),
+		roadColor = Color3.fromRGB(5, 5, 10),
 		roadMat = Enum.Material.Glass,
-		roadAlpha = 0.3,
+		roadAlpha = 0.05,
 		accent = Color3.fromRGB(0, 210, 255),
 	},
 	{
 		from = 0.32, to = 0.48,
-		roadColor = Color3.fromRGB(55, 55, 65),
-		roadMat = Enum.Material.DiamondPlate,
-		roadAlpha = 0,
+		roadColor = Color3.fromRGB(5, 5, 10),
+		roadMat = Enum.Material.Glass,
+		roadAlpha = 0.05,
 		accent = Color3.fromRGB(190, 200, 225),
 	},
 	{
 		from = 0.48, to = 0.64,
-		roadColor = Color3.fromRGB(18, 10, 35),
-		roadMat = Enum.Material.SmoothPlastic,
-		roadAlpha = 0,
+		roadColor = Color3.fromRGB(5, 5, 10),
+		roadMat = Enum.Material.Glass,
+		roadAlpha = 0.05,
 		accent = Color3.fromRGB(170, 50, 255),
 	},
 	{
 		from = 0.64, to = 0.80,
-		roadColor = Color3.fromRGB(12, 38, 30),
+		roadColor = Color3.fromRGB(5, 5, 10),
 		roadMat = Enum.Material.Glass,
-		roadAlpha = 0.25,
+		roadAlpha = 0.05,
 		accent = Color3.fromRGB(0, 255, 170),
 	},
 	{
 		from = 0.80, to = 1.00,
-		roadColor = Color3.fromRGB(45, 15, 10),
-		roadMat = Enum.Material.Neon,
-		roadAlpha = 0.15,
+		roadColor = Color3.fromRGB(5, 5, 10),
+		roadMat = Enum.Material.Glass,
+		roadAlpha = 0.05,
 		accent = Color3.fromRGB(255, 60, 40),
 	},
 }
@@ -217,14 +219,6 @@ local function getTrackZone(t)
 	return TRACK_ZONES[#TRACK_ZONES]
 end
 
-local function lerpColor(a, b, alpha)
-	return Color3.new(
-		a.R + (b.R - a.R) * alpha,
-		a.G + (b.G - a.G) * alpha,
-		a.B + (b.B - a.B) * alpha
-	)
-end
-
 local LakelandRaceController = Knit.CreateController({
 	Name = "LakelandRaceController",
 
@@ -234,8 +228,9 @@ local LakelandRaceController = Knit.CreateController({
 	_targetLane = 2,
 	_laneBlend = 0,
 	_t = 0,
-	_currentSpeed = MOVE_SPEED,
+	_currentSpeed = 0,
 	_running = false,
+	_launching = false,
 	_boosting = false,
 	_renderConn = nil,
 	_inputTrove = nil,
@@ -260,8 +255,8 @@ local LakelandRaceController = Knit.CreateController({
 	_currentBoostTally = 0,
 	_coinSpinConn = nil,
 	_railParts = {},
-	_railColor = Color3.fromRGB(50, 140, 255),
-	_railColorConn = nil,
+	_runwayLights = {},
+	_runwayConn = nil,
 
 	LaneChanged = Signal.new(),
 	RaceProgress = Signal.new(),
@@ -278,7 +273,36 @@ function LakelandRaceController:KnitInit()
 	self._trove:Add(self._inputTrove)
 end
 
+function LakelandRaceController:_setupDarkEnvironment()
+	Lighting.ClockTime = 0
+	Lighting.Brightness = 0
+	Lighting.Ambient = Color3.fromRGB(4, 4, 8)
+	Lighting.OutdoorAmbient = Color3.fromRGB(4, 4, 8)
+	Lighting.FogColor = Color3.fromRGB(0, 0, 0)
+	Lighting.FogEnd = 2000
+	Lighting.FogStart = 200
+	Lighting.GlobalShadows = true
+	Lighting.EnvironmentDiffuseScale = 0
+	Lighting.EnvironmentSpecularScale = 0
+
+	local sky = Lighting:FindFirstChildOfClass("Sky")
+	if sky then
+		sky:Destroy()
+	end
+
+	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+	if atmosphere then
+		atmosphere.Density = 0.5
+		atmosphere.Offset = 0
+		atmosphere.Color = Color3.fromRGB(0, 0, 0)
+		atmosphere.Decay = Color3.fromRGB(0, 0, 0)
+		atmosphere.Glare = 0
+		atmosphere.Haze = 0
+	end
+end
+
 function LakelandRaceController:KnitStart()
+	self:_setupDarkEnvironment()
 	self:_buildSplines()
 
 	self:_setObstacleVisibility(false)
@@ -392,21 +416,17 @@ function LakelandRaceController:_visualizeLanes()
 	local rightSpline = self._splines[3].spline
 
 	local ROAD_SEGS = 600
-	local RAIL_SEGS = 900
-	local LANE_SEGS = 1200
-	local MARKER_EVERY = 50
 	local ROAD_HALF_W = LANE_SPACING * 1.5
 	local ROAD_W = ROAD_HALF_W * 2
 
 	self._railParts = {}
 	local getZone = getTrackZone
 
-	-- Road surface (wide panels, lower res is fine)
+	-- Road surface — shiny reflective black
 	for s = 0, ROAD_SEGS - 1 do
 		if s % 200 == 0 and s > 0 then task.wait() end
 		local t0 = s / ROAD_SEGS
 		local t1 = (s + 1) / ROAD_SEGS
-		local zone = getZone((t0 + t1) / 2)
 
 		local posA = centerSpline:CalculatePositionAt(t0)
 		local posB = centerSpline:CalculatePositionAt(t1)
@@ -423,80 +443,113 @@ function LakelandRaceController:_visualizeLanes()
 			)
 			road.Anchored = true
 			road.CanCollide = false
-			road.Color = zone.roadColor
-			road.Material = zone.roadMat
-			road.Transparency = zone.roadAlpha
+			road.Color = Color3.fromRGB(5, 5, 10)
+			road.Material = Enum.Material.Glass
+			road.Transparency = 0.05
 			road.Parent = folder
 		end
 	end
 
-	-- Edge neon rails + marker posts (medium res)
-	for _, side in ipairs({
-		{ spline = leftSpline, sign = -1 },
-		{ spline = rightSpline, sign = 1 },
-	}) do
-		for s = 0, RAIL_SEGS - 1 do
-			if s % 200 == 0 and s > 0 then task.wait() end
-			local t0 = s / RAIL_SEGS
-			local t1 = (s + 1) / RAIL_SEGS
-			local zone = getZone((t0 + t1) / 2)
+	-- Animated runway approach lights — tall bars on each side of the track
+	local RW_COUNT = 10
+	local RW_SPACING_STUDS = 20
+	local RW_SIDE_OFFSET = ROAD_HALF_W + 3
+	local RW_BAR_HEIGHT = 4
+	local RW_BAR_WIDTH = 1.5
+	local RW_BAR_DEPTH = 0.6
+	local RW_OFF_COLOR = Color3.fromRGB(5, 10, 25)
+	local RW_ON_COLOR = Color3.fromRGB(80, 200, 255)
+	local RW_CHASE_SPEED = 12
 
-			local posA = side.spline:CalculatePositionAt(t0)
-			local posB = side.spline:CalculatePositionAt(t1)
-			local mid = (posA + posB) / 2
-			local dir = posB - posA
-			local segLen = dir.Magnitude
+	self._runwayLights = {}
+	for i = 0, RW_COUNT - 1 do
+		local t = (i * RW_SPACING_STUDS) / TRACK_LENGTH
 
-			if segLen > 0.01 then
-				local lookCF = CFrame.lookAt(mid, mid + dir.Unit)
-				local outward = lookCF.RightVector * side.sign
-				local railPos = mid + outward * (LANE_SPACING * 0.5)
+		local cPos = centerSpline:CalculatePositionAt(t)
+		local cDir = centerSpline:CalculateDerivativeAt(t)
+		if cDir.Magnitude < 0.001 then cDir = Vector3.new(0, 0, -1) end
+		local cf = CFrame.lookAt(cPos, cPos + cDir)
 
-				local rail = Instance.new("Part")
-				rail.Size = Vector3.new(0.5, 0.5, segLen + 0.4)
-				rail.CFrame = CFrame.lookAt(
-					railPos + Vector3.new(0, 0.25, 0),
-					railPos + Vector3.new(0, 0.25, 0) + dir.Unit
-				)
-				rail.Anchored = true
-				rail.CanCollide = false
-				rail.Color = zone.accent
-				rail.Material = Enum.Material.Neon
-				rail.Parent = folder
-				table.insert(self._railParts, rail)
-			end
+		local pair = {}
+		for _, sign in ipairs({ -1, 1 }) do
+			local sidePos = cPos + cf.RightVector * sign * RW_SIDE_OFFSET
 
-			if s % MARKER_EVERY == 0 then
-				local posM = side.spline:CalculatePositionAt(t0)
-				local dirM = side.spline:CalculateDerivativeAt(t0)
-				local mZone = getZone(t0)
-				if dirM.Magnitude > 0.001 then
-					local lookM = CFrame.lookAt(posM, posM + dirM)
-					local outM = lookM.RightVector * side.sign
-					local mPos = posM + outM * (LANE_SPACING * 0.5 + 0.6)
+			local bar = Instance.new("Part")
+			bar.Size = Vector3.new(RW_BAR_WIDTH, RW_BAR_HEIGHT, RW_BAR_DEPTH)
+			bar.CFrame = CFrame.lookAt(
+				sidePos + Vector3.new(0, RW_BAR_HEIGHT * 0.5, 0),
+				sidePos + Vector3.new(0, RW_BAR_HEIGHT * 0.5, 0) + cDir.Unit
+			)
+			bar.Anchored = true
+			bar.CanCollide = false
+			bar.Color = RW_OFF_COLOR
+			bar.Material = Enum.Material.Neon
+			bar.Transparency = 0
+			bar.Parent = folder
 
-					local post = Instance.new("Part")
-					post.Size = Vector3.new(0.2, 2.5, 0.2)
-					post.CFrame = CFrame.new(mPos + Vector3.new(0, 1.25, 0))
-					post.Anchored = true
-					post.CanCollide = false
-					post.Color = mZone.accent
-					post.Material = Enum.Material.Neon
-					post.Transparency = 0.15
-					post.Parent = folder
-					table.insert(self._railParts, post)
-				end
-			end
+			local glow = Instance.new("PointLight")
+			glow.Color = RW_ON_COLOR
+			glow.Brightness = 0
+			glow.Range = 30
+			glow.Parent = bar
+
+			local groundPad = Instance.new("Part")
+			groundPad.Size = Vector3.new(3, 0.15, 3)
+			groundPad.CFrame = CFrame.new(sidePos + Vector3.new(0, 0.08, 0))
+			groundPad.Anchored = true
+			groundPad.CanCollide = false
+			groundPad.Color = RW_OFF_COLOR
+			groundPad.Material = Enum.Material.Neon
+			groundPad.Transparency = 0
+			groundPad.Parent = folder
+
+			table.insert(pair, { bar = bar, light = glow, pad = groundPad })
 		end
+		table.insert(self._runwayLights, pair)
 	end
 
-	-- Lane center lines (highest res — thin lines show faceting most)
+	if self._runwayConn then
+		self._runwayConn:Disconnect()
+	end
+	local rwElapsed = 0
+	local RW_FADE_TAIL = 3
+	local RW_DIM_FLOOR = 0.08
+	self._runwayConn = RunService.RenderStepped:Connect(function(dt)
+		rwElapsed = rwElapsed + dt * RW_CHASE_SPEED
+		local head = rwElapsed % RW_COUNT
+
+		for i, pair in ipairs(self._runwayLights) do
+			local idx = i - 1
+			local behind = (head - idx) % RW_COUNT
+			local intensity
+			if behind < 1 then
+				intensity = 1
+			elseif behind < 1 + RW_FADE_TAIL then
+				intensity = math.max(RW_DIM_FLOOR, 1 - (behind - 1) / RW_FADE_TAIL)
+			else
+				intensity = RW_DIM_FLOOR
+			end
+
+			local color = RW_OFF_COLOR:Lerp(RW_ON_COLOR, intensity)
+			local bright = intensity * 5
+
+			for _, entry in ipairs(pair) do
+				entry.bar.Color = color
+				entry.light.Brightness = bright
+				entry.pad.Color = color
+			end
+		end
+	end)
+	self._trove:Add(self._runwayConn)
+
+	-- Lane divider lines (thin neon center lines for each lane)
+	local LANE_SEGS_VIS = 1200
 	for _, laneData in ipairs(self._splines) do
 		local spline = laneData.spline
-		for s = 0, LANE_SEGS - 1 do
+		for s = 0, LANE_SEGS_VIS - 1 do
 			if s % 300 == 0 and s > 0 then task.wait() end
-			local t0 = s / LANE_SEGS
-			local t1 = (s + 1) / LANE_SEGS
+			local t0 = s / LANE_SEGS_VIS
+			local t1 = (s + 1) / LANE_SEGS_VIS
 			local zone = getZone((t0 + t1) / 2)
 
 			local posA = spline:CalculatePositionAt(t0)
@@ -518,26 +571,6 @@ function LakelandRaceController:_visualizeLanes()
 				line.Material = Enum.Material.Neon
 				line.Transparency = 0.25
 				line.Parent = folder
-			end
-		end
-	end
-
-	-- Zone transition lines (bright strip across the road at each zone boundary)
-	for _, zone in ipairs(TRACK_ZONES) do
-		if zone.from > 0.001 then
-			local pos = centerSpline:CalculatePositionAt(zone.from)
-			local dir = centerSpline:CalculateDerivativeAt(zone.from)
-			if dir.Magnitude > 0.001 then
-				local cf = CFrame.lookAt(pos, pos + dir)
-				local trans = Instance.new("Part")
-				trans.Size = Vector3.new(ROAD_W + 1, 0.15, 0.4)
-				trans.CFrame = cf + Vector3.new(0, 0.05, 0)
-				trans.Anchored = true
-				trans.CanCollide = false
-				trans.Color = zone.accent
-				trans.Material = Enum.Material.Neon
-				trans.Transparency = 0.1
-				trans.Parent = folder
 			end
 		end
 	end
@@ -627,43 +660,6 @@ function LakelandRaceController:_visualizeLanes()
 			beam.Parent = folder
 		end
 	end
-
-	-- Rail color tween: rails shift to bronze / silver / gold based on score vs leaderboard
-	local RAIL_COLOR_DEFAULT = Color3.fromRGB(70, 90, 120)
-	local RAIL_COLOR_BRONZE = Color3.fromRGB(205, 127, 50)
-	local RAIL_COLOR_SILVER = Color3.fromRGB(192, 192, 210)
-	local RAIL_COLOR_GOLD   = Color3.fromRGB(255, 215, 0)
-	if self._railColorConn then
-		self._railColorConn:Disconnect()
-	end
-	self._railColor = RAIL_COLOR_DEFAULT
-	self._railColorConn = RunService.RenderStepped:Connect(function(dt)
-		if not self._running and not self._countdownDrive then return end
-		local gameController = Knit.GetController("LakelandGameController")
-		local entries = gameController._topScores:get()
-		local score1 = (entries[1] and entries[1].score) or 0
-		local score2 = (entries[2] and entries[2].score) or 0
-		local score3 = (entries[3] and entries[3].score) or 0
-		local myScore = math.floor(self._totalDistance * 10) + self._coinScore + math.floor(self._boostScore)
-		local targetColor
-		if myScore >= score1 and score1 > 0 then
-			targetColor = RAIL_COLOR_GOLD
-		elseif myScore >= score2 and score2 > 0 then
-			targetColor = RAIL_COLOR_SILVER
-		elseif myScore >= score3 and score3 > 0 then
-			targetColor = RAIL_COLOR_BRONZE
-		else
-			targetColor = RAIL_COLOR_DEFAULT
-		end
-		self._railColor = lerpColor(self._railColor, targetColor, math.min(dt * 5, 1))
-		local c = self._railColor
-		for _, part in ipairs(self._railParts) do
-			if part and part.Parent then
-				part.Color = c
-			end
-		end
-	end)
-	self._trove:Add(self._railColorConn)
 
 	task.wait()
 	self:_visualizeTunnel(folder)
@@ -1061,7 +1057,8 @@ function LakelandRaceController:PositionAtStart()
 	self._targetLane = 2
 	self._laneBlend = 0
 	self._t = 0
-	self._currentSpeed = MOVE_SPEED
+	self._currentSpeed = 0
+	self._launching = false
 	self._boosting = false
 	self._currentRoll = 0
 	self._lastXPos = 0
@@ -1112,7 +1109,7 @@ function LakelandRaceController:PositionAtStart()
 		self._lastCFrame = startCF
 
 		self:_startRenderLoop()
-		print("[LakelandRaceController] Machine positioned at spline start — countdown drive active")
+		print("[LakelandRaceController] Machine positioned at center lane — standing still for countdown")
 	end)
 end
 
@@ -1120,6 +1117,8 @@ function LakelandRaceController:StartRace()
 	if self._running then return end
 	self._running = true
 	self._countdownDrive = false
+	self._launching = true
+	self._currentSpeed = 0
 	self._laneEntryT = self._t
 
 	self:_bindInput()
@@ -1128,12 +1127,13 @@ function LakelandRaceController:StartRace()
 		self:_startRenderLoop()
 	end
 
-	print("[LakelandRaceController] Race started on lane " .. self._currentLane .. " at t=" .. string.format("%.4f", self._t))
+	print("[LakelandRaceController] LAUNCH — accelerating from 0 on lane " .. self._currentLane)
 end
 
 function LakelandRaceController:StopRace()
 	self._running = false
 	self._countdownDrive = false
+	self._launching = false
 
 	if self._boosting then
 		self._boosting = false
@@ -1267,6 +1267,14 @@ function LakelandRaceController:_updateMovement(dt)
 	if not machine or not machine.PrimaryPart then return end
 
 	if not self._countdownDrive then
+		if self._launching then
+			self._currentSpeed = self._currentSpeed + LAUNCH_ACCEL * dt
+			if self._currentSpeed >= MOVE_SPEED then
+				self._currentSpeed = MOVE_SPEED
+				self._launching = false
+			end
+		end
+
 		local inBoost = self:_isInBoostZone()
 		if inBoost ~= self._boosting then
 			self._boosting = inBoost
