@@ -14,6 +14,13 @@ local Computed = Fusion.Computed
 local Children = Fusion.Children
 local Spring = Fusion.Spring
 
+local BG_PANEL = Color3.fromRGB(8, 14, 28)
+local BORDER_CYAN = Color3.fromRGB(0, 140, 200)
+local TEXT_PRIMARY = Color3.fromRGB(220, 235, 255)
+local TEXT_DIM = Color3.fromRGB(70, 100, 140)
+local BAR_BG = Color3.fromRGB(20, 30, 45)
+local BOOST_ORANGE = Color3.fromRGB(255, 160, 40)
+
 local LakelandSpeedUI = {}
 
 function LakelandSpeedUI.new(playerGui, gameState)
@@ -28,8 +35,8 @@ function LakelandSpeedUI.new(playerGui, gameState)
 	end)
 
 	local slideY = Spring(Computed(function()
-		return visible:get() and 0.97 or 1.15
-	end), 18, 0.75)
+		return visible:get() and 0.97 or 1.2
+	end), 16, 0.75)
 
 	local speedFrac = Computed(function()
 		return math.clamp(speed:get() / maxSpeed:get(), 0, 1)
@@ -44,14 +51,19 @@ function LakelandSpeedUI.new(playerGui, gameState)
 	local barColor = Computed(function()
 		local frac = speedFrac:get()
 		if boosting:get() then
-			return Color3.fromRGB(255, 140, 40)
+			return BOOST_ORANGE
 		elseif frac > 0.75 then
-			return Color3.fromRGB(255, 80, 60)
+			return Color3.fromRGB(255, 60, 50)
 		elseif frac > 0.4 then
-			return Color3.fromRGB(80, 180, 255)
+			return Color3.fromRGB(0, 200, 255)
 		else
-			return Color3.fromRGB(120, 220, 120)
+			return Color3.fromRGB(0, 220, 160)
 		end
+	end)
+
+	local borderColor = Computed(function()
+		if boosting:get() then return BOOST_ORANGE end
+		return BORDER_CYAN
 	end)
 
 	local screenGui = New "ScreenGui" {
@@ -64,14 +76,14 @@ function LakelandSpeedUI.new(playerGui, gameState)
 
 		[Children] = {
 			New "Frame" {
-			Name = "SpeedContainer",
-			AnchorPoint = Vector2.new(0, 1),
-			Position = Computed(function()
-				return UDim2.fromScale(0.02, slideY:get())
-			end),
-			Size = UDim2.fromScale(0.14, 0.15),
-			BackgroundColor3 = Color3.fromRGB(20, 20, 30),
-			BackgroundTransparency = 0.3,
+				Name = "SpeedContainer",
+				AnchorPoint = Vector2.new(0, 1),
+				Position = Computed(function()
+					return UDim2.fromScale(0.015, slideY:get())
+				end),
+				Size = UDim2.fromScale(0.13, 0.17),
+				BackgroundColor3 = BG_PANEL,
+				BackgroundTransparency = 0.12,
 				Visible = visible,
 
 				[Children] = {
@@ -80,24 +92,27 @@ function LakelandSpeedUI.new(playerGui, gameState)
 					},
 
 					New "UIStroke" {
-						Color = Computed(function()
-							if boosting:get() then
-								return Color3.fromRGB(255, 140, 40)
-							end
-							return Color3.fromRGB(80, 80, 100)
-						end),
+						Color = borderColor,
 						Thickness = 2,
-						Transparency = 0.4,
+						Transparency = 0.2,
+					},
+
+					New "UIGradient" {
+						Color = ColorSequence.new(
+							Color3.fromRGB(255, 255, 255),
+							Color3.fromRGB(170, 185, 210)
+						),
+						Rotation = 90,
 					},
 
 					New "TextLabel" {
 						Name = "SpeedValue",
 						AnchorPoint = Vector2.new(0.5, 0),
-						Position = UDim2.fromScale(0.5, 0.05),
+						Position = UDim2.fromScale(0.5, 0.04),
 						Size = UDim2.fromScale(0.9, 0.45),
 						BackgroundTransparency = 1,
 						Text = speedText,
-						TextColor3 = Color3.fromRGB(255, 255, 255),
+						TextColor3 = TEXT_PRIMARY,
 						Font = Enum.Font.GothamBlack,
 						TextScaled = true,
 					},
@@ -105,11 +120,11 @@ function LakelandSpeedUI.new(playerGui, gameState)
 					New "TextLabel" {
 						Name = "SpeedUnit",
 						AnchorPoint = Vector2.new(0.5, 0),
-						Position = UDim2.fromScale(0.5, 0.48),
-						Size = UDim2.fromScale(0.9, 0.15),
+						Position = UDim2.fromScale(0.5, 0.47),
+						Size = UDim2.fromScale(0.9, 0.13),
 						BackgroundTransparency = 1,
 						Text = "STUDS/S",
-						TextColor3 = Color3.fromRGB(150, 150, 170),
+						TextColor3 = TEXT_DIM,
 						Font = Enum.Font.GothamBold,
 						TextScaled = true,
 					},
@@ -117,14 +132,14 @@ function LakelandSpeedUI.new(playerGui, gameState)
 					New "Frame" {
 						Name = "BarBg",
 						AnchorPoint = Vector2.new(0.5, 0),
-						Position = UDim2.fromScale(0.5, 0.68),
-						Size = UDim2.fromScale(0.85, 0.12),
-						BackgroundColor3 = Color3.fromRGB(40, 40, 50),
+						Position = UDim2.fromScale(0.5, 0.66),
+						Size = UDim2.fromScale(0.82, 0.13),
+						BackgroundColor3 = BAR_BG,
 						BorderSizePixel = 0,
 
 						[Children] = {
 							New "UICorner" {
-								CornerRadius = UDim.new(0.4, 0),
+								CornerRadius = UDim.new(0.35, 0),
 							},
 
 							New "Frame" {
@@ -140,7 +155,7 @@ function LakelandSpeedUI.new(playerGui, gameState)
 
 								[Children] = {
 									New "UICorner" {
-										CornerRadius = UDim.new(0.4, 0),
+										CornerRadius = UDim.new(0.35, 0),
 									},
 								},
 							},
@@ -151,15 +166,13 @@ function LakelandSpeedUI.new(playerGui, gameState)
 						Name = "BoostLabel",
 						AnchorPoint = Vector2.new(0.5, 1),
 						Position = UDim2.fromScale(0.5, 0.96),
-						Size = UDim2.fromScale(0.9, 0.12),
+						Size = UDim2.fromScale(0.9, 0.13),
 						BackgroundTransparency = 1,
 						Text = Computed(function()
-							if boosting:get() then
-								return "BOOST!"
-							end
+							if boosting:get() then return "BOOST ACTIVE" end
 							return ""
 						end),
-						TextColor3 = Color3.fromRGB(255, 200, 60),
+						TextColor3 = BOOST_ORANGE,
 						Font = Enum.Font.GothamBlack,
 						TextScaled = true,
 					},

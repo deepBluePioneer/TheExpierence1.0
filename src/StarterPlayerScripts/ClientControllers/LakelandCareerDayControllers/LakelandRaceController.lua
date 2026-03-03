@@ -326,7 +326,7 @@ function LakelandRaceController:_buildSplines()
 	for i = 0, CURVE_SEGMENTS do
 		local frac = i / CURVE_SEGMENTS
 		local z = TRACK_START_Z - i * segmentLen
-		local x = math.sin(i * math.pi / 2.5) * CURVE_AMPLITUDE
+		local x = math.sin(frac * 8 * 2 * math.pi) * CURVE_AMPLITUDE
 		local y = sampleElevation(frac)
 		table.insert(centerPoints, Vector3.new(x, y, z))
 	end

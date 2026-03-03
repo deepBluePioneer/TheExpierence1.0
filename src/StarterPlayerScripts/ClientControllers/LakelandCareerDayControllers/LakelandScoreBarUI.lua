@@ -14,15 +14,16 @@ local Computed = Fusion.Computed
 local Children = Fusion.Children
 local Spring = Fusion.Spring
 
+local BG_PANEL = Color3.fromRGB(8, 14, 28)
+local BORDER_CYAN = Color3.fromRGB(0, 100, 160)
+local TRACK_BG = Color3.fromRGB(18, 28, 45)
+local PLAYER_CYAN = Color3.fromRGB(0, 210, 255)
+
 local RANK_COLORS = {
 	Color3.fromRGB(255, 215, 0),
-	Color3.fromRGB(200, 200, 210),
-	Color3.fromRGB(205, 127, 50),
+	Color3.fromRGB(200, 200, 220),
+	Color3.fromRGB(205, 140, 55),
 }
-
-local PLAYER_COLOR = Color3.fromRGB(80, 220, 255)
-local BAR_BG = Color3.fromRGB(15, 15, 25)
-local TRACK_COLOR = Color3.fromRGB(50, 50, 70)
 
 local function formatScore(n)
 	if n >= 1000000 then
@@ -54,19 +55,19 @@ local function createRankMarker(frac, label, color, scoreText)
 				Name = "Tick",
 				AnchorPoint = Vector2.new(0.5, 0.5),
 				Position = UDim2.fromScale(0.5, 0.5),
-				Size = UDim2.new(0, 2, 0.6, 0),
+				Size = UDim2.new(0, 2, 0.65, 0),
 				BackgroundColor3 = color,
-				BackgroundTransparency = 0.2,
+				BackgroundTransparency = 0.15,
 				BorderSizePixel = 0,
 			},
 
 			New "TextLabel" {
 				Name = "RankLabel",
 				AnchorPoint = Vector2.new(0.5, 1),
-				Position = UDim2.fromScale(0.5, 0.1),
-				Size = UDim2.new(0, 24, 0, 14),
+				Position = UDim2.fromScale(0.5, 0.08),
+				Size = UDim2.new(0, 28, 0, 16),
 				BackgroundTransparency = 1,
-				Text = label,
+				Text = "#" .. label,
 				TextColor3 = color,
 				Font = Enum.Font.GothamBlack,
 				TextScaled = true,
@@ -76,13 +77,13 @@ local function createRankMarker(frac, label, color, scoreText)
 				Name = "ScoreLabel",
 				AnchorPoint = Vector2.new(0.5, 0),
 				Position = UDim2.fromScale(0.5, 0.9),
-				Size = UDim2.new(0, 40, 0, 11),
+				Size = UDim2.new(0, 44, 0, 12),
 				BackgroundTransparency = 1,
 				Text = scoreText,
 				TextColor3 = color,
 				Font = Enum.Font.GothamBold,
 				TextScaled = true,
-				TextTransparency = 0.3,
+				TextTransparency = 0.25,
 			},
 		},
 	}
@@ -90,7 +91,7 @@ end
 
 local LakelandScoreBarUI = {}
 
-function LakelandScoreBarUI.new(playerGui, gameState, topScores)
+function LakelandScoreBarUI.new(playerGui, gameState, topScores, playerName)
 	local trove = Trove.new()
 
 	local currentScore = Value(0)
@@ -101,7 +102,7 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores)
 	end)
 
 	local slideY = Spring(Computed(function()
-		return visible:get() and 0.9 or 1.05
+		return visible:get() and 0.92 or 1.1
 	end), 16, 0.75)
 
 	local function getTopScore(rank)
@@ -161,20 +162,20 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores)
 				Position = Computed(function()
 					return UDim2.fromScale(0.5, slideY:get())
 				end),
-			Size = UDim2.fromScale(0.5, 0.045),
-			BackgroundColor3 = BAR_BG,
-			BackgroundTransparency = 0.25,
+				Size = UDim2.fromScale(0.55, 0.055),
+				BackgroundColor3 = BG_PANEL,
+				BackgroundTransparency = 0.15,
 				Visible = visible,
 
 				[Children] = {
 					New "UICorner" {
-						CornerRadius = UDim.new(0.3, 0),
+						CornerRadius = UDim.new(0.25, 0),
 					},
 
 					New "UIStroke" {
-						Color = Color3.fromRGB(60, 60, 80),
-						Thickness = 1,
-						Transparency = 0.5,
+						Color = BORDER_CYAN,
+						Thickness = 1.5,
+						Transparency = 0.35,
 					},
 
 					New "UIPadding" {
@@ -186,9 +187,9 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores)
 						Name = "Track",
 						AnchorPoint = Vector2.new(0.5, 0.5),
 						Position = UDim2.fromScale(0.5, 0.5),
-						Size = UDim2.fromScale(1, 0.08),
-						BackgroundColor3 = TRACK_COLOR,
-						BackgroundTransparency = 0.3,
+						Size = UDim2.fromScale(1, 0.1),
+						BackgroundColor3 = TRACK_BG,
+						BackgroundTransparency = 0.2,
 						BorderSizePixel = 0,
 
 						[Children] = {
@@ -203,10 +204,10 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores)
 						AnchorPoint = Vector2.new(0, 0.5),
 						Position = UDim2.fromScale(0, 0.5),
 						Size = Computed(function()
-							return UDim2.fromScale(math.clamp(playerFrac:get(), 0, 1), 0.08)
+							return UDim2.fromScale(math.clamp(playerFrac:get(), 0, 1), 0.1)
 						end),
-						BackgroundColor3 = PLAYER_COLOR,
-						BackgroundTransparency = 0.5,
+						BackgroundColor3 = PLAYER_CYAN,
+						BackgroundTransparency = 0.4,
 						BorderSizePixel = 0,
 
 						[Children] = {
@@ -234,8 +235,8 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores)
 						Position = Computed(function()
 							return UDim2.fromScale(math.clamp(playerFrac:get(), 0, 1), 0.5)
 						end),
-						Size = UDim2.new(0, 12, 0, 12),
-						BackgroundColor3 = PLAYER_COLOR,
+						Size = UDim2.new(0, 14, 0, 14),
+						BackgroundColor3 = PLAYER_CYAN,
 						BackgroundTransparency = 0,
 						Rotation = 45,
 						BorderSizePixel = 0,
@@ -246,9 +247,9 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores)
 							},
 
 							New "UIStroke" {
-								Color = Color3.fromRGB(255, 255, 255),
+								Color = Color3.fromRGB(200, 245, 255),
 								Thickness = 1.5,
-								Transparency = 0.3,
+								Transparency = 0.2,
 							},
 						},
 					},
@@ -259,12 +260,12 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores)
 						Position = Computed(function()
 							return UDim2.fromScale(math.clamp(playerFrac:get(), 0.05, 0.95), 0.72)
 						end),
-						Size = UDim2.new(0, 50, 0, 12),
+						Size = UDim2.new(0, 52, 0, 13),
 						BackgroundTransparency = 1,
 						Text = Computed(function()
 							return formatScore(animatedScore:get())
 						end),
-						TextColor3 = PLAYER_COLOR,
+						TextColor3 = PLAYER_CYAN,
 						Font = Enum.Font.GothamBlack,
 						TextScaled = true,
 					},
@@ -273,14 +274,19 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores)
 						Name = "YouLabel",
 						AnchorPoint = Vector2.new(0.5, 1),
 						Position = Computed(function()
-							return UDim2.fromScale(math.clamp(playerFrac:get(), 0.05, 0.95), 0.22)
+							return UDim2.fromScale(math.clamp(playerFrac:get(), 0.05, 0.95), 0.2)
 						end),
-						Size = UDim2.new(0, 30, 0, 12),
+						Size = UDim2.new(0, 64, 0, 13),
 						BackgroundTransparency = 1,
-						Text = "YOU",
-						TextColor3 = PLAYER_COLOR,
+						Text = Computed(function()
+							local name = playerName and playerName:get() or ""
+							if #name > 0 then return name end
+							return "YOU"
+						end),
+						TextColor3 = PLAYER_CYAN,
 						Font = Enum.Font.GothamBlack,
 						TextScaled = true,
+						TextTruncate = Enum.TextTruncate.AtEnd,
 					},
 				},
 			},

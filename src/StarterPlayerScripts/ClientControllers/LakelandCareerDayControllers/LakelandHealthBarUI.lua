@@ -17,6 +17,13 @@ local ForPairs = Fusion.ForPairs
 local NUM_HEARTS = 4
 local HEALTH_PER_HEART = 25
 
+local BG_PANEL = Color3.fromRGB(8, 14, 28)
+local BORDER_CYAN = Color3.fromRGB(0, 140, 200)
+local TEXT_DIM = Color3.fromRGB(70, 100, 140)
+local SHIELD_FULL = Color3.fromRGB(0, 200, 255)
+local SHIELD_HALF = Color3.fromRGB(255, 160, 40)
+local SHIELD_EMPTY = Color3.fromRGB(25, 35, 55)
+
 local LakelandHealthBarUI = {}
 
 function LakelandHealthBarUI.new(playerGui, gameState)
@@ -30,9 +37,9 @@ function LakelandHealthBarUI.new(playerGui, gameState)
 		return gameState:get() == "PLAYING"
 	end)
 
-	local slideY = Spring(Computed(function()
-		return visible:get() and 0.09 or -0.05
-	end), 18, 0.75)
+	local slideX = Spring(Computed(function()
+		return visible:get() and 0.985 or 1.25
+	end), 16, 0.75)
 
 	local heartStates = {}
 	for i = 1, NUM_HEARTS do
@@ -74,88 +81,129 @@ function LakelandHealthBarUI.new(playerGui, gameState)
 
 		[Children] = {
 			New "Frame" {
-				Name = "HeartsContainer",
-				AnchorPoint = Vector2.new(0.5, 0),
+				Name = "ShieldContainer",
+				AnchorPoint = Vector2.new(1, 0),
 				Position = Computed(function()
-					return UDim2.fromScale(0.5, slideY:get())
+					return UDim2.fromScale(slideX:get(), 0.015)
 				end),
-				Size = UDim2.fromScale(0.16, 0.045),
-				BackgroundTransparency = 1,
+				Size = UDim2.fromScale(0.22, 0.06),
+				BackgroundColor3 = BG_PANEL,
+				BackgroundTransparency = 0.15,
 				Visible = visible,
 
 				[Children] = {
-					New "UIListLayout" {
-						FillDirection = Enum.FillDirection.Horizontal,
-						HorizontalAlignment = Enum.HorizontalAlignment.Center,
-						VerticalAlignment = Enum.VerticalAlignment.Center,
-						Padding = UDim.new(0.02, 0),
-						SortOrder = Enum.SortOrder.LayoutOrder,
+					New "UICorner" {
+						CornerRadius = UDim.new(0.15, 0),
 					},
 
-					ForPairs(heartData, function(key, idx)
-						local state = heartStates[idx]
-						local scale = animatedScales[idx]
+					New "UIStroke" {
+						Color = Computed(function()
+							local h = currentHealth:get()
+							if h <= HEALTH_PER_HEART then return Color3.fromRGB(255, 50, 50) end
+							return BORDER_CYAN
+						end),
+						Thickness = 2,
+						Transparency = 0.2,
+					},
 
-						local heartColor = Computed(function()
-							local s = state:get()
-							if s >= 1 then
-								return Color3.fromRGB(255, 50, 60)
-							elseif s > 0 then
-								return Color3.fromRGB(255, 150, 50)
-							else
-								return Color3.fromRGB(60, 60, 80)
-							end
-						end)
+					New "UIGradient" {
+						Color = ColorSequence.new(
+							Color3.fromRGB(255, 255, 255),
+							Color3.fromRGB(180, 190, 210)
+						),
+						Rotation = 90,
+					},
 
-						local heartTransparency = Computed(function()
-							return state:get() <= 0 and 0.6 or 0
-						end)
+					New "TextLabel" {
+						Name = "ShieldLabel",
+						AnchorPoint = Vector2.new(0, 0.5),
+						Position = UDim2.fromScale(0.04, 0.5),
+						Size = UDim2.fromScale(0.22, 0.5),
+						BackgroundTransparency = 1,
+						Text = "SHIELDS",
+						TextColor3 = TEXT_DIM,
+						Font = Enum.Font.GothamBold,
+						TextScaled = true,
+						TextXAlignment = Enum.TextXAlignment.Left,
+					},
 
-						return key, New "Frame" {
-							Name = "Heart_" .. idx,
-							Size = Computed(function()
-								local s = scale:get()
-								return UDim2.fromScale(0.22 * s, 1 * s)
-							end),
-							AnchorPoint = Vector2.new(0.5, 0.5),
-							BackgroundTransparency = 1,
-							LayoutOrder = idx,
+					New "Frame" {
+						Name = "SegmentRow",
+						AnchorPoint = Vector2.new(1, 0.5),
+						Position = UDim2.fromScale(0.96, 0.5),
+						Size = UDim2.fromScale(0.68, 0.55),
+						BackgroundTransparency = 1,
 
-							[Children] = {
-								New "TextLabel" {
-									Name = "HeartIcon",
-									AnchorPoint = Vector2.new(0.5, 0.5),
-									Position = UDim2.fromScale(0.5, 0.5),
-									Size = UDim2.fromScale(1, 1),
-									BackgroundTransparency = 1,
-									Text = Computed(function()
-										return state:get() > 0 and "\u{2764}" or "\u{1F5A4}"
+						[Children] = {
+							New "UIListLayout" {
+								FillDirection = Enum.FillDirection.Horizontal,
+								HorizontalAlignment = Enum.HorizontalAlignment.Right,
+								VerticalAlignment = Enum.VerticalAlignment.Center,
+								Padding = UDim.new(0.02, 0),
+								SortOrder = Enum.SortOrder.LayoutOrder,
+							},
+
+							ForPairs(heartData, function(key, idx)
+								local state = heartStates[idx]
+								local scale = animatedScales[idx]
+
+								local segColor = Computed(function()
+									local s = state:get()
+									if s >= 1 then return SHIELD_FULL end
+									if s > 0 then return SHIELD_HALF end
+									return SHIELD_EMPTY
+								end)
+
+								local segTransparency = Computed(function()
+									return state:get() <= 0 and 0.5 or 0
+								end)
+
+								return key, New "Frame" {
+									Name = "Segment_" .. idx,
+									Size = Computed(function()
+										local s = scale:get()
+										return UDim2.fromScale(0.23 * s, 1 * s)
 									end),
-									TextColor3 = heartColor,
-									TextTransparency = heartTransparency,
-									Font = Enum.Font.GothamBlack,
-									TextScaled = true,
-								},
-
-								New "Frame" {
-									Name = "FlashOverlay",
 									AnchorPoint = Vector2.new(0.5, 0.5),
-									Position = UDim2.fromScale(0.5, 0.5),
-									Size = UDim2.fromScale(1, 1),
-									BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-									BackgroundTransparency = Computed(function()
-										return 1 - animatedFlash:get() * 0.5
-									end),
-									BorderSizePixel = 0,
+									BackgroundColor3 = segColor,
+									BackgroundTransparency = segTransparency,
+									LayoutOrder = idx,
+
 									[Children] = {
 										New "UICorner" {
-											CornerRadius = UDim.new(0.5, 0),
+											CornerRadius = UDim.new(0.2, 0),
+										},
+
+										New "UIStroke" {
+											Color = Computed(function()
+												local s = state:get()
+												if s >= 1 then return Color3.fromRGB(0, 220, 255) end
+												if s > 0 then return Color3.fromRGB(200, 130, 30) end
+												return Color3.fromRGB(30, 45, 65)
+											end),
+											Thickness = 1,
+											Transparency = 0.4,
+										},
+
+										New "Frame" {
+											Name = "FlashOverlay",
+											Size = UDim2.fromScale(1, 1),
+											BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+											BackgroundTransparency = Computed(function()
+												return 1 - animatedFlash:get() * 0.6
+											end),
+											BorderSizePixel = 0,
+											[Children] = {
+												New "UICorner" {
+													CornerRadius = UDim.new(0.2, 0),
+												},
+											},
 										},
 									},
-								},
-							},
-						}
-					end, Fusion.cleanup),
+								}
+							end, Fusion.cleanup),
+						},
+					},
 				},
 			},
 		},

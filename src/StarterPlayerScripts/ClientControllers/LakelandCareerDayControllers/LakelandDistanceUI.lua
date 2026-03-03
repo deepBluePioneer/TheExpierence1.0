@@ -14,9 +14,18 @@ local Computed = Fusion.Computed
 local Children = Fusion.Children
 local Spring = Fusion.Spring
 
+local BG_PANEL = Color3.fromRGB(8, 14, 28)
+local BORDER_CYAN = Color3.fromRGB(0, 140, 200)
+local TEXT_PRIMARY = Color3.fromRGB(220, 235, 255)
+local TEXT_DIM = Color3.fromRGB(70, 100, 140)
+local SCORE_GOLD = Color3.fromRGB(255, 220, 60)
+local PLAYER_CYAN = Color3.fromRGB(0, 210, 255)
+local BOOST_CYAN = Color3.fromRGB(50, 200, 255)
+local DIVIDER_COLOR = Color3.fromRGB(0, 80, 120)
+
 local LakelandDistanceUI = {}
 
-function LakelandDistanceUI.new(playerGui, gameState)
+function LakelandDistanceUI.new(playerGui, gameState, playerName)
 	local trove = Trove.new()
 
 	local distance = Value(0)
@@ -40,8 +49,8 @@ function LakelandDistanceUI.new(playerGui, gameState)
 	end)
 
 	local slideY = Spring(Computed(function()
-		return visible:get() and 0.12 or -0.1
-	end), 18, 0.75)
+		return visible:get() and 0.015 or -0.15
+	end), 16, 0.75)
 
 	local distanceText = Computed(function()
 		local d = math.floor(distance:get())
@@ -66,83 +75,129 @@ function LakelandDistanceUI.new(playerGui, gameState)
 
 		[Children] = {
 			New "Frame" {
-			Name = "DistanceContainer",
-			AnchorPoint = Vector2.new(0.5, 0),
-			Position = Computed(function()
-				return UDim2.fromScale(0.5, slideY:get())
-			end),
-			Size = UDim2.fromScale(0.22, 0.11),
-			BackgroundColor3 = Color3.fromRGB(20, 20, 30),
-			BackgroundTransparency = 0.3,
+				Name = "HUDPanel",
+				AnchorPoint = Vector2.new(0.5, 0),
+				Position = Computed(function()
+					return UDim2.fromScale(0.5, slideY:get())
+				end),
+				Size = UDim2.fromScale(0.30, 0.13),
+				BackgroundColor3 = BG_PANEL,
+				BackgroundTransparency = 0.12,
 				Visible = visible,
 
 				[Children] = {
 					New "UICorner" {
-						CornerRadius = UDim.new(0.15, 0),
+						CornerRadius = UDim.new(0.08, 0),
 					},
 
 					New "UIStroke" {
-						Color = Color3.fromRGB(80, 80, 100),
+						Color = BORDER_CYAN,
 						Thickness = 2,
-						Transparency = 0.4,
+						Transparency = 0.15,
 					},
 
-					New "TextLabel" {
-						Name = "ScoreLabel",
-						AnchorPoint = Vector2.new(0.5, 0),
-						Position = UDim2.fromScale(0.5, 0.05),
-						Size = UDim2.fromScale(0.9, 0.15),
-						BackgroundTransparency = 1,
-						Text = "SCORE",
-						TextColor3 = Color3.fromRGB(150, 150, 170),
-						Font = Enum.Font.GothamBold,
-						TextScaled = true,
+					New "UIGradient" {
+						Color = ColorSequence.new(
+							Color3.fromRGB(255, 255, 255),
+							Color3.fromRGB(170, 185, 210)
+						),
+						Rotation = 90,
 					},
 
-					New "TextLabel" {
-						Name = "ScoreValue",
-						AnchorPoint = Vector2.new(0.5, 0),
-						Position = UDim2.fromScale(0.5, 0.2),
-						Size = UDim2.fromScale(0.9, 0.35),
+					New "Frame" {
+						Name = "LeftSection",
+						AnchorPoint = Vector2.new(0, 0),
+						Position = UDim2.fromScale(0.03, 0.08),
+						Size = UDim2.fromScale(0.55, 0.84),
 						BackgroundTransparency = 1,
-						Text = scoreDisplay,
-						TextColor3 = Color3.fromRGB(255, 220, 80),
-						Font = Enum.Font.GothamBlack,
-						TextScaled = true,
+
+						[Children] = {
+							New "TextLabel" {
+								Name = "ScoreLabel",
+								AnchorPoint = Vector2.new(0, 0),
+								Position = UDim2.fromScale(0, 0),
+								Size = UDim2.fromScale(1, 0.22),
+								BackgroundTransparency = 1,
+								Text = "SCORE",
+								TextColor3 = TEXT_DIM,
+								Font = Enum.Font.GothamBold,
+								TextScaled = true,
+								TextXAlignment = Enum.TextXAlignment.Left,
+							},
+
+							New "TextLabel" {
+								Name = "ScoreValue",
+								AnchorPoint = Vector2.new(0, 0),
+								Position = UDim2.fromScale(0, 0.20),
+								Size = UDim2.fromScale(1, 0.45),
+								BackgroundTransparency = 1,
+								Text = scoreDisplay,
+								TextColor3 = SCORE_GOLD,
+								Font = Enum.Font.GothamBlack,
+								TextScaled = true,
+								TextXAlignment = Enum.TextXAlignment.Left,
+							},
+
+							New "TextLabel" {
+								Name = "PlayerName",
+								AnchorPoint = Vector2.new(0, 1),
+								Position = UDim2.fromScale(0, 1),
+								Size = UDim2.fromScale(1, 0.25),
+								BackgroundTransparency = 1,
+								Text = playerName or "",
+								TextColor3 = PLAYER_CYAN,
+								Font = Enum.Font.GothamBold,
+								TextScaled = true,
+								TextXAlignment = Enum.TextXAlignment.Left,
+								TextTruncate = Enum.TextTruncate.AtEnd,
+							},
+						},
 					},
 
 					New "Frame" {
 						Name = "Divider",
 						AnchorPoint = Vector2.new(0.5, 0.5),
-						Position = UDim2.fromScale(0.5, 0.58),
-						Size = UDim2.fromScale(0.85, 0.01),
-						BackgroundColor3 = Color3.fromRGB(80, 80, 100),
-						BackgroundTransparency = 0.5,
+						Position = UDim2.fromScale(0.62, 0.5),
+						Size = UDim2.new(0, 2, 0.7, 0),
+						BackgroundColor3 = DIVIDER_COLOR,
+						BackgroundTransparency = 0.3,
 						BorderSizePixel = 0,
 					},
 
-					New "TextLabel" {
-						Name = "DistLabel",
-						AnchorPoint = Vector2.new(0.5, 0),
-						Position = UDim2.fromScale(0.5, 0.62),
-						Size = UDim2.fromScale(0.9, 0.15),
+					New "Frame" {
+						Name = "RightSection",
+						AnchorPoint = Vector2.new(1, 0),
+						Position = UDim2.fromScale(0.97, 0.08),
+						Size = UDim2.fromScale(0.32, 0.84),
 						BackgroundTransparency = 1,
-						Text = "DISTANCE",
-						TextColor3 = Color3.fromRGB(150, 150, 170),
-						Font = Enum.Font.GothamBold,
-						TextScaled = true,
-					},
 
-					New "TextLabel" {
-						Name = "DistValue",
-						AnchorPoint = Vector2.new(0.5, 0),
-						Position = UDim2.fromScale(0.5, 0.77),
-						Size = UDim2.fromScale(0.9, 0.2),
-						BackgroundTransparency = 1,
-						Text = distanceText,
-						TextColor3 = Color3.fromRGB(255, 255, 255),
-						Font = Enum.Font.GothamBlack,
-						TextScaled = true,
+						[Children] = {
+							New "TextLabel" {
+								Name = "DistLabel",
+								AnchorPoint = Vector2.new(0, 0),
+								Position = UDim2.fromScale(0, 0),
+								Size = UDim2.fromScale(1, 0.28),
+								BackgroundTransparency = 1,
+								Text = "DISTANCE",
+								TextColor3 = TEXT_DIM,
+								Font = Enum.Font.GothamBold,
+								TextScaled = true,
+								TextXAlignment = Enum.TextXAlignment.Left,
+							},
+
+							New "TextLabel" {
+								Name = "DistValue",
+								AnchorPoint = Vector2.new(0, 0.5),
+								Position = UDim2.fromScale(0, 0.6),
+								Size = UDim2.fromScale(1, 0.45),
+								BackgroundTransparency = 1,
+								Text = distanceText,
+								TextColor3 = TEXT_PRIMARY,
+								Font = Enum.Font.GothamBlack,
+								TextScaled = true,
+								TextXAlignment = Enum.TextXAlignment.Left,
+							},
+						},
 					},
 				},
 			},
@@ -150,11 +205,11 @@ function LakelandDistanceUI.new(playerGui, gameState)
 			New "TextLabel" {
 				Name = "CoinPickup",
 				AnchorPoint = Vector2.new(0.5, 0),
-				Position = UDim2.fromScale(0.5, 0.255),
+				Position = UDim2.fromScale(0.5, 0.155),
 				Size = UDim2.fromScale(0.15, 0.04),
 				BackgroundTransparency = 1,
 				Text = coinPickupText,
-				TextColor3 = Color3.fromRGB(255, 220, 50),
+				TextColor3 = SCORE_GOLD,
 				Font = Enum.Font.GothamBlack,
 				TextScaled = true,
 				TextTransparency = Computed(function()
@@ -166,29 +221,29 @@ function LakelandDistanceUI.new(playerGui, gameState)
 			New "Frame" {
 				Name = "BoostMultiplier",
 				AnchorPoint = Vector2.new(0.5, 0.5),
-				Position = UDim2.fromScale(0.5, 0.42),
+				Position = UDim2.fromScale(0.5, 0.32),
 				Size = Computed(function()
 					local s = animatedBoostPulse:get()
-					return UDim2.fromScale(0.14 * s, 0.055 * s)
+					return UDim2.fromScale(0.16 * s, 0.06 * s)
 				end),
-				BackgroundColor3 = Color3.fromRGB(50, 200, 255),
+				BackgroundColor3 = Color3.fromRGB(8, 30, 45),
 				BackgroundTransparency = Computed(function()
-					return 1 - boostAlpha:get() * 0.2
+					return 1 - boostAlpha:get() * 0.15
 				end),
-			Visible = Computed(function()
-				return visible:get() and boostAlpha:get() > 0.01
-			end),
+				Visible = Computed(function()
+					return visible:get() and boostAlpha:get() > 0.01
+				end),
 
 				[Children] = {
 					New "UICorner" {
-						CornerRadius = UDim.new(0.35, 0),
+						CornerRadius = UDim.new(0.3, 0),
 					},
 
 					New "UIStroke" {
-						Color = Color3.fromRGB(80, 230, 255),
+						Color = BOOST_CYAN,
 						Thickness = 2,
 						Transparency = Computed(function()
-							return 1 - boostAlpha:get() * 0.6
+							return 1 - boostAlpha:get() * 0.5
 						end),
 					},
 

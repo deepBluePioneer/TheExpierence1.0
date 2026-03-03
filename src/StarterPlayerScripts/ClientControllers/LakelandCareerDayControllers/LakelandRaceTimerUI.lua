@@ -13,11 +13,16 @@ local Computed = Fusion.Computed
 local Children = Fusion.Children
 local Spring = Fusion.Spring
 
+local BG_PANEL = Color3.fromRGB(8, 14, 28)
+local BORDER_CYAN = Color3.fromRGB(0, 140, 200)
+local TEXT_PRIMARY = Color3.fromRGB(220, 235, 255)
+local TEXT_DIM = Color3.fromRGB(70, 100, 140)
+local DANGER_RED = Color3.fromRGB(255, 50, 50)
+
 local LakelandRaceTimerUI = {}
 
 function LakelandRaceTimerUI.new(playerGui, gameState, raceDuration, onTimeUp)
 	local trove = Trove.new()
-	-- Clamp so timer never starts with zero or negative (avoids instant time-up)
 	local safeDuration = math.max(1, tonumber(raceDuration) or 120)
 	local timeRemaining = Value(safeDuration)
 
@@ -25,9 +30,9 @@ function LakelandRaceTimerUI.new(playerGui, gameState, raceDuration, onTimeUp)
 		return gameState:get() == "PLAYING"
 	end)
 
-	local slideY = Spring(Computed(function()
-		return visible:get() and 0.03 or -0.08
-	end), 18, 0.75)
+	local slideX = Spring(Computed(function()
+		return visible:get() and 0.015 or -0.2
+	end), 16, 0.75)
 
 	local timerText = Computed(function()
 		local t = math.ceil(timeRemaining:get())
@@ -41,10 +46,13 @@ function LakelandRaceTimerUI.new(playerGui, gameState, raceDuration, onTimeUp)
 	end)
 
 	local timerColor = Computed(function()
-		if isLow:get() then
-			return Color3.fromRGB(255, 80, 60)
-		end
-		return Color3.fromRGB(255, 255, 255)
+		if isLow:get() then return DANGER_RED end
+		return TEXT_PRIMARY
+	end)
+
+	local borderColor = Computed(function()
+		if isLow:get() then return DANGER_RED end
+		return BORDER_CYAN
 	end)
 
 	local pulseScale = Value(1)
@@ -61,40 +69,54 @@ function LakelandRaceTimerUI.new(playerGui, gameState, raceDuration, onTimeUp)
 		[Children] = {
 			New "Frame" {
 				Name = "TimerContainer",
-				AnchorPoint = Vector2.new(0.5, 0),
+				AnchorPoint = Vector2.new(0, 0),
 				Position = Computed(function()
-					local y = slideY:get()
-					return UDim2.fromScale(0.5, y)
+					return UDim2.fromScale(slideX:get(), 0.015)
 				end),
 				Size = Computed(function()
 					local s = animatedPulse:get()
-					return UDim2.fromScale(0.15 * s, 0.06 * s)
+					return UDim2.fromScale(0.14 * s, 0.075 * s)
 				end),
-			BackgroundColor3 = Color3.fromRGB(20, 20, 30),
-			BackgroundTransparency = 0.3,
-			Visible = visible,
+				BackgroundColor3 = BG_PANEL,
+				BackgroundTransparency = 0.15,
+				Visible = visible,
 
-			[Children] = {
-				New "UICorner" {
-					CornerRadius = UDim.new(0.3, 0),
-				},
+				[Children] = {
+					New "UICorner" {
+						CornerRadius = UDim.new(0.12, 0),
+					},
 
-				New "UIStroke" {
-					Color = Computed(function()
-						if isLow:get() then
-							return Color3.fromRGB(255, 60, 40)
-							end
-							return Color3.fromRGB(100, 100, 120)
-						end),
+					New "UIStroke" {
+						Color = borderColor,
 						Thickness = 2,
-						Transparency = 0.4,
+						Transparency = 0.2,
+					},
+
+					New "UIGradient" {
+						Color = ColorSequence.new(
+							Color3.fromRGB(255, 255, 255),
+							Color3.fromRGB(180, 190, 210)
+						),
+						Rotation = 90,
+					},
+
+					New "TextLabel" {
+						Name = "TimerLabel",
+						AnchorPoint = Vector2.new(0.5, 0),
+						Position = UDim2.fromScale(0.5, 0.06),
+						Size = UDim2.fromScale(0.9, 0.25),
+						BackgroundTransparency = 1,
+						Text = "TIME",
+						TextColor3 = TEXT_DIM,
+						Font = Enum.Font.GothamBold,
+						TextScaled = true,
 					},
 
 					New "TextLabel" {
 						Name = "TimerText",
 						AnchorPoint = Vector2.new(0.5, 0.5),
-						Position = UDim2.fromScale(0.5, 0.5),
-						Size = UDim2.fromScale(0.9, 0.8),
+						Position = UDim2.fromScale(0.5, 0.6),
+						Size = UDim2.fromScale(0.85, 0.55),
 						BackgroundTransparency = 1,
 						Text = timerText,
 						TextColor3 = timerColor,
@@ -116,7 +138,6 @@ function LakelandRaceTimerUI.new(playerGui, gameState, raceDuration, onTimeUp)
 	end
 
 	local function start()
-		-- Only one run at a time; stop any existing timer (do not add to trove to avoid double-destroy)
 		if tickTimer then
 			tickTimer:Destroy()
 			tickTimer = nil
@@ -143,7 +164,7 @@ function LakelandRaceTimerUI.new(playerGui, gameState, raceDuration, onTimeUp)
 			timeRemaining:set(remaining)
 
 			if remaining <= 10 then
-				pulseScale:set(1.2)
+				pulseScale:set(1.15)
 				task.defer(function()
 					pulseScale:set(1)
 				end)

@@ -18,8 +18,10 @@ local GO_DISPLAY_TIME = 0.8
 local BAR_HEIGHT = 0.1
 local BAR_SLIDE_IN_SPEED = 22
 local BAR_SLIDE_IN_DAMP = 0.8
-local BAR_SLIDE_OUT_SPEED = 18
-local BAR_SLIDE_OUT_DAMP = 0.6
+
+local BG_DARK = Color3.fromRGB(4, 6, 14)
+local ACCENT_CYAN = Color3.fromRGB(0, 200, 255)
+local LAUNCH_GREEN = Color3.fromRGB(0, 255, 140)
 
 local LakelandCountdownUI = {}
 
@@ -27,8 +29,9 @@ function LakelandCountdownUI.new(playerGui, gameState, onCountdownDone)
 	local trove = Trove.new()
 
 	local countText = Value("")
+	local subText = Value("")
 	local punchScale = Value(1)
-	local textColor = Value(Color3.fromRGB(255, 255, 255))
+	local textColor = Value(ACCENT_CYAN)
 
 	local barVisible = Value(0)
 
@@ -59,11 +62,23 @@ function LakelandCountdownUI.new(playerGui, gameState, onCountdownDone)
 					return UDim2.fromScale(0, topBarPos:get())
 				end),
 				Size = UDim2.fromScale(1, BAR_HEIGHT),
-				BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+				BackgroundColor3 = BG_DARK,
 				BackgroundTransparency = 0,
 				BorderSizePixel = 0,
 				ZIndex = 10,
 				Visible = visible,
+
+				[Children] = {
+					New "Frame" {
+						Name = "CyanEdge",
+						AnchorPoint = Vector2.new(0, 1),
+						Position = UDim2.fromScale(0, 1),
+						Size = UDim2.new(1, 0, 0, 2),
+						BackgroundColor3 = ACCENT_CYAN,
+						BackgroundTransparency = 0.3,
+						BorderSizePixel = 0,
+					},
+				},
 			},
 
 			New "Frame" {
@@ -73,10 +88,36 @@ function LakelandCountdownUI.new(playerGui, gameState, onCountdownDone)
 					return UDim2.fromScale(0, bottomBarPos:get())
 				end),
 				Size = UDim2.fromScale(1, BAR_HEIGHT),
-				BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+				BackgroundColor3 = BG_DARK,
 				BackgroundTransparency = 0,
 				BorderSizePixel = 0,
 				ZIndex = 10,
+				Visible = visible,
+
+				[Children] = {
+					New "Frame" {
+						Name = "CyanEdge",
+						AnchorPoint = Vector2.new(0, 0),
+						Position = UDim2.fromScale(0, 0),
+						Size = UDim2.new(1, 0, 0, 2),
+						BackgroundColor3 = ACCENT_CYAN,
+						BackgroundTransparency = 0.3,
+						BorderSizePixel = 0,
+					},
+				},
+			},
+
+			New "TextLabel" {
+				Name = "SubLabel",
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromScale(0.5, 0.33),
+				Size = UDim2.fromScale(0.4, 0.06),
+				BackgroundTransparency = 1,
+				Text = subText,
+				TextColor3 = Color3.fromRGB(70, 130, 180),
+				Font = Enum.Font.GothamBold,
+				TextScaled = true,
+				ZIndex = 11,
 				Visible = visible,
 			},
 
@@ -86,7 +127,7 @@ function LakelandCountdownUI.new(playerGui, gameState, onCountdownDone)
 				Position = UDim2.fromScale(0.5, 0.45),
 				Size = Computed(function()
 					local s = animatedScale:get()
-					return UDim2.fromScale(0.3 * s, 0.25 * s)
+					return UDim2.fromScale(0.35 * s, 0.3 * s)
 				end),
 				BackgroundTransparency = 1,
 				Text = countText,
@@ -101,12 +142,19 @@ function LakelandCountdownUI.new(playerGui, gameState, onCountdownDone)
 
 	local function runCountdown()
 		barVisible:set(1)
+		subText:set("LAUNCH SEQUENCE")
 
 		task.wait(0.35)
 
 		for i = COUNTDOWN_SECONDS, 1, -1 do
 			countText:set(tostring(i))
-			textColor:set(i <= 2 and Color3.fromRGB(255, 100, 80) or Color3.fromRGB(255, 255, 255))
+			if i <= 2 then
+				textColor:set(Color3.fromRGB(255, 80, 50))
+				subText:set("STANDBY")
+			else
+				textColor:set(ACCENT_CYAN)
+				subText:set("LAUNCH SEQUENCE")
+			end
 
 			punchScale:set(1.5)
 			task.defer(function()
@@ -121,8 +169,9 @@ function LakelandCountdownUI.new(playerGui, gameState, onCountdownDone)
 			end
 		end
 
-		countText:set("GO!")
-		textColor:set(Color3.fromRGB(80, 255, 120))
+		countText:set("LAUNCH!")
+		subText:set("")
+		textColor:set(LAUNCH_GREEN)
 		punchScale:set(2)
 		task.defer(function()
 			punchScale:set(1)
@@ -135,8 +184,8 @@ function LakelandCountdownUI.new(playerGui, gameState, onCountdownDone)
 		task.wait(GO_DISPLAY_TIME - 0.3)
 
 		countText:set("")
+		subText:set("")
 
-		-- Only fire callback if still in countdown (e.g. state wasn't changed during GO! display)
 		if gameState:get() == "COUNTDOWN" and onCountdownDone then
 			onCountdownDone()
 		end
@@ -149,6 +198,7 @@ function LakelandCountdownUI.new(playerGui, gameState, onCountdownDone)
 			task.cancel(countdownThread)
 		end
 		countText:set("")
+		subText:set("")
 		barVisible:set(0)
 		countdownThread = task.spawn(runCountdown)
 		trove:Add(function()

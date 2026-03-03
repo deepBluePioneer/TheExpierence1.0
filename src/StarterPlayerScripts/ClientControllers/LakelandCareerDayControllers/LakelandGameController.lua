@@ -67,6 +67,7 @@ function LakelandGameController:KnitInit()
 	self._topScores = Value({})
 	self._previousNames = Value({})
 	self._currentPlayerName = ""
+	self._playerNameValue = Value("")
 end
 
 function LakelandGameController:KnitStart()
@@ -137,7 +138,7 @@ function LakelandGameController:_createUI()
 		self._healthBar.destroy()
 	end)
 
-	self._distanceUI = LakelandDistanceUI.new(playerGui, self._gameState)
+	self._distanceUI = LakelandDistanceUI.new(playerGui, self._gameState, self._playerNameValue)
 	self._trove:Add(function()
 		self._distanceUI.destroy()
 	end)
@@ -152,7 +153,7 @@ function LakelandGameController:_createUI()
 		self._endGameUI.destroy()
 	end)
 
-	self._scoreBar = LakelandScoreBarUI.new(playerGui, self._gameState, self._topScores)
+	self._scoreBar = LakelandScoreBarUI.new(playerGui, self._gameState, self._topScores, self._playerNameValue)
 	self._trove:Add(function()
 		self._scoreBar.destroy()
 	end)
@@ -217,6 +218,7 @@ end
 function LakelandGameController:_onNameConfirmed(name)
 	if self._wipe.isWiping() then return end
 	self._currentPlayerName = name
+	self._playerNameValue:set(name)
 
 	self._dataService:RegisterProfile(name):expect()
 	self:_addPreviousName(name)
@@ -278,6 +280,19 @@ function LakelandGameController:_onGameEnd(endReason)
 	local finalScore = self._distanceUI.getScore()
 	local finalDistance = self._raceController:GetDistance()
 
+	local function computeRank(sc)
+		local entries = self._topScores:get()
+		for i, entry in ipairs(entries) do
+			if sc >= (entry.score or 0) then
+				return i
+			end
+		end
+		if #entries < MAX_LEADERBOARD_ENTRIES then
+			return #entries + 1
+		end
+		return nil
+	end
+
 	task.spawn(function()
 		self._wipe.wipe(function()
 			self:_setState(STATES.GAME_OVER)
@@ -287,6 +302,7 @@ function LakelandGameController:_onGameEnd(endReason)
 				distance = finalDistance,
 				name = self._currentPlayerName,
 				reason = endReason,
+				rank = computeRank(finalScore),
 			})
 		end)
 
@@ -295,6 +311,8 @@ function LakelandGameController:_onGameEnd(endReason)
 				self:SubmitScore(finalScore)
 			end)
 			if ok then
+				local rank = computeRank(finalScore)
+				self._endGameUI.setRank(rank)
 				self._endGameUI.setStatus("SCORE SAVED!")
 				print("[LakelandGameController] Submitted score: " .. finalScore)
 			else
@@ -305,6 +323,8 @@ function LakelandGameController:_onGameEnd(endReason)
 					self:SubmitScore(finalScore)
 				end)
 				if retryOk then
+					local rank = computeRank(finalScore)
+					self._endGameUI.setRank(rank)
 					self._endGameUI.setStatus("SCORE SAVED!")
 				else
 					self._endGameUI.setStatus("COULD NOT SAVE")
