@@ -248,12 +248,10 @@ local LakelandRaceController = Knit.CreateController({
 	_hazardVisuals = nil,
 	_coinVisuals = nil,
 	_coinParts = {},
-	_coinBaseCFs = {},
 	_coinScore = 0,
 	_coinsCollected = 0,
 	_boostScore = 0,
 	_currentBoostTally = 0,
-	_coinSpinConn = nil,
 	_railParts = {},
 	_runwayLights = {},
 	_runwayConn = nil,
@@ -276,8 +274,8 @@ end
 function LakelandRaceController:_setupDarkEnvironment()
 	Lighting.ClockTime = 0
 	Lighting.Brightness = 0
-	Lighting.Ambient = Color3.fromRGB(4, 4, 8)
-	Lighting.OutdoorAmbient = Color3.fromRGB(4, 4, 8)
+	Lighting.Ambient = Color3.fromRGB(10, 10, 18)
+	Lighting.OutdoorAmbient = Color3.fromRGB(8, 8, 14)
 	Lighting.FogColor = Color3.fromRGB(0, 0, 0)
 	Lighting.FogEnd = 2000
 	Lighting.FogStart = 200
@@ -575,6 +573,29 @@ function LakelandRaceController:_visualizeLanes()
 		end
 	end
 
+	-- Track illumination — PointLights along the center spline at regular intervals
+	local TRACK_LIGHT_COUNT = 200
+	for li = 0, TRACK_LIGHT_COUNT - 1 do
+		if li % 50 == 0 and li > 0 then task.wait() end
+		local t = li / TRACK_LIGHT_COUNT
+		local zone = getZone(t)
+		local pos = centerSpline:CalculatePositionAt(t)
+
+		local anchor = Instance.new("Part")
+		anchor.Size = Vector3.new(0.5, 0.5, 0.5)
+		anchor.Position = pos + Vector3.new(0, 6, 0)
+		anchor.Anchored = true
+		anchor.CanCollide = false
+		anchor.Transparency = 1
+		anchor.Parent = folder
+
+		local trackLight = Instance.new("PointLight")
+		trackLight.Color = zone.accent
+		trackLight.Brightness = 0.6
+		trackLight.Range = 60
+		trackLight.Parent = anchor
+	end
+
 	-- Start gate
 	do
 		local sT = 0.001
@@ -765,20 +786,7 @@ function LakelandRaceController:_visualizeBoostZones(folder)
 end
 
 function LakelandRaceController:_visualizeHazards(folder)
-	local prefabsFolder = ReplicatedStorage:FindFirstChild("Prefabs")
-	local spikePrefab = nil
-	if prefabsFolder then
-		for _, child in ipairs(prefabsFolder:GetChildren()) do
-			if child.Name:lower():find("spike") then
-				spikePrefab = child
-				break
-			end
-		end
-	end
-	if not spikePrefab then
-		warn("[LakelandRaceController] No spike prefab found in ReplicatedStorage.Prefabs")
-		return
-	end
+	local CUBE_SIZE = 3.5
 
 	local hazardFolder = Instance.new("Folder")
 	hazardFolder.Name = "HazardVisuals"
@@ -790,155 +798,121 @@ function LakelandRaceController:_visualizeHazards(folder)
 		local spline = self._splines[hazard.lane].spline
 		local pos = spline:CalculatePositionAt(hazard.t)
 
-		local clone = spikePrefab:Clone()
-		clone.Name = "Hazard_" .. i
+		local cube = Instance.new("Part")
+		cube.Name = "Hazard_" .. i
+		cube.Shape = Enum.PartType.Block
+		cube.Size = Vector3.new(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE)
+		cube.CFrame = CFrame.new(pos + Vector3.new(0, CUBE_SIZE * 0.5 + 0.5, 0))
+		cube.Anchored = true
+		cube.CanCollide = false
+		cube.Color = Color3.fromRGB(255, 40, 40)
+		cube.Material = Enum.Material.Neon
+		cube.Transparency = 0.15
 
-		if clone:IsA("Model") then
-			clone:PivotTo(CFrame.new(pos + Vector3.new(0, 2, 0)))
-			for _, desc in ipairs(clone:GetDescendants()) do
-				if desc:IsA("BasePart") then
-					desc.Anchored = true
-					desc.CanCollide = false
-				end
-			end
-		elseif clone:IsA("BasePart") then
-			clone.CFrame = CFrame.new(pos)
-			clone.Anchored = true
-			clone.CanCollide = false
-		end
+		local highlight = Instance.new("Highlight")
+		highlight.FillColor = Color3.fromRGB(255, 50, 50)
+		highlight.FillTransparency = 0.3
+		highlight.OutlineColor = Color3.fromRGB(255, 100, 100)
+		highlight.OutlineTransparency = 0
+		highlight.Parent = cube
 
-		clone.Parent = hazardFolder
+		cube.Parent = hazardFolder
 	end
 
-	print("[LakelandRaceController] Visualized " .. #HAZARDS .. " hazards (spike prefab)")
+	print("[LakelandRaceController] Visualized " .. #HAZARDS .. " hazards (cubes)")
 end
 
 function LakelandRaceController:_visualizeCoins(folder)
-	local prefabsFolder = ReplicatedStorage:FindFirstChild("Prefabs")
-	local coinPrefab = nil
-	if prefabsFolder then
-		for _, child in ipairs(prefabsFolder:GetChildren()) do
-			if child:HasTag("coin") then
-				coinPrefab = child
-				break
-			end
-		end
-	end
-	if not coinPrefab then
-		warn("[LakelandRaceController] No coin prefab found in ReplicatedStorage.Prefabs (tagged 'coin')")
-		return
-	end
+	local CUBE_SIZE = 2.5
 
 	local coinFolder = Instance.new("Folder")
 	coinFolder.Name = "CoinVisuals"
 	coinFolder.Parent = folder
 	self._coinVisuals = coinFolder
 	self._coinParts = {}
-	self._coinBasePositions = {}
 
 	for i, coin in ipairs(COINS) do
+		if i % 60 == 0 then task.wait() end
 		local spline = self._splines[coin.lane].spline
 		local pos = spline:CalculatePositionAt(coin.t)
-		local dir = spline:CalculateDerivativeAt(coin.t)
-		if dir.Magnitude < 0.001 then
-			dir = Vector3.new(0, 0, -1)
-		end
-
 		local coinPos = pos + Vector3.new(0, 3, 0)
 
-		local clone = coinPrefab:Clone()
-		clone.Name = "Coin_" .. i
+		local cube = Instance.new("Part")
+		cube.Name = "Coin_" .. i
+		cube.Shape = Enum.PartType.Block
+		cube.Size = Vector3.new(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE)
+		cube.CFrame = CFrame.new(coinPos)
+		cube.Anchored = true
+		cube.CanCollide = false
+		cube.Color = Color3.fromRGB(40, 120, 255)
+		cube.Material = Enum.Material.Neon
+		cube.Transparency = 0.15
 
-		if clone:IsA("Model") then
-			clone:PivotTo(CFrame.new(coinPos) * CFrame.Angles(math.rad(90), 0, 0))
-			for _, desc in ipairs(clone:GetDescendants()) do
-				if desc:IsA("BasePart") then
-					desc.Anchored = true
-					desc.CanCollide = false
-				end
-			end
-			clone.Parent = coinFolder
-			self._coinParts[i] = clone
-		end
+		local highlight = Instance.new("Highlight")
+		highlight.FillColor = Color3.fromRGB(50, 140, 255)
+		highlight.FillTransparency = 0.3
+		highlight.OutlineColor = Color3.fromRGB(100, 180, 255)
+		highlight.OutlineTransparency = 0
+		highlight.Parent = cube
 
-		self._coinBasePositions[i] = coinPos
+		cube.Parent = coinFolder
+		self._coinParts[i] = cube
 	end
 
-	print("[LakelandRaceController] Coin count: " .. #self._coinParts)
-
-	-- Tween spin and bob using CFrame (single tween property to avoid conflicts)
-	local BOB_HEIGHT = 2
-	local BOB_TIME = 0.6
-	local HALF_SPIN_TIME = 2
-
-	self._coinTweenThreads = {}
-
-	for i, model in ipairs(self._coinParts) do
-		if model and model:IsA("Model") and model.PrimaryPart then
-			local pp = model.PrimaryPart
-			local basePos = self._coinBasePositions[i]
-			-- baseRot = just the rotation from the current CFrame (includes the 90-degree tilt)
-			local baseRot = pp.CFrame - pp.CFrame.Position
-
-			-- Combined spin + bob using chained CFrame tweens
-			local spinThread = task.spawn(function()
-				local angle = 0
-				while pp and pp.Parent do
-					-- Tween to +BOB_HEIGHT and +180 degrees (world Y spin, then tilt)
-					angle = angle + 180
-					local upCF = CFrame.new(basePos + Vector3.new(0, BOB_HEIGHT, 0)) * CFrame.Angles(0, math.rad(angle), 0) * baseRot
-					local upInfo = TweenInfo.new(BOB_TIME / 2, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
-					local upTween = TweenService:Create(pp, upInfo, { CFrame = upCF })
-					upTween:Play()
-					upTween.Completed:Wait()
-
-					-- Tween back down and +180 more degrees (world Y spin, then tilt)
-					angle = angle + 180
-					local downCF = CFrame.new(basePos) * CFrame.Angles(0, math.rad(angle), 0) * baseRot
-					local downInfo = TweenInfo.new(BOB_TIME / 2, Enum.EasingStyle.Sine, Enum.EasingDirection.In)
-					local downTween = TweenService:Create(pp, downInfo, { CFrame = downCF })
-					downTween:Play()
-					downTween.Completed:Wait()
-				end
-			end)
-
-			table.insert(self._coinTweenThreads, spinThread)
-			self._trove:Add(function()
-				task.cancel(spinThread)
-			end)
-		end
-	end
-
-	print("[LakelandRaceController] Visualized " .. #COINS .. " coins (prefab)")
+	print("[LakelandRaceController] Visualized " .. #COINS .. " coins (cubes)")
 end
 
 function LakelandRaceController:_visualizeTunnel(folder)
 	local centerSpline = self._splines[2].spline
 	local getZone = getTrackZone
 
-	local TUNNEL_SEGS = 400
-	local TUNNEL_RADIUS = 22
-	local PANEL_THICKNESS = 0.4
-	local ARCH_SLICES = 7
-	local ARCH_START_RAD = math.rad(-15)
-	local ARCH_END_RAD = math.rad(195)
-	local ARCH_STEP = (ARCH_END_RAD - ARCH_START_RAD) / ARCH_SLICES
-	local PANEL_WIDTH = 2 * TUNNEL_RADIUS * math.sin(ARCH_STEP / 2)
-	local EDGE_THICKNESS = 0.25
-	local EDGE_HEIGHT = 0.2
+	local STREAK_SEGS      = 500
+	local TUNNEL_RADIUS    = 22
+	local STREAK_THICKNESS = 0.2
+	local STREAK_HEIGHT    = 0.15
 
-	local tunnelFolder = Instance.new("Folder")
-	tunnelFolder.Name = "TunnelVisuals"
-	tunnelFolder.Parent = folder
+	local STREAK_LINES = 10
+	local ARCH_START = math.rad(-10)
+	local ARCH_END   = math.rad(190)
+	local ARCH_SPAN  = ARCH_END - ARCH_START
 
-	local panelCount = 0
-	local edgeCount = 0
+	local STREAK_COLORS = {
+		Color3.fromRGB(50, 140, 255),
+		Color3.fromRGB(0, 255, 200),
+		Color3.fromRGB(170, 50, 255),
+		Color3.fromRGB(255, 60, 100),
+		Color3.fromRGB(0, 210, 255),
+		Color3.fromRGB(255, 180, 40),
+		Color3.fromRGB(80, 255, 80),
+		Color3.fromRGB(255, 100, 255),
+		Color3.fromRGB(100, 200, 255),
+		Color3.fromRGB(255, 60, 40),
+	}
 
-	for s = 0, TUNNEL_SEGS - 1 do
-		if s % 100 == 0 and s > 0 then task.wait() end
+	local STREAK_PATTERNS = {
+		{ gap = 2,  duty = 0.8 },
+		{ gap = 3,  duty = 0.6 },
+		{ gap = 4,  duty = 0.5 },
+		{ gap = 2,  duty = 1.0 },
+		{ gap = 5,  duty = 0.4 },
+		{ gap = 3,  duty = 0.7 },
+		{ gap = 6,  duty = 0.3 },
+		{ gap = 2,  duty = 0.9 },
+		{ gap = 4,  duty = 0.6 },
+		{ gap = 3,  duty = 1.0 },
+	}
 
-		local t0 = s / TUNNEL_SEGS
-		local t1 = (s + 1) / TUNNEL_SEGS
+	local streakFolder = Instance.new("Folder")
+	streakFolder.Name = "TunnelStreaks"
+	streakFolder.Parent = folder
+
+	local streakCount = 0
+
+	for s = 0, STREAK_SEGS - 1 do
+		if s % 120 == 0 and s > 0 then task.wait() end
+
+		local t0 = s / STREAK_SEGS
+		local t1 = (s + 1) / STREAK_SEGS
 		local tMid = (t0 + t1) / 2
 		local zone = getZone(tMid)
 
@@ -947,65 +921,40 @@ function LakelandRaceController:_visualizeTunnel(folder)
 		local mid = (posA + posB) / 2
 		local dir = posB - posA
 		local segLen = dir.Magnitude
-
 		if segLen < 0.01 then continue end
 
 		local forwardCF = CFrame.lookAt(mid, mid + dir.Unit)
 
-		local panelColor = Color3.new(
-			zone.roadColor.R * 0.45,
-			zone.roadColor.G * 0.45,
-			zone.roadColor.B * 0.45
-		)
+		for lineIdx = 1, STREAK_LINES do
+			local pattern = STREAK_PATTERNS[lineIdx]
+			local segInPattern = s % pattern.gap
+			local dutyThreshold = math.ceil(pattern.gap * pattern.duty)
+			if segInPattern >= dutyThreshold then continue end
 
-		for slice = 0, ARCH_SLICES - 1 do
-			local a0 = ARCH_START_RAD + ARCH_STEP * slice
-			local a1 = ARCH_START_RAD + ARCH_STEP * (slice + 1)
-			local aMid = (a0 + a1) / 2
+			local frac = (lineIdx - 1) / (STREAK_LINES - 1)
+			local angle = ARCH_START + ARCH_SPAN * frac
 
-			local ox = math.cos(aMid) * TUNNEL_RADIUS
-			local oy = math.sin(aMid) * TUNNEL_RADIUS
+			local ex = math.cos(angle) * TUNNEL_RADIUS
+			local ey = math.sin(angle) * TUNNEL_RADIUS
 
-			local panelCF = forwardCF
-				* CFrame.new(ox, oy, 0)
-				* CFrame.Angles(0, 0, aMid)
+			local baseColor = STREAK_COLORS[lineIdx]
+			local blended = baseColor:Lerp(zone.accent, 0.4)
 
-			local heightFactor = math.clamp(math.sin(aMid), 0, 1)
-			local transp = 0.15 + (1 - heightFactor) * 0.25
+			local streak = Instance.new("Part")
+			streak.Size = Vector3.new(STREAK_THICKNESS, STREAK_HEIGHT, segLen + 0.12)
+			streak.CFrame = forwardCF * CFrame.new(ex, ey, 0)
+			streak.Anchored = true
+			streak.CanCollide = false
+			streak.Color = blended
+			streak.Material = Enum.Material.Neon
+			streak.Transparency = 0
+			streak.Parent = streakFolder
 
-			local panel = Instance.new("Part")
-			panel.Size = Vector3.new(PANEL_WIDTH, PANEL_THICKNESS, segLen + 0.15)
-			panel.CFrame = panelCF
-			panel.Anchored = true
-			panel.CanCollide = false
-			panel.Color = panelColor
-			panel.Material = Enum.Material.Metal
-			panel.Transparency = transp
-			panel.Parent = tunnelFolder
-			panelCount = panelCount + 1
-		end
-
-		if s % 4 == 0 then
-			for edge = 0, ARCH_SLICES do
-				local angle = ARCH_START_RAD + ARCH_STEP * edge
-				local ex = math.cos(angle) * TUNNEL_RADIUS
-				local ey = math.sin(angle) * TUNNEL_RADIUS
-
-				local edgePart = Instance.new("Part")
-				edgePart.Size = Vector3.new(EDGE_THICKNESS, EDGE_HEIGHT, segLen + 0.15)
-				edgePart.CFrame = forwardCF * CFrame.new(ex, ey, 0)
-				edgePart.Anchored = true
-				edgePart.CanCollide = false
-				edgePart.Color = zone.accent
-				edgePart.Material = Enum.Material.Neon
-				edgePart.Transparency = 0
-				edgePart.Parent = tunnelFolder
-				edgeCount = edgeCount + 1
-			end
+			streakCount = streakCount + 1
 		end
 	end
 
-	print("[LakelandRaceController] Tunnel built: " .. panelCount .. " panels, " .. edgeCount .. " edge strips")
+	print("[LakelandRaceController] Tunnel streaks built: " .. streakCount .. " streak segments across " .. STREAK_LINES .. " lines")
 end
 
 function LakelandRaceController:_setObstacleVisibility(show)
@@ -1025,27 +974,21 @@ function LakelandRaceController:_setObstacleVisibility(show)
 	end
 	if self._hazardVisuals then
 		for _, child in ipairs(self._hazardVisuals:GetChildren()) do
-			if child:IsA("Model") then
-				for _, desc in ipairs(child:GetDescendants()) do
-					if desc:IsA("BasePart") then
-						desc.Transparency = show and 0 or 1
-					end
-				end
-			elseif child:IsA("BasePart") then
-				child.Transparency = show and 0 or 1
+			if child:IsA("BasePart") then
+				child.Transparency = show and 0.15 or 1
+				local hl = child:FindFirstChildOfClass("Highlight")
+				if hl then hl.Enabled = show end
 			end
 		end
 	end
 	if self._coinVisuals then
-		for i, model in ipairs(self._coinParts) do
-			if model and model.Parent then
+		for i, part in ipairs(self._coinParts) do
+			if part and part.Parent then
 				local coin = COINS[i]
 				if coin and not coin.collected then
-					for _, desc in ipairs(model:GetDescendants()) do
-						if desc:IsA("BasePart") then
-							desc.Transparency = show and 0 or 1
-						end
-					end
+					part.Transparency = show and 0.15 or 1
+					local hl = part:FindFirstChildOfClass("Highlight")
+					if hl then hl.Enabled = show end
 				end
 			end
 		end
@@ -1079,13 +1022,11 @@ function LakelandRaceController:PositionAtStart()
 
 	for i, coin in ipairs(COINS) do
 		coin.collected = false
-		local model = self._coinParts[i]
-		if model and model.Parent then
-			for _, desc in ipairs(model:GetDescendants()) do
-				if desc:IsA("BasePart") then
-					desc.Transparency = 1
-				end
-			end
+		local part = self._coinParts[i]
+		if part and part.Parent then
+			part.Transparency = 1
+			local hl = part:FindFirstChildOfClass("Highlight")
+			if hl then hl.Enabled = false end
 		end
 	end
 
@@ -1248,13 +1189,11 @@ function LakelandRaceController:_checkCoinCollection()
 			self._coinScore = self._coinScore + COIN_VALUE
 			self._coinsCollected = self._coinsCollected + 1
 
-			local model = self._coinParts[i]
-			if model and model.Parent then
-				for _, desc in ipairs(model:GetDescendants()) do
-					if desc:IsA("BasePart") then
-						desc.Transparency = 1
-					end
-				end
+			local part = self._coinParts[i]
+			if part and part.Parent then
+				part.Transparency = 1
+				local hl = part:FindFirstChildOfClass("Highlight")
+				if hl then hl.Enabled = false end
 			end
 
 			self.CoinCollected:Fire(self._coinScore, self._coinsCollected)
