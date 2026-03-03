@@ -666,6 +666,8 @@ function LakelandRaceController:_visualizeLanes()
 	self._trove:Add(self._railColorConn)
 
 	task.wait()
+	self:_visualizeTunnel(folder)
+	task.wait()
 	self:_visualizeBoostZones(folder)
 	task.wait()
 	self:_visualizeHazards(folder)
@@ -912,6 +914,102 @@ function LakelandRaceController:_visualizeCoins(folder)
 	end
 
 	print("[LakelandRaceController] Visualized " .. #COINS .. " coins (prefab)")
+end
+
+function LakelandRaceController:_visualizeTunnel(folder)
+	local centerSpline = self._splines[2].spline
+	local getZone = getTrackZone
+
+	local TUNNEL_SEGS = 400
+	local TUNNEL_RADIUS = 22
+	local PANEL_THICKNESS = 0.4
+	local ARCH_SLICES = 7
+	local ARCH_START_RAD = math.rad(-15)
+	local ARCH_END_RAD = math.rad(195)
+	local ARCH_STEP = (ARCH_END_RAD - ARCH_START_RAD) / ARCH_SLICES
+	local PANEL_WIDTH = 2 * TUNNEL_RADIUS * math.sin(ARCH_STEP / 2)
+	local EDGE_THICKNESS = 0.25
+	local EDGE_HEIGHT = 0.2
+
+	local tunnelFolder = Instance.new("Folder")
+	tunnelFolder.Name = "TunnelVisuals"
+	tunnelFolder.Parent = folder
+
+	local panelCount = 0
+	local edgeCount = 0
+
+	for s = 0, TUNNEL_SEGS - 1 do
+		if s % 100 == 0 and s > 0 then task.wait() end
+
+		local t0 = s / TUNNEL_SEGS
+		local t1 = (s + 1) / TUNNEL_SEGS
+		local tMid = (t0 + t1) / 2
+		local zone = getZone(tMid)
+
+		local posA = centerSpline:CalculatePositionAt(t0)
+		local posB = centerSpline:CalculatePositionAt(t1)
+		local mid = (posA + posB) / 2
+		local dir = posB - posA
+		local segLen = dir.Magnitude
+
+		if segLen < 0.01 then continue end
+
+		local forwardCF = CFrame.lookAt(mid, mid + dir.Unit)
+
+		local panelColor = Color3.new(
+			zone.roadColor.R * 0.45,
+			zone.roadColor.G * 0.45,
+			zone.roadColor.B * 0.45
+		)
+
+		for slice = 0, ARCH_SLICES - 1 do
+			local a0 = ARCH_START_RAD + ARCH_STEP * slice
+			local a1 = ARCH_START_RAD + ARCH_STEP * (slice + 1)
+			local aMid = (a0 + a1) / 2
+
+			local ox = math.cos(aMid) * TUNNEL_RADIUS
+			local oy = math.sin(aMid) * TUNNEL_RADIUS
+
+			local panelCF = forwardCF
+				* CFrame.new(ox, oy, 0)
+				* CFrame.Angles(0, 0, aMid)
+
+			local heightFactor = math.clamp(math.sin(aMid), 0, 1)
+			local transp = 0.15 + (1 - heightFactor) * 0.25
+
+			local panel = Instance.new("Part")
+			panel.Size = Vector3.new(PANEL_WIDTH, PANEL_THICKNESS, segLen + 0.15)
+			panel.CFrame = panelCF
+			panel.Anchored = true
+			panel.CanCollide = false
+			panel.Color = panelColor
+			panel.Material = Enum.Material.Metal
+			panel.Transparency = transp
+			panel.Parent = tunnelFolder
+			panelCount = panelCount + 1
+		end
+
+		if s % 4 == 0 then
+			for edge = 0, ARCH_SLICES do
+				local angle = ARCH_START_RAD + ARCH_STEP * edge
+				local ex = math.cos(angle) * TUNNEL_RADIUS
+				local ey = math.sin(angle) * TUNNEL_RADIUS
+
+				local edgePart = Instance.new("Part")
+				edgePart.Size = Vector3.new(EDGE_THICKNESS, EDGE_HEIGHT, segLen + 0.15)
+				edgePart.CFrame = forwardCF * CFrame.new(ex, ey, 0)
+				edgePart.Anchored = true
+				edgePart.CanCollide = false
+				edgePart.Color = zone.accent
+				edgePart.Material = Enum.Material.Neon
+				edgePart.Transparency = 0
+				edgePart.Parent = tunnelFolder
+				edgeCount = edgeCount + 1
+			end
+		end
+	end
+
+	print("[LakelandRaceController] Tunnel built: " .. panelCount .. " panels, " .. edgeCount .. " edge strips")
 end
 
 function LakelandRaceController:_setObstacleVisibility(show)
