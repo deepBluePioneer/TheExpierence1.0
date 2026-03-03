@@ -16,44 +16,44 @@ local CatmullRomSpline = require(CustomPackages.Splines.CatmullRomSpline)
 
 local LANE_COUNT = 3
 local LANE_SPACING = 10
-local TRACK_LENGTH = 50000
+local TRACK_LENGTH = 20000
 local TRACK_HEIGHT = 3
 local TRACK_START_Z = 50
 local SPLINE_TENSION = 0.5
 
-local CURVE_SEGMENTS = 220
+local CURVE_SEGMENTS = 100
 local CURVE_AMPLITUDE = 70
 
 local ELEVATION_PROFILE = {
-	{ 0.00,   3 },   -- start flat
-	{ 0.06,   3 },   -- flat run-up
-	{ 0.10,  30 },   -- steep climb
-	{ 0.14,  35 },   -- crest
-	{ 0.17,   5 },   -- steep drop-off
-	{ 0.22,   3 },   -- valley floor
-	{ 0.28,   3 },   -- flat stretch
-	{ 0.32,  20 },   -- moderate climb
-	{ 0.36,  22 },   -- gentle ridge
-	{ 0.39,  10 },   -- moderate descent
-	{ 0.42,   3 },   -- valley
-	{ 0.46,   3 },   -- flat
-	{ 0.50,  50 },   -- big steep climb
-	{ 0.54,  55 },   -- tall crest
-	{ 0.56,   8 },   -- sharp cliff drop
-	{ 0.60,   3 },   -- valley floor
-	{ 0.65,   3 },   -- flat stretch
-	{ 0.68,  15 },   -- rolling hill up
-	{ 0.71,  18 },   -- small crest
-	{ 0.73,   5 },   -- dip down
-	{ 0.76,  25 },   -- quick climb
-	{ 0.78,  28 },   -- crest
-	{ 0.80,   3 },   -- steep drop
-	{ 0.85,   3 },   -- flat approach
-	{ 0.88,  40 },   -- final steep ramp
-	{ 0.91,  45 },   -- high point
-	{ 0.93,   5 },   -- big drop
-	{ 0.96,   3 },   -- flat finish
-	{ 1.00,   3 },   -- end flat
+	{ 0.00,   3 },
+	{ 0.06,   3 },
+	{ 0.10,  30 },
+	{ 0.14,  35 },
+	{ 0.17,   5 },
+	{ 0.22,   3 },
+	{ 0.28,   3 },
+	{ 0.32,  20 },
+	{ 0.36,  22 },
+	{ 0.39,  10 },
+	{ 0.42,   3 },
+	{ 0.46,   3 },
+	{ 0.50,  50 },
+	{ 0.54,  55 },
+	{ 0.56,   8 },
+	{ 0.60,   3 },
+	{ 0.65,   3 },
+	{ 0.68,  15 },
+	{ 0.71,  18 },
+	{ 0.73,   5 },
+	{ 0.76,  25 },
+	{ 0.78,  28 },
+	{ 0.80,   3 },
+	{ 0.85,   3 },
+	{ 0.88,  40 },
+	{ 0.91,  45 },
+	{ 0.93,   5 },
+	{ 0.96,   3 },
+	{ 1.00,   3 },
 }
 
 local MOVE_SPEED = 80
@@ -125,15 +125,6 @@ do
 	local coinSections = {
 		{from = 0.01, to = 0.99, gap = 0.0015},
 	}
-
-	local hazardSet = {}
-	for _, h in ipairs(HAZARDS) do
-		hazardSet[h.lane .. "_" .. h.t] = true
-	end
-	local boostSet = {}
-	for _, b in ipairs(BOOST_ZONES) do
-		boostSet[b.lane .. "_" .. b.tStart] = true
-	end
 
 	local idx = 1
 	for _, sec in ipairs(coinSections) do
@@ -219,6 +210,83 @@ local function getTrackZone(t)
 	return TRACK_ZONES[#TRACK_ZONES]
 end
 
+---------------------------------------------------------------------------
+-- Treadmill constants
+---------------------------------------------------------------------------
+local FIXED_MACHINE_POS = Vector3.new(0, TRACK_HEIGHT + 5, 0)
+local WINDOW_AHEAD  = 0.015
+local WINDOW_BEHIND = 0.005
+
+local ROAD_HALF_W = LANE_SPACING * 1.5
+local ROAD_W      = ROAD_HALF_W * 2
+
+local ROAD_T_STEP    = 0.0015
+local LANE_T_STEP    = 0.00075
+local LIGHT_T_STEP   = 0.005
+local STREAK_T_STEP  = 0.002
+
+local ROAD_POOL       = 25
+local LANE_POOL       = 120
+local LIGHT_POOL      = 10
+local STREAK_POOL     = 100
+local HAZARD_POOL     = 20
+local COIN_POOL       = 30
+local BOOST_PAD_POOL  = 35
+local BOOST_EDGE_POOL = 70
+local BOOST_CHEV_POOL = 18
+
+local BOOST_VIS_SEGS  = 6
+local BOOST_VIS_WIDTH = LANE_SPACING * 0.7
+
+local TUNNEL_RADIUS    = 22
+local STREAK_THICKNESS = 0.2
+local STREAK_HEIGHT    = 0.15
+local STREAK_LINES     = 10
+local STREAK_ARCH_START = math.rad(-10)
+local STREAK_ARCH_END   = math.rad(190)
+local STREAK_ARCH_SPAN  = STREAK_ARCH_END - STREAK_ARCH_START
+
+local STREAK_COLORS = {
+	Color3.fromRGB(50, 140, 255),
+	Color3.fromRGB(0, 255, 200),
+	Color3.fromRGB(170, 50, 255),
+	Color3.fromRGB(255, 60, 100),
+	Color3.fromRGB(0, 210, 255),
+	Color3.fromRGB(255, 180, 40),
+	Color3.fromRGB(80, 255, 80),
+	Color3.fromRGB(255, 100, 255),
+	Color3.fromRGB(100, 200, 255),
+	Color3.fromRGB(255, 60, 40),
+}
+
+local STREAK_PATTERNS = {
+	{ gap = 2, duty = 0.8 },
+	{ gap = 3, duty = 0.6 },
+	{ gap = 4, duty = 0.5 },
+	{ gap = 2, duty = 1.0 },
+	{ gap = 5, duty = 0.4 },
+	{ gap = 3, duty = 0.7 },
+	{ gap = 6, duty = 0.3 },
+	{ gap = 2, duty = 0.9 },
+	{ gap = 4, duty = 0.6 },
+	{ gap = 3, duty = 1.0 },
+}
+
+local RW_COUNT         = 10
+local RW_SPACING_STUDS = 20
+local RW_SIDE_OFFSET   = ROAD_HALF_W + 3
+local RW_BAR_HEIGHT    = 4
+local RW_BAR_WIDTH     = 1.5
+local RW_BAR_DEPTH     = 0.6
+local RW_OFF_COLOR     = Color3.fromRGB(5, 10, 25)
+local RW_ON_COLOR      = Color3.fromRGB(80, 200, 255)
+local RW_CHASE_SPEED   = 12
+local RW_FADE_TAIL     = 3
+local RW_DIM_FLOOR     = 0.08
+
+---------------------------------------------------------------------------
+-- Controller
+---------------------------------------------------------------------------
 local LakelandRaceController = Knit.CreateController({
 	Name = "LakelandRaceController",
 
@@ -244,17 +312,17 @@ local LakelandRaceController = Knit.CreateController({
 	_lastEffectiveLane = 2,
 	_lastCFrame = CFrame.new(),
 	_countdownDrive = false,
-	_boostVisuals = nil,
-	_hazardVisuals = nil,
-	_coinVisuals = nil,
-	_coinParts = {},
 	_coinScore = 0,
 	_coinsCollected = 0,
 	_boostScore = 0,
 	_currentBoostTally = 0,
-	_railParts = {},
-	_runwayLights = {},
-	_runwayConn = nil,
+
+	_pools = {},
+	_folder = nil,
+	_obstaclesVisible = false,
+	_rwLights = {},
+	_rwElapsed = 0,
+	_gateParts = {},
 
 	LaneChanged = Signal.new(),
 	RaceProgress = Signal.new(),
@@ -284,9 +352,7 @@ function LakelandRaceController:_setupDarkEnvironment()
 	Lighting.EnvironmentSpecularScale = 0
 
 	local sky = Lighting:FindFirstChildOfClass("Sky")
-	if sky then
-		sky:Destroy()
-	end
+	if sky then sky:Destroy() end
 
 	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
 	if atmosphere then
@@ -302,16 +368,15 @@ end
 function LakelandRaceController:KnitStart()
 	self:_setupDarkEnvironment()
 	self:_buildSplines()
-
-	self:_setObstacleVisibility(false)
+	self:_initPools()
 
 	local gameController = Knit.GetController("LakelandGameController")
 	gameController.GameStateChanged:Connect(function(newState)
 		if newState == "COUNTDOWN" then
-			self:_setObstacleVisibility(false)
+			self._obstaclesVisible = false
 			self:PositionAtStart()
 		elseif newState == "PLAYING" then
-			self:_setObstacleVisibility(true)
+			self._obstaclesVisible = true
 			self:StartRace()
 		elseif newState == "GAME_OVER" or newState == "MENU" then
 			self:StopRace()
@@ -319,6 +384,9 @@ function LakelandRaceController:KnitStart()
 	end)
 end
 
+---------------------------------------------------------------------------
+-- Spline construction (math only, no visuals)
+---------------------------------------------------------------------------
 function LakelandRaceController:_buildSplines()
 	self._splines = {}
 
@@ -332,7 +400,6 @@ function LakelandRaceController:_buildSplines()
 		local profile = ELEVATION_PROFILE
 		if frac <= profile[1][1] then return profile[1][2] end
 		if frac >= profile[#profile][1] then return profile[#profile][2] end
-
 		for k = 1, #profile - 1 do
 			if frac >= profile[k][1] and frac <= profile[k + 1][1] then
 				local t = (frac - profile[k][1]) / (profile[k + 1][1] - profile[k][1])
@@ -363,17 +430,13 @@ function LakelandRaceController:_buildSplines()
 		local prev = pts[math.max(1, idx - 1)]
 		local nxt = pts[math.min(#pts, idx + 1)]
 		local dir = nxt - prev
-		if dir.Magnitude < 0.001 then
-			return Vector3.new(0, 0, -1)
-		end
+		if dir.Magnitude < 0.001 then return Vector3.new(0, 0, -1) end
 		return dir.Unit
 	end
 
 	local function getPerp(tangent)
 		local flat = Vector3.new(tangent.X, 0, tangent.Z)
-		if flat.Magnitude < 0.001 then
-			return Vector3.new(1, 0, 0)
-		end
+		if flat.Magnitude < 0.001 then return Vector3.new(1, 0, 0) end
 		flat = flat.Unit
 		return Vector3.new(-flat.Z, 0, flat.X)
 	end
@@ -385,104 +448,141 @@ function LakelandRaceController:_buildSplines()
 			local perp = getPerp(tangent)
 			table.insert(lanePoints, center + perp * laneOffset)
 		end
-
 		local spline = CatmullRomSpline.new(lanePoints, SPLINE_TENSION)
-		self._splines[laneIndex] = {
-			spline = spline,
-			offsetX = laneOffset,
-		}
+		self._splines[laneIndex] = { spline = spline, offsetX = laneOffset }
 	end
 
-	print("[LakelandRaceController] Built " .. #self._splines .. " lane splines with " .. (CURVE_SEGMENTS + 3) .. " control points each")
-
-	task.spawn(function()
-		self:_visualizeLanes()
-	end)
+	print("[LakelandRaceController] Built " .. #self._splines .. " lane splines (" .. (CURVE_SEGMENTS + 3) .. " ctrl pts, " .. TRACK_LENGTH .. " studs)")
 end
 
-function LakelandRaceController:_visualizeLanes()
-	local existingVis = Workspace:FindFirstChild("LaneVisualization")
-	if existingVis then existingVis:Destroy() end
+---------------------------------------------------------------------------
+-- Pool initialization (create reusable parts once)
+---------------------------------------------------------------------------
+function LakelandRaceController:_initPools()
+	local existing = Workspace:FindFirstChild("LaneVisualization")
+	if existing then existing:Destroy() end
 
 	local folder = Instance.new("Folder")
 	folder.Name = "LaneVisualization"
 	folder.Parent = Workspace
 	self._trove:Add(folder)
+	self._folder = folder
+	self._pools = {}
 
-	local centerSpline = self._splines[2].spline
-	local leftSpline = self._splines[1].spline
-	local rightSpline = self._splines[3].spline
-
-	local ROAD_SEGS = 600
-	local ROAD_HALF_W = LANE_SPACING * 1.5
-	local ROAD_W = ROAD_HALF_W * 2
-
-	self._railParts = {}
-	local getZone = getTrackZone
-
-	-- Road surface — shiny reflective black
-	for s = 0, ROAD_SEGS - 1 do
-		if s % 200 == 0 and s > 0 then task.wait() end
-		local t0 = s / ROAD_SEGS
-		local t1 = (s + 1) / ROAD_SEGS
-
-		local posA = centerSpline:CalculatePositionAt(t0)
-		local posB = centerSpline:CalculatePositionAt(t1)
-		local mid = (posA + posB) / 2
-		local dir = posB - posA
-		local segLen = dir.Magnitude
-
-		if segLen > 0.01 then
-			local road = Instance.new("Part")
-			road.Size = Vector3.new(ROAD_W + 2, 0.25, segLen + 0.5)
-			road.CFrame = CFrame.lookAt(
-				mid - Vector3.new(0, 0.15, 0),
-				mid - Vector3.new(0, 0.15, 0) + dir.Unit
-			)
-			road.Anchored = true
-			road.CanCollide = false
-			road.Color = Color3.fromRGB(5, 5, 10)
-			road.Material = Enum.Material.Glass
-			road.Transparency = 0.05
-			road.Parent = folder
+	local function makePool(name, count, setup)
+		local pool = {}
+		for i = 1, count do
+			local part = Instance.new("Part")
+			part.Anchored = true
+			part.CanCollide = false
+			part.Transparency = 1
+			part.Parent = folder
+			setup(part, i)
+			pool[i] = part
 		end
+		self._pools[name] = pool
 	end
 
-	-- Animated runway approach lights — tall bars on each side of the track
-	local RW_COUNT = 10
-	local RW_SPACING_STUDS = 20
-	local RW_SIDE_OFFSET = ROAD_HALF_W + 3
-	local RW_BAR_HEIGHT = 4
-	local RW_BAR_WIDTH = 1.5
-	local RW_BAR_DEPTH = 0.6
-	local RW_OFF_COLOR = Color3.fromRGB(5, 10, 25)
-	local RW_ON_COLOR = Color3.fromRGB(80, 200, 255)
-	local RW_CHASE_SPEED = 12
+	makePool("road", ROAD_POOL, function(p)
+		p.Color = Color3.fromRGB(5, 5, 10)
+		p.Material = Enum.Material.Glass
+	end)
 
-	self._runwayLights = {}
+	makePool("lane", LANE_POOL, function(p)
+		p.Material = Enum.Material.Neon
+	end)
+
+	self._pools.light = {}
+	for i = 1, LIGHT_POOL do
+		local anchor = Instance.new("Part")
+		anchor.Size = Vector3.new(0.5, 0.5, 0.5)
+		anchor.Anchored = true
+		anchor.CanCollide = false
+		anchor.Transparency = 1
+		anchor.Parent = folder
+		local pl = Instance.new("PointLight")
+		pl.Brightness = 0
+		pl.Range = 60
+		pl.Parent = anchor
+		self._pools.light[i] = { part = anchor, light = pl }
+	end
+
+	makePool("streak", STREAK_POOL, function(p)
+		p.Material = Enum.Material.Neon
+	end)
+
+	self._pools.hazard = {}
+	for i = 1, HAZARD_POOL do
+		local cube = Instance.new("Part")
+		cube.Shape = Enum.PartType.Block
+		cube.Size = Vector3.new(6, 5, 6)
+		cube.Anchored = true
+		cube.CanCollide = false
+		cube.Color = Color3.fromRGB(255, 40, 40)
+		cube.Material = Enum.Material.Neon
+		cube.Transparency = 1
+		cube.Parent = folder
+		local hl = Instance.new("Highlight")
+		hl.FillColor = Color3.fromRGB(255, 50, 50)
+		hl.FillTransparency = 0.3
+		hl.OutlineColor = Color3.fromRGB(255, 100, 100)
+		hl.OutlineTransparency = 0
+		hl.Enabled = false
+		hl.Parent = cube
+		self._pools.hazard[i] = cube
+	end
+
+	self._pools.coin = {}
+	for i = 1, COIN_POOL do
+		local cube = Instance.new("Part")
+		cube.Shape = Enum.PartType.Block
+		cube.Size = Vector3.new(5, 4, 5)
+		cube.Anchored = true
+		cube.CanCollide = false
+		cube.Color = Color3.fromRGB(40, 120, 255)
+		cube.Material = Enum.Material.Neon
+		cube.Transparency = 1
+		cube.Parent = folder
+		local hl = Instance.new("Highlight")
+		hl.FillColor = Color3.fromRGB(50, 140, 255)
+		hl.FillTransparency = 0.3
+		hl.OutlineColor = Color3.fromRGB(100, 180, 255)
+		hl.OutlineTransparency = 0
+		hl.Enabled = false
+		hl.Parent = cube
+		self._pools.coin[i] = cube
+	end
+
+	makePool("boostPad", BOOST_PAD_POOL, function(p)
+		p.Color = Color3.fromRGB(255, 175, 0)
+		p.Material = Enum.Material.Neon
+	end)
+	makePool("boostEdge", BOOST_EDGE_POOL, function(p)
+		p.Color = Color3.fromRGB(255, 120, 0)
+		p.Material = Enum.Material.Neon
+	end)
+	makePool("boostChev", BOOST_CHEV_POOL, function(p)
+		p.Color = Color3.fromRGB(255, 240, 120)
+		p.Material = Enum.Material.Neon
+	end)
+
+	-- Runway lights (fixed small set)
+	self._rwLights = {}
+	local centerSpline = self._splines[2].spline
 	for i = 0, RW_COUNT - 1 do
-		local t = (i * RW_SPACING_STUDS) / TRACK_LENGTH
-
-		local cPos = centerSpline:CalculatePositionAt(t)
-		local cDir = centerSpline:CalculateDerivativeAt(t)
+		local rwT = (i * RW_SPACING_STUDS) / TRACK_LENGTH
+		local cDir = centerSpline:CalculateDerivativeAt(rwT)
 		if cDir.Magnitude < 0.001 then cDir = Vector3.new(0, 0, -1) end
-		local cf = CFrame.lookAt(cPos, cPos + cDir)
 
-		local pair = {}
+		local pair = { t = rwT, entries = {} }
 		for _, sign in ipairs({ -1, 1 }) do
-			local sidePos = cPos + cf.RightVector * sign * RW_SIDE_OFFSET
-
 			local bar = Instance.new("Part")
 			bar.Size = Vector3.new(RW_BAR_WIDTH, RW_BAR_HEIGHT, RW_BAR_DEPTH)
-			bar.CFrame = CFrame.lookAt(
-				sidePos + Vector3.new(0, RW_BAR_HEIGHT * 0.5, 0),
-				sidePos + Vector3.new(0, RW_BAR_HEIGHT * 0.5, 0) + cDir.Unit
-			)
 			bar.Anchored = true
 			bar.CanCollide = false
 			bar.Color = RW_OFF_COLOR
 			bar.Material = Enum.Material.Neon
-			bar.Transparency = 0
+			bar.Transparency = 1
 			bar.Parent = folder
 
 			local glow = Instance.new("PointLight")
@@ -491,510 +591,400 @@ function LakelandRaceController:_visualizeLanes()
 			glow.Range = 30
 			glow.Parent = bar
 
-			local groundPad = Instance.new("Part")
-			groundPad.Size = Vector3.new(3, 0.15, 3)
-			groundPad.CFrame = CFrame.new(sidePos + Vector3.new(0, 0.08, 0))
-			groundPad.Anchored = true
-			groundPad.CanCollide = false
-			groundPad.Color = RW_OFF_COLOR
-			groundPad.Material = Enum.Material.Neon
-			groundPad.Transparency = 0
-			groundPad.Parent = folder
+			local pad = Instance.new("Part")
+			pad.Size = Vector3.new(3, 0.15, 3)
+			pad.Anchored = true
+			pad.CanCollide = false
+			pad.Color = RW_OFF_COLOR
+			pad.Material = Enum.Material.Neon
+			pad.Transparency = 1
+			pad.Parent = folder
 
-			table.insert(pair, { bar = bar, light = glow, pad = groundPad })
+			table.insert(pair.entries, { bar = bar, light = glow, pad = pad, sign = sign })
 		end
-		table.insert(self._runwayLights, pair)
+		table.insert(self._rwLights, pair)
 	end
 
-	if self._runwayConn then
-		self._runwayConn:Disconnect()
-	end
-	local rwElapsed = 0
-	local RW_FADE_TAIL = 3
-	local RW_DIM_FLOOR = 0.08
-	self._runwayConn = RunService.RenderStepped:Connect(function(dt)
-		rwElapsed = rwElapsed + dt * RW_CHASE_SPEED
-		local head = rwElapsed % RW_COUNT
+	-- Start / finish gate parts
+	self._gateParts = {}
+	for _, gateInfo in ipairs({
+		{ name = "start", t = 0.001, color = Color3.fromRGB(255, 255, 255) },
+		{ name = "finish", t = 0.998, color = Color3.fromRGB(255, 215, 40) },
+	}) do
+		local parts = {}
+		local line = Instance.new("Part")
+		line.Size = Vector3.new(ROAD_W, 0.12, 2)
+		line.Anchored = true
+		line.CanCollide = false
+		line.Color = gateInfo.color
+		line.Material = Enum.Material.Neon
+		line.Transparency = 1
+		line.Parent = folder
+		parts.line = line
 
-		for i, pair in ipairs(self._runwayLights) do
-			local idx = i - 1
-			local behind = (head - idx) % RW_COUNT
-			local intensity
-			if behind < 1 then
-				intensity = 1
-			elseif behind < 1 + RW_FADE_TAIL then
-				intensity = math.max(RW_DIM_FLOOR, 1 - (behind - 1) / RW_FADE_TAIL)
-			else
-				intensity = RW_DIM_FLOOR
-			end
-
-			local color = RW_OFF_COLOR:Lerp(RW_ON_COLOR, intensity)
-			local bright = intensity * 5
-
-			for _, entry in ipairs(pair) do
-				entry.bar.Color = color
-				entry.light.Brightness = bright
-				entry.pad.Color = color
-			end
+		parts.posts = {}
+		for _, sv in ipairs({ -1, 1 }) do
+			local post = Instance.new("Part")
+			post.Size = Vector3.new(0.5, 7, 0.5)
+			post.Anchored = true
+			post.CanCollide = false
+			post.Color = gateInfo.color
+			post.Material = Enum.Material.Neon
+			post.Transparency = 1
+			post.Parent = folder
+			table.insert(parts.posts, { part = post, sign = sv })
 		end
-	end)
-	self._trove:Add(self._runwayConn)
 
-	-- Lane divider lines (thin neon center lines for each lane)
-	local LANE_SEGS_VIS = 1200
-	for _, laneData in ipairs(self._splines) do
-		local spline = laneData.spline
-		for s = 0, LANE_SEGS_VIS - 1 do
-			if s % 300 == 0 and s > 0 then task.wait() end
-			local t0 = s / LANE_SEGS_VIS
-			local t1 = (s + 1) / LANE_SEGS_VIS
-			local zone = getZone((t0 + t1) / 2)
+		local beam = Instance.new("Part")
+		beam.Size = Vector3.new(ROAD_W + 1, 0.4, 0.4)
+		beam.Anchored = true
+		beam.CanCollide = false
+		beam.Color = gateInfo.color
+		beam.Material = Enum.Material.Neon
+		beam.Transparency = 1
+		beam.Parent = folder
+		parts.beam = beam
+		parts.t = gateInfo.t
 
-			local posA = spline:CalculatePositionAt(t0)
-			local posB = spline:CalculatePositionAt(t1)
-			local mid = (posA + posB) / 2
-			local dir = posB - posA
-			local segLen = dir.Magnitude
-
-			if segLen > 0.01 then
-				local line = Instance.new("Part")
-				line.Size = Vector3.new(0.35, 0.1, segLen + 0.25)
-				line.CFrame = CFrame.lookAt(
-					mid + Vector3.new(0, 0.01, 0),
-					mid + Vector3.new(0, 0.01, 0) + dir.Unit
-				)
-				line.Anchored = true
-				line.CanCollide = false
-				line.Color = zone.accent
-				line.Material = Enum.Material.Neon
-				line.Transparency = 0.25
-				line.Parent = folder
-			end
-		end
+		self._gateParts[gateInfo.name] = parts
 	end
 
-	-- Track illumination — PointLights along the center spline at regular intervals
-	local TRACK_LIGHT_COUNT = 200
-	for li = 0, TRACK_LIGHT_COUNT - 1 do
-		if li % 50 == 0 and li > 0 then task.wait() end
-		local t = li / TRACK_LIGHT_COUNT
-		local zone = getZone(t)
-		local pos = centerSpline:CalculatePositionAt(t)
-
+	-- Static ambient lights around the stationary machine
+	self._machineLights = {}
+	local lightConfigs = {
+		{ offset = Vector3.new(0, 18, 0),   color = Color3.fromRGB(180, 200, 255), brightness = 1.2, range = 80 },
+		{ offset = Vector3.new(0, 10, 0),   color = Color3.fromRGB(140, 160, 255), brightness = 0.8, range = 50 },
+		{ offset = Vector3.new(-15, 8, 0),  color = Color3.fromRGB(80, 140, 255),  brightness = 0.6, range = 45 },
+		{ offset = Vector3.new(15, 8, 0),   color = Color3.fromRGB(80, 140, 255),  brightness = 0.6, range = 45 },
+		{ offset = Vector3.new(0, 8, 12),   color = Color3.fromRGB(120, 80, 255),  brightness = 0.5, range = 40 },
+		{ offset = Vector3.new(0, 8, -12),  color = Color3.fromRGB(120, 80, 255),  brightness = 0.5, range = 40 },
+		{ offset = Vector3.new(-10, 5, 10), color = Color3.fromRGB(60, 180, 255),  brightness = 0.4, range = 35 },
+		{ offset = Vector3.new(10, 5, -10), color = Color3.fromRGB(60, 180, 255),  brightness = 0.4, range = 35 },
+	}
+	for _, cfg in ipairs(lightConfigs) do
 		local anchor = Instance.new("Part")
 		anchor.Size = Vector3.new(0.5, 0.5, 0.5)
-		anchor.Position = pos + Vector3.new(0, 6, 0)
 		anchor.Anchored = true
 		anchor.CanCollide = false
 		anchor.Transparency = 1
+		anchor.CFrame = CFrame.new(FIXED_MACHINE_POS + cfg.offset)
 		anchor.Parent = folder
-
-		local trackLight = Instance.new("PointLight")
-		trackLight.Color = zone.accent
-		trackLight.Brightness = 0.6
-		trackLight.Range = 60
-		trackLight.Parent = anchor
+		local pl = Instance.new("PointLight")
+		pl.Color = cfg.color
+		pl.Brightness = cfg.brightness
+		pl.Range = cfg.range
+		pl.Shadows = false
+		pl.Parent = anchor
+		table.insert(self._machineLights, anchor)
 	end
 
-	-- Start gate
-	do
-		local sT = 0.001
-		local sPos = centerSpline:CalculatePositionAt(sT)
-		local sDir = centerSpline:CalculateDerivativeAt(sT)
-		if sDir.Magnitude > 0.001 then
-			local sCF = CFrame.lookAt(sPos, sPos + sDir)
-
-			local sLine = Instance.new("Part")
-			sLine.Size = Vector3.new(ROAD_W, 0.12, 2)
-			sLine.CFrame = sCF + Vector3.new(0, 0.02, 0)
-			sLine.Anchored = true
-			sLine.CanCollide = false
-			sLine.Color = Color3.fromRGB(255, 255, 255)
-			sLine.Material = Enum.Material.Neon
-			sLine.Transparency = 0.1
-			sLine.Parent = folder
-
-			for _, sv in ipairs({ -1, 1 }) do
-				local pPos = sPos + sCF.RightVector * sv * (ROAD_HALF_W + 0.5)
-				local gatePost = Instance.new("Part")
-				gatePost.Size = Vector3.new(0.5, 7, 0.5)
-				gatePost.CFrame = CFrame.new(pPos + Vector3.new(0, 3.5, 0))
-				gatePost.Anchored = true
-				gatePost.CanCollide = false
-				gatePost.Color = Color3.fromRGB(255, 255, 255)
-				gatePost.Material = Enum.Material.Neon
-				gatePost.Transparency = 0.1
-				gatePost.Parent = folder
-			end
-
-			local beam = Instance.new("Part")
-			beam.Size = Vector3.new(ROAD_W + 1, 0.4, 0.4)
-			beam.CFrame = sCF * CFrame.new(0, 7, 0)
-			beam.Anchored = true
-			beam.CanCollide = false
-			beam.Color = Color3.fromRGB(255, 255, 255)
-			beam.Material = Enum.Material.Neon
-			beam.Transparency = 0.1
-			beam.Parent = folder
-		end
-	end
-
-	-- Finish gate
-	do
-		local fT = 0.998
-		local fPos = centerSpline:CalculatePositionAt(fT)
-		local fDir = centerSpline:CalculateDerivativeAt(fT)
-		if fDir.Magnitude > 0.001 then
-			local fCF = CFrame.lookAt(fPos, fPos + fDir)
-
-			local fLine = Instance.new("Part")
-			fLine.Size = Vector3.new(ROAD_W, 0.12, 2)
-			fLine.CFrame = fCF + Vector3.new(0, 0.02, 0)
-			fLine.Anchored = true
-			fLine.CanCollide = false
-			fLine.Color = Color3.fromRGB(255, 215, 40)
-			fLine.Material = Enum.Material.Neon
-			fLine.Transparency = 0.1
-			fLine.Parent = folder
-
-			for _, sv in ipairs({ -1, 1 }) do
-				local pPos = fPos + fCF.RightVector * sv * (ROAD_HALF_W + 0.5)
-				local gatePost = Instance.new("Part")
-				gatePost.Size = Vector3.new(0.5, 7, 0.5)
-				gatePost.CFrame = CFrame.new(pPos + Vector3.new(0, 3.5, 0))
-				gatePost.Anchored = true
-				gatePost.CanCollide = false
-				gatePost.Color = Color3.fromRGB(255, 215, 40)
-				gatePost.Material = Enum.Material.Neon
-				gatePost.Transparency = 0.1
-				gatePost.Parent = folder
-			end
-
-			local beam = Instance.new("Part")
-			beam.Size = Vector3.new(ROAD_W + 1, 0.4, 0.4)
-			beam.CFrame = fCF * CFrame.new(0, 7, 0)
-			beam.Anchored = true
-			beam.CanCollide = false
-			beam.Color = Color3.fromRGB(255, 215, 40)
-			beam.Material = Enum.Material.Neon
-			beam.Transparency = 0.1
-			beam.Parent = folder
-		end
-	end
-
-	task.wait()
-	self:_visualizeTunnel(folder)
-	task.wait()
-	self:_visualizeBoostZones(folder)
-	task.wait()
-	self:_visualizeHazards(folder)
-	task.wait()
-	self:_visualizeCoins(folder)
-
-	print("[LakelandRaceController] Track visualization created (" .. #self._railParts .. " dynamic rail parts)")
+	print("[LakelandRaceController] Pools initialized — treadmill ready")
 end
 
-function LakelandRaceController:_visualizeBoostZones(folder)
-	local BOOST_SEGMENTS = 18
-	local BOOST_WIDTH = LANE_SPACING * 0.7
-	local C_PAD     = Color3.fromRGB(255, 175, 0)
-	local C_CHEVRON = Color3.fromRGB(255, 240, 120)
-	local C_EDGE    = Color3.fromRGB(255, 120, 0)
-
-	local boostFolder = Instance.new("Folder")
-	boostFolder.Name = "BoostVisuals"
-	boostFolder.Parent = folder
-	self._boostVisuals = boostFolder
-
-	for bIdx, zone in ipairs(BOOST_ZONES) do
-		if bIdx % 25 == 0 then task.wait() end
-		local spline = self._splines[zone.lane].spline
-		local tEnd = zone.tStart + BOOST_LENGTH
-
-		for s = 0, BOOST_SEGMENTS - 1 do
-			local t0 = zone.tStart + (tEnd - zone.tStart) * (s / BOOST_SEGMENTS)
-			local t1 = zone.tStart + (tEnd - zone.tStart) * ((s + 1) / BOOST_SEGMENTS)
-
-			local posA = spline:CalculatePositionAt(t0)
-			local posB = spline:CalculatePositionAt(t1)
-			local mid = (posA + posB) / 2
-			local dir = posB - posA
-			local segLen = dir.Magnitude
-
-			if segLen > 0.01 then
-				local lookCF = CFrame.lookAt(mid, mid + dir.Unit)
-
-				local panel = Instance.new("Part")
-				panel.Name = "BoostPad"
-				panel.Size = Vector3.new(BOOST_WIDTH, 0.12, segLen + 0.15)
-				panel.CFrame = CFrame.lookAt(
-					mid + Vector3.new(0, 0.03, 0),
-					mid + Vector3.new(0, 0.03, 0) + dir.Unit
-				)
-				panel.Anchored = true
-				panel.CanCollide = false
-				panel.Color = C_PAD
-				panel.Material = Enum.Material.Neon
-				panel.Transparency = 0.15
-				panel.Parent = boostFolder
-
-				-- Edge accent strips follow the curve per-segment
-				for _, edgeSign in ipairs({ -1, 1 }) do
-					local offset = lookCF.RightVector * edgeSign * (BOOST_WIDTH * 0.5)
-					local strip = Instance.new("Part")
-					strip.Name = "BoostEdge"
-					strip.Size = Vector3.new(0.25, 0.18, segLen + 0.15)
-					strip.CFrame = CFrame.lookAt(
-						mid + offset + Vector3.new(0, 0.06, 0),
-						mid + offset + Vector3.new(0, 0.06, 0) + dir.Unit
-					)
-					strip.Anchored = true
-					strip.CanCollide = false
-					strip.Color = C_EDGE
-					strip.Material = Enum.Material.Neon
-					strip.Transparency = 0.1
-					strip.Parent = boostFolder
-				end
-			end
-		end
-
-		-- Directional chevron arrows on the pad
-		local CHEV_COUNT = 3
-		for c = 0, CHEV_COUNT - 1 do
-			local chevT = zone.tStart + (tEnd - zone.tStart) * ((c + 0.5) / CHEV_COUNT)
-			local chevPos = spline:CalculatePositionAt(chevT)
-			local chevDir = spline:CalculateDerivativeAt(chevT)
-			if chevDir.Magnitude > 0.001 then
-				local chevron = Instance.new("Part")
-				chevron.Name = "BoostChevron"
-				chevron.Size = Vector3.new(BOOST_WIDTH * 0.4, 0.16, 0.5)
-				chevron.CFrame = CFrame.lookAt(
-					chevPos + Vector3.new(0, 0.1, 0),
-					chevPos + Vector3.new(0, 0.1, 0) + chevDir
-				)
-				chevron.Anchored = true
-				chevron.CanCollide = false
-				chevron.Color = C_CHEVRON
-				chevron.Material = Enum.Material.Neon
-				chevron.Transparency = 0.05
-				chevron.Parent = boostFolder
-			end
-		end
-	end
-
-	print("[LakelandRaceController] Visualized " .. #BOOST_ZONES .. " boost zones")
-end
-
-function LakelandRaceController:_visualizeHazards(folder)
-	local CUBE_SIZE = 3.5
-
-	local hazardFolder = Instance.new("Folder")
-	hazardFolder.Name = "HazardVisuals"
-	hazardFolder.Parent = folder
-	self._hazardVisuals = hazardFolder
-
-	for i, hazard in ipairs(HAZARDS) do
-		if i % 50 == 0 then task.wait() end
-		local spline = self._splines[hazard.lane].spline
-		local pos = spline:CalculatePositionAt(hazard.t)
-
-		local cube = Instance.new("Part")
-		cube.Name = "Hazard_" .. i
-		cube.Shape = Enum.PartType.Block
-		cube.Size = Vector3.new(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE)
-		cube.CFrame = CFrame.new(pos + Vector3.new(0, CUBE_SIZE * 0.5 + 0.5, 0))
-		cube.Anchored = true
-		cube.CanCollide = false
-		cube.Color = Color3.fromRGB(255, 40, 40)
-		cube.Material = Enum.Material.Neon
-		cube.Transparency = 0.15
-
-		local highlight = Instance.new("Highlight")
-		highlight.FillColor = Color3.fromRGB(255, 50, 50)
-		highlight.FillTransparency = 0.3
-		highlight.OutlineColor = Color3.fromRGB(255, 100, 100)
-		highlight.OutlineTransparency = 0
-		highlight.Parent = cube
-
-		cube.Parent = hazardFolder
-	end
-
-	print("[LakelandRaceController] Visualized " .. #HAZARDS .. " hazards (cubes)")
-end
-
-function LakelandRaceController:_visualizeCoins(folder)
-	local CUBE_SIZE = 2.5
-
-	local coinFolder = Instance.new("Folder")
-	coinFolder.Name = "CoinVisuals"
-	coinFolder.Parent = folder
-	self._coinVisuals = coinFolder
-	self._coinParts = {}
-
-	for i, coin in ipairs(COINS) do
-		if i % 60 == 0 then task.wait() end
-		local spline = self._splines[coin.lane].spline
-		local pos = spline:CalculatePositionAt(coin.t)
-		local coinPos = pos + Vector3.new(0, 3, 0)
-
-		local cube = Instance.new("Part")
-		cube.Name = "Coin_" .. i
-		cube.Shape = Enum.PartType.Block
-		cube.Size = Vector3.new(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE)
-		cube.CFrame = CFrame.new(coinPos)
-		cube.Anchored = true
-		cube.CanCollide = false
-		cube.Color = Color3.fromRGB(40, 120, 255)
-		cube.Material = Enum.Material.Neon
-		cube.Transparency = 0.15
-
-		local highlight = Instance.new("Highlight")
-		highlight.FillColor = Color3.fromRGB(50, 140, 255)
-		highlight.FillTransparency = 0.3
-		highlight.OutlineColor = Color3.fromRGB(100, 180, 255)
-		highlight.OutlineTransparency = 0
-		highlight.Parent = cube
-
-		cube.Parent = coinFolder
-		self._coinParts[i] = cube
-	end
-
-	print("[LakelandRaceController] Visualized " .. #COINS .. " coins (cubes)")
-end
-
-function LakelandRaceController:_visualizeTunnel(folder)
+---------------------------------------------------------------------------
+-- World scroll — repositions all pooled parts each frame
+---------------------------------------------------------------------------
+function LakelandRaceController:_updateWorldScroll(dt)
 	local centerSpline = self._splines[2].spline
-	local getZone = getTrackZone
+	local centerRef = centerSpline:CalculatePositionAt(self._t)
 
-	local STREAK_SEGS      = 500
-	local TUNNEL_RADIUS    = 22
-	local STREAK_THICKNESS = 0.2
-	local STREAK_HEIGHT    = 0.15
+	local tMin = math.max(0, self._t - WINDOW_BEHIND)
+	local tMax = math.min(1, self._t + WINDOW_AHEAD)
 
-	local STREAK_LINES = 10
-	local ARCH_START = math.rad(-10)
-	local ARCH_END   = math.rad(190)
-	local ARCH_SPAN  = ARCH_END - ARCH_START
+	local function toWorld(splinePos)
+		return FIXED_MACHINE_POS + (splinePos - centerRef)
+	end
 
-	local STREAK_COLORS = {
-		Color3.fromRGB(50, 140, 255),
-		Color3.fromRGB(0, 255, 200),
-		Color3.fromRGB(170, 50, 255),
-		Color3.fromRGB(255, 60, 100),
-		Color3.fromRGB(0, 210, 255),
-		Color3.fromRGB(255, 180, 40),
-		Color3.fromRGB(80, 255, 80),
-		Color3.fromRGB(255, 100, 255),
-		Color3.fromRGB(100, 200, 255),
-		Color3.fromRGB(255, 60, 40),
-	}
-
-	local STREAK_PATTERNS = {
-		{ gap = 2,  duty = 0.8 },
-		{ gap = 3,  duty = 0.6 },
-		{ gap = 4,  duty = 0.5 },
-		{ gap = 2,  duty = 1.0 },
-		{ gap = 5,  duty = 0.4 },
-		{ gap = 3,  duty = 0.7 },
-		{ gap = 6,  duty = 0.3 },
-		{ gap = 2,  duty = 0.9 },
-		{ gap = 4,  duty = 0.6 },
-		{ gap = 3,  duty = 1.0 },
-	}
-
-	local streakFolder = Instance.new("Folder")
-	streakFolder.Name = "TunnelStreaks"
-	streakFolder.Parent = folder
-
-	local streakCount = 0
-
-	for s = 0, STREAK_SEGS - 1 do
-		if s % 120 == 0 and s > 0 then task.wait() end
-
-		local t0 = s / STREAK_SEGS
-		local t1 = (s + 1) / STREAK_SEGS
-		local tMid = (t0 + t1) / 2
-		local zone = getZone(tMid)
-
-		local posA = centerSpline:CalculatePositionAt(t0)
+	-- Road surface
+	local ri = 1
+	local t = tMin
+	while t < tMax and ri <= ROAD_POOL do
+		local t1 = math.min(t + ROAD_T_STEP, tMax)
+		local posA = centerSpline:CalculatePositionAt(t)
 		local posB = centerSpline:CalculatePositionAt(t1)
 		local mid = (posA + posB) / 2
 		local dir = posB - posA
 		local segLen = dir.Magnitude
-		if segLen < 0.01 then continue end
+		if segLen > 0.01 then
+			local wM = toWorld(mid)
+			local road = self._pools.road[ri]
+			road.Size = Vector3.new(ROAD_W + 2, 0.25, segLen + 0.5)
+			road.CFrame = CFrame.lookAt(wM - Vector3.new(0, 0.15, 0), wM - Vector3.new(0, 0.15, 0) + dir.Unit)
+			road.Transparency = 0.05
+			ri = ri + 1
+		end
+		t = t + ROAD_T_STEP
+	end
+	for i = ri, ROAD_POOL do self._pools.road[i].Transparency = 1 end
 
-		local forwardCF = CFrame.lookAt(mid, mid + dir.Unit)
+	-- Lane dividers
+	local li = 1
+	for _, laneData in ipairs(self._splines) do
+		local spline = laneData.spline
+		local lt = tMin
+		while lt < tMax and li <= LANE_POOL do
+			local lt1 = math.min(lt + LANE_T_STEP, tMax)
+			local zone = getTrackZone((lt + lt1) / 2)
+			local posA = spline:CalculatePositionAt(lt)
+			local posB = spline:CalculatePositionAt(lt1)
+			local mid = (posA + posB) / 2
+			local dir = posB - posA
+			local segLen = dir.Magnitude
+			if segLen > 0.01 then
+				local wM = toWorld(mid)
+				local line = self._pools.lane[li]
+				line.Size = Vector3.new(0.35, 0.1, segLen + 0.25)
+				line.CFrame = CFrame.lookAt(wM + Vector3.new(0, 0.01, 0), wM + Vector3.new(0, 0.01, 0) + dir.Unit)
+				line.Color = zone.accent
+				line.Transparency = 0.25
+				li = li + 1
+			end
+			lt = lt + LANE_T_STEP
+		end
+	end
+	for i = li, LANE_POOL do self._pools.lane[i].Transparency = 1 end
 
-		for lineIdx = 1, STREAK_LINES do
-			local pattern = STREAK_PATTERNS[lineIdx]
-			local segInPattern = s % pattern.gap
-			local dutyThreshold = math.ceil(pattern.gap * pattern.duty)
-			if segInPattern >= dutyThreshold then continue end
+	-- Track lights
+	local tli = 1
+	local tlt = tMin
+	while tlt < tMax and tli <= LIGHT_POOL do
+		local zone = getTrackZone(tlt)
+		local pos = centerSpline:CalculatePositionAt(tlt)
+		local wP = toWorld(pos)
+		local info = self._pools.light[tli]
+		info.part.Position = wP + Vector3.new(0, 6, 0)
+		info.light.Color = zone.accent
+		info.light.Brightness = 0.6
+		tli = tli + 1
+		tlt = tlt + LIGHT_T_STEP
+	end
+	for i = tli, LIGHT_POOL do self._pools.light[i].light.Brightness = 0 end
 
-			local frac = (lineIdx - 1) / (STREAK_LINES - 1)
-			local angle = ARCH_START + ARCH_SPAN * frac
+	-- Tunnel streaks
+	local si = 1
+	local st = tMin
+	local segCounter = math.floor(tMin / STREAK_T_STEP)
+	while st < tMax do
+		local st1 = math.min(st + STREAK_T_STEP, tMax)
+		local stMid = (st + st1) / 2
+		local zone = getTrackZone(stMid)
+		local posA = centerSpline:CalculatePositionAt(st)
+		local posB = centerSpline:CalculatePositionAt(st1)
+		local mid = (posA + posB) / 2
+		local dir = posB - posA
+		local segLen = dir.Magnitude
 
-			local ex = math.cos(angle) * TUNNEL_RADIUS
-			local ey = math.sin(angle) * TUNNEL_RADIUS
+		if segLen > 0.01 then
+			local wM = toWorld(mid)
+			local fwdCF = CFrame.lookAt(wM, wM + dir.Unit)
 
-			local baseColor = STREAK_COLORS[lineIdx]
-			local blended = baseColor:Lerp(zone.accent, 0.4)
+			for lineIdx = 1, STREAK_LINES do
+				if si > STREAK_POOL then break end
+				local pat = STREAK_PATTERNS[lineIdx]
+				if (segCounter % pat.gap) < math.ceil(pat.gap * pat.duty) then
+					local frac = (lineIdx - 1) / (STREAK_LINES - 1)
+					local angle = STREAK_ARCH_START + STREAK_ARCH_SPAN * frac
+					local ex = math.cos(angle) * TUNNEL_RADIUS
+					local ey = math.sin(angle) * TUNNEL_RADIUS
+					local baseColor = STREAK_COLORS[lineIdx]
+					local blended = baseColor:Lerp(zone.accent, 0.4)
 
-			local streak = Instance.new("Part")
-			streak.Size = Vector3.new(STREAK_THICKNESS, STREAK_HEIGHT, segLen + 0.12)
-			streak.CFrame = forwardCF * CFrame.new(ex, ey, 0)
-			streak.Anchored = true
-			streak.CanCollide = false
-			streak.Color = blended
-			streak.Material = Enum.Material.Neon
-			streak.Transparency = 0
-			streak.Parent = streakFolder
+					local streak = self._pools.streak[si]
+					streak.Size = Vector3.new(STREAK_THICKNESS, STREAK_HEIGHT, segLen + 0.12)
+					streak.CFrame = fwdCF * CFrame.new(ex, ey, 0)
+					streak.Color = blended
+					streak.Transparency = 0
+					si = si + 1
+				end
+			end
+		end
+		segCounter = segCounter + 1
+		st = st + STREAK_T_STEP
+		if si > STREAK_POOL then break end
+	end
+	for i = si, STREAK_POOL do self._pools.streak[i].Transparency = 1 end
 
-			streakCount = streakCount + 1
+	-- Hazards
+	local hi = 1
+	for _, hazard in ipairs(HAZARDS) do
+		if hi > HAZARD_POOL then break end
+		if hazard.t >= tMin and hazard.t <= tMax then
+			local show = self._obstaclesVisible
+			local spline = self._splines[hazard.lane].spline
+			local pos = spline:CalculatePositionAt(hazard.t)
+			local wP = toWorld(pos)
+			local cube = self._pools.hazard[hi]
+			cube.CFrame = CFrame.new(wP + Vector3.new(0, 2.25, 0))
+			cube.Transparency = show and 0.15 or 1
+			local hl = cube:FindFirstChildOfClass("Highlight")
+			if hl then hl.Enabled = show end
+			hi = hi + 1
+		end
+	end
+	for i = hi, HAZARD_POOL do
+		self._pools.hazard[i].Transparency = 1
+		local hl = self._pools.hazard[i]:FindFirstChildOfClass("Highlight")
+		if hl then hl.Enabled = false end
+	end
+
+	-- Coins
+	local ci = 1
+	for _, coin in ipairs(COINS) do
+		if ci > COIN_POOL then break end
+		if not coin.collected and coin.t >= tMin and coin.t <= tMax then
+			local show = self._obstaclesVisible
+			local spline = self._splines[coin.lane].spline
+			local pos = spline:CalculatePositionAt(coin.t)
+			local wP = toWorld(pos)
+			local cube = self._pools.coin[ci]
+			cube.CFrame = CFrame.new(wP + Vector3.new(0, 3, 0))
+			cube.Transparency = show and 0.15 or 1
+			local hl = cube:FindFirstChildOfClass("Highlight")
+			if hl then hl.Enabled = show end
+			ci = ci + 1
+		end
+	end
+	for i = ci, COIN_POOL do
+		self._pools.coin[i].Transparency = 1
+		local hl = self._pools.coin[i]:FindFirstChildOfClass("Highlight")
+		if hl then hl.Enabled = false end
+	end
+
+	-- Boost zones
+	local pi, ei, chi = 1, 1, 1
+	for _, bz in ipairs(BOOST_ZONES) do
+		local tEnd = bz.tStart + BOOST_LENGTH
+		if tEnd < tMin or bz.tStart > tMax then continue end
+		local show = self._obstaclesVisible
+		local spline = self._splines[bz.lane].spline
+
+		for s = 0, BOOST_VIS_SEGS - 1 do
+			if pi > BOOST_PAD_POOL then break end
+			local bt0 = bz.tStart + (tEnd - bz.tStart) * (s / BOOST_VIS_SEGS)
+			local bt1 = bz.tStart + (tEnd - bz.tStart) * ((s + 1) / BOOST_VIS_SEGS)
+			local posA = spline:CalculatePositionAt(bt0)
+			local posB = spline:CalculatePositionAt(bt1)
+			local mid = (posA + posB) / 2
+			local dir = posB - posA
+			local segLen = dir.Magnitude
+			if segLen < 0.01 then continue end
+
+			local wM = toWorld(mid)
+			local lookCF = CFrame.lookAt(wM, wM + dir.Unit)
+
+			local pad = self._pools.boostPad[pi]
+			pad.Size = Vector3.new(BOOST_VIS_WIDTH, 0.12, segLen + 0.15)
+			pad.CFrame = CFrame.lookAt(wM + Vector3.new(0, 0.03, 0), wM + Vector3.new(0, 0.03, 0) + dir.Unit)
+			pad.Transparency = show and 0.15 or 1
+			pi = pi + 1
+
+			for _, edgeSign in ipairs({ -1, 1 }) do
+				if ei > BOOST_EDGE_POOL then break end
+				local off = lookCF.RightVector * edgeSign * (BOOST_VIS_WIDTH * 0.5)
+				local edge = self._pools.boostEdge[ei]
+				edge.Size = Vector3.new(0.25, 0.18, segLen + 0.15)
+				edge.CFrame = CFrame.lookAt(wM + off + Vector3.new(0, 0.06, 0), wM + off + Vector3.new(0, 0.06, 0) + dir.Unit)
+				edge.Transparency = show and 0.1 or 1
+				ei = ei + 1
+			end
+		end
+
+		for c = 0, 2 do
+			if chi > BOOST_CHEV_POOL then break end
+			local chevT = bz.tStart + (tEnd - bz.tStart) * ((c + 0.5) / 3)
+			local chevPos = spline:CalculatePositionAt(chevT)
+			local chevDir = spline:CalculateDerivativeAt(chevT)
+			if chevDir.Magnitude > 0.001 then
+				local wP = toWorld(chevPos)
+				local chev = self._pools.boostChev[chi]
+				chev.Size = Vector3.new(BOOST_VIS_WIDTH * 0.4, 0.16, 0.5)
+				chev.CFrame = CFrame.lookAt(wP + Vector3.new(0, 0.1, 0), wP + Vector3.new(0, 0.1, 0) + chevDir.Unit)
+				chev.Transparency = show and 0.05 or 1
+				chi = chi + 1
+			end
+		end
+	end
+	for i = pi, BOOST_PAD_POOL do self._pools.boostPad[i].Transparency = 1 end
+	for i = ei, BOOST_EDGE_POOL do self._pools.boostEdge[i].Transparency = 1 end
+	for i = chi, BOOST_CHEV_POOL do self._pools.boostChev[i].Transparency = 1 end
+
+	-- Runway lights (reposition + chase animation)
+	self._rwElapsed = self._rwElapsed + dt * RW_CHASE_SPEED
+	local rwHead = self._rwElapsed % RW_COUNT
+
+	for idx, pair in ipairs(self._rwLights) do
+		local rwT = pair.t
+		local inWindow = rwT >= tMin and rwT <= tMax
+		local cPos = centerSpline:CalculatePositionAt(rwT)
+		local cDir = centerSpline:CalculateDerivativeAt(rwT)
+		if cDir.Magnitude < 0.001 then cDir = Vector3.new(0, 0, -1) end
+		local wP = toWorld(cPos)
+		local cf = CFrame.lookAt(wP, wP + cDir.Unit)
+
+		local behind = (rwHead - (idx - 1)) % RW_COUNT
+		local intensity
+		if behind < 1 then intensity = 1
+		elseif behind < 1 + RW_FADE_TAIL then intensity = math.max(RW_DIM_FLOOR, 1 - (behind - 1) / RW_FADE_TAIL)
+		else intensity = RW_DIM_FLOOR end
+
+		local color = RW_OFF_COLOR:Lerp(RW_ON_COLOR, intensity)
+		local bright = inWindow and (intensity * 5) or 0
+
+		for _, entry in ipairs(pair.entries) do
+			local sidePos = wP + cf.RightVector * entry.sign * RW_SIDE_OFFSET
+			entry.bar.CFrame = CFrame.lookAt(
+				sidePos + Vector3.new(0, RW_BAR_HEIGHT * 0.5, 0),
+				sidePos + Vector3.new(0, RW_BAR_HEIGHT * 0.5, 0) + cDir.Unit
+			)
+			entry.bar.Color = color
+			entry.bar.Transparency = inWindow and 0 or 1
+			entry.light.Brightness = bright
+			entry.pad.CFrame = CFrame.new(sidePos + Vector3.new(0, 0.08, 0))
+			entry.pad.Color = color
+			entry.pad.Transparency = inWindow and 0 or 1
 		end
 	end
 
-	print("[LakelandRaceController] Tunnel streaks built: " .. streakCount .. " streak segments across " .. STREAK_LINES .. " lines")
+	-- Start / finish gates
+	for _, gateInfo in pairs(self._gateParts) do
+		local gT = gateInfo.t
+		local inWin = gT >= tMin and gT <= tMax
+		if inWin then
+			local gPos = centerSpline:CalculatePositionAt(gT)
+			local gDir = centerSpline:CalculateDerivativeAt(gT)
+			if gDir.Magnitude < 0.001 then gDir = Vector3.new(0, 0, -1) end
+			local wP = toWorld(gPos)
+			local gCF = CFrame.lookAt(wP, wP + gDir.Unit)
+
+			gateInfo.line.CFrame = gCF + Vector3.new(0, 0.02, 0)
+			gateInfo.line.Transparency = 0.1
+
+			for _, postInfo in ipairs(gateInfo.posts) do
+				local pPos = wP + gCF.RightVector * postInfo.sign * (ROAD_HALF_W + 0.5)
+				postInfo.part.CFrame = CFrame.new(pPos + Vector3.new(0, 3.5, 0))
+				postInfo.part.Transparency = 0.1
+			end
+
+			gateInfo.beam.CFrame = gCF * CFrame.new(0, 7, 0)
+			gateInfo.beam.Transparency = 0.1
+		else
+			gateInfo.line.Transparency = 1
+			for _, postInfo in ipairs(gateInfo.posts) do postInfo.part.Transparency = 1 end
+			gateInfo.beam.Transparency = 1
+		end
+	end
 end
 
+---------------------------------------------------------------------------
+-- Obstacle visibility (flag checked by scroll)
+---------------------------------------------------------------------------
 function LakelandRaceController:_setObstacleVisibility(show)
-	if self._boostVisuals then
-		for _, part in ipairs(self._boostVisuals:GetChildren()) do
-			if part:IsA("BasePart") then
-				local name = part.Name
-				if name == "BoostChevron" then
-					part.Transparency = show and 0.05 or 1
-				elseif name == "BoostEdge" then
-					part.Transparency = show and 0.1 or 1
-				else
-					part.Transparency = show and 0.15 or 1
-				end
-			end
-		end
-	end
-	if self._hazardVisuals then
-		for _, child in ipairs(self._hazardVisuals:GetChildren()) do
-			if child:IsA("BasePart") then
-				child.Transparency = show and 0.15 or 1
-				local hl = child:FindFirstChildOfClass("Highlight")
-				if hl then hl.Enabled = show end
-			end
-		end
-	end
-	if self._coinVisuals then
-		for i, part in ipairs(self._coinParts) do
-			if part and part.Parent then
-				local coin = COINS[i]
-				if coin and not coin.collected then
-					part.Transparency = show and 0.15 or 1
-					local hl = part:FindFirstChildOfClass("Highlight")
-					if hl then hl.Enabled = show end
-				end
-			end
-		end
-	end
+	self._obstaclesVisible = show
 end
 
+---------------------------------------------------------------------------
+-- Position at start
+---------------------------------------------------------------------------
 function LakelandRaceController:PositionAtStart()
 	self._currentLane = 2
 	self._targetLane = 2
@@ -1009,9 +999,7 @@ function LakelandRaceController:PositionAtStart()
 	self._health = MAX_HEALTH
 	self._totalDistance = 0
 
-	for _, hazard in ipairs(HAZARDS) do
-		hazard._hit = false
-	end
+	for _, hazard in ipairs(HAZARDS) do hazard._hit = false end
 	self._laneEntryT = 0
 	self._lastEffectiveLane = 2
 	self._countdownDrive = true
@@ -1020,40 +1008,31 @@ function LakelandRaceController:PositionAtStart()
 	self._boostScore = 0
 	self._currentBoostTally = 0
 
-	for i, coin in ipairs(COINS) do
-		coin.collected = false
-		local part = self._coinParts[i]
-		if part and part.Parent then
-			part.Transparency = 1
-			local hl = part:FindFirstChildOfClass("Highlight")
-			if hl then hl.Enabled = false end
-		end
-	end
+	for _, coin in ipairs(COINS) do coin.collected = false end
 
 	task.spawn(function()
 		local machine = Workspace:WaitForChild("ActiveMachine", 5)
 		if not machine then
-			warn("[LakelandRaceController] ActiveMachine not found for positioning")
+			warn("[LakelandRaceController] ActiveMachine not found")
 			return
 		end
 
-		local spline = self._splines[2].spline
-		local pos = spline:CalculatePositionAt(0)
-		local dir = spline:CalculateDerivativeAt(0)
-		if dir.Magnitude < 0.001 then
-			dir = Vector3.new(0, 0, -1)
-		end
+		local dir = self._splines[2].spline:CalculateDerivativeAt(0)
+		if dir.Magnitude < 0.001 then dir = Vector3.new(0, 0, -1) end
 		dir = dir.Unit
 
-		local startCF = CFrame.lookAt(pos, pos + dir)
+		local startCF = CFrame.lookAt(FIXED_MACHINE_POS, FIXED_MACHINE_POS + dir)
 		machine:PivotTo(startCF)
 		self._lastCFrame = startCF
 
 		self:_startRenderLoop()
-		print("[LakelandRaceController] Machine positioned at center lane — standing still for countdown")
+		print("[LakelandRaceController] Machine at fixed position — ready for countdown")
 	end)
 end
 
+---------------------------------------------------------------------------
+-- Race start / stop
+---------------------------------------------------------------------------
 function LakelandRaceController:StartRace()
 	if self._running then return end
 	self._running = true
@@ -1061,14 +1040,9 @@ function LakelandRaceController:StartRace()
 	self._launching = true
 	self._currentSpeed = 0
 	self._laneEntryT = self._t
-
 	self:_bindInput()
-
-	if not self._renderConn then
-		self:_startRenderLoop()
-	end
-
-	print("[LakelandRaceController] LAUNCH — accelerating from 0 on lane " .. self._currentLane)
+	if not self._renderConn then self:_startRenderLoop() end
+	print("[LakelandRaceController] LAUNCH on lane " .. self._currentLane)
 end
 
 function LakelandRaceController:StopRace()
@@ -1082,23 +1056,22 @@ function LakelandRaceController:StopRace()
 	end
 	self._currentBoostTally = 0
 	self._boostScore = 0
-
 	self._inputTrove:Clean()
 
 	if self._renderConn then
 		RunService:UnbindFromRenderStep("LakelandMachineUpdate")
 		self._renderConn = nil
 	end
-
-	print("[LakelandRaceController] Race stopped")
 end
 
+---------------------------------------------------------------------------
+-- Input
+---------------------------------------------------------------------------
 function LakelandRaceController:_bindInput()
 	self._inputTrove:Clean()
 
 	self._inputTrove:Add(UserInputService.InputBegan:Connect(function(input, processed)
 		if processed then return end
-
 		if input.KeyCode == Enum.KeyCode.A or input.KeyCode == Enum.KeyCode.Left then
 			self:SwitchLane(-1)
 		elseif input.KeyCode == Enum.KeyCode.D or input.KeyCode == Enum.KeyCode.Right then
@@ -1123,17 +1096,16 @@ end
 function LakelandRaceController:SwitchLane(direction)
 	local newLane = math.clamp(self._targetLane + direction, 1, LANE_COUNT)
 	if newLane == self._targetLane then return end
-
-	if self._laneBlend > 0 then
-		self._currentLane = self._targetLane
-	end
-
+	if self._laneBlend > 0 then self._currentLane = self._targetLane end
 	self._laneBlend = 0
 	self._targetLane = newLane
 	self._switchDir = direction
 	self.LaneChanged:Fire(self._targetLane)
 end
 
+---------------------------------------------------------------------------
+-- Render loop
+---------------------------------------------------------------------------
 function LakelandRaceController:_startRenderLoop()
 	if self._renderConn then
 		RunService:UnbindFromRenderStep("LakelandMachineUpdate")
@@ -1141,6 +1113,7 @@ function LakelandRaceController:_startRenderLoop()
 	end
 
 	RunService:BindToRenderStep("LakelandMachineUpdate", Enum.RenderPriority.Camera.Value - 1, function(dt)
+		self:_updateWorldScroll(dt)
 		if not self._running and not self._countdownDrive then return end
 		self:_updateMovement(dt)
 	end)
@@ -1154,10 +1127,11 @@ function LakelandRaceController:_startRenderLoop()
 	end)
 end
 
+---------------------------------------------------------------------------
+-- Game logic helpers (unchanged)
+---------------------------------------------------------------------------
 function LakelandRaceController:_getEffectiveLane()
-	if self._laneBlend < 0.5 then
-		return self._currentLane
-	end
+	if self._laneBlend < 0.5 then return self._currentLane end
 	return self._targetLane
 end
 
@@ -1183,24 +1157,19 @@ end
 
 function LakelandRaceController:_checkCoinCollection()
 	local lane = self:_getEffectiveLane()
-	for i, coin in ipairs(COINS) do
+	for _, coin in ipairs(COINS) do
 		if not coin.collected and coin.lane == lane and self._t >= coin.t and self._t <= coin.t + COIN_SIZE then
 			coin.collected = true
 			self._coinScore = self._coinScore + COIN_VALUE
 			self._coinsCollected = self._coinsCollected + 1
-
-			local part = self._coinParts[i]
-			if part and part.Parent then
-				part.Transparency = 1
-				local hl = part:FindFirstChildOfClass("Highlight")
-				if hl then hl.Enabled = false end
-			end
-
 			self.CoinCollected:Fire(self._coinScore, self._coinsCollected)
 		end
 	end
 end
 
+---------------------------------------------------------------------------
+-- Movement (treadmill: machine stays at FIXED_MACHINE_POS)
+---------------------------------------------------------------------------
 function LakelandRaceController:_updateMovement(dt)
 	local machine = Workspace:FindFirstChild("ActiveMachine")
 	if not machine or not machine.PrimaryPart then return end
@@ -1217,12 +1186,9 @@ function LakelandRaceController:_updateMovement(dt)
 		local inBoost = self:_isInBoostZone()
 		if inBoost ~= self._boosting then
 			self._boosting = inBoost
-			if inBoost then
-				self._currentBoostTally = 0
-			end
+			if inBoost then self._currentBoostTally = 0 end
 			self.BoostChanged:Fire(inBoost, math.floor(self._currentBoostTally))
 		end
-
 		if inBoost then
 			self._currentSpeed = math.min(self._currentSpeed + BOOST_ACCEL * dt, MAX_SPEED)
 			self._boostScore = self._boostScore + BOOST_POINTS_PER_SEC * dt
@@ -1241,22 +1207,21 @@ function LakelandRaceController:_updateMovement(dt)
 		self.SpeedChanged:Fire(self._currentSpeed)
 	end
 
+	-- Advance virtual progress
 	local tDelta = (self._currentSpeed / TRACK_LENGTH) * dt
 	if not self._countdownDrive then
 		self._totalDistance = self._totalDistance + self._currentSpeed * dt
 	end
 	self._t = self._t + tDelta
-	if self._t > 1 then
-		self._t = self._t - 1
-	end
+	if self._t > 1 then self._t = self._t - 1 end
 
+	-- Lane blending
 	if not self._countdownDrive then
 		self._laneBlend = self._laneBlend + LANE_SWITCH_SPEED * dt
 		if self._laneBlend >= 1 then
 			self._laneBlend = 0
 			self._currentLane = self._targetLane
 		end
-
 		local effectiveLane = self:_getEffectiveLane()
 		if effectiveLane ~= self._lastEffectiveLane then
 			self._laneEntryT = self._t
@@ -1264,24 +1229,23 @@ function LakelandRaceController:_updateMovement(dt)
 		end
 	end
 
-	local currentSpline = self._splines[self._currentLane].spline
-	local targetSpline = self._splines[self._targetLane].spline
+	-- Compute lane offset relative to center spline
+	local centerSpline = self._splines[2].spline
+	local centerPos = centerSpline:CalculatePositionAt(self._t)
+	local currentLanePos = self._splines[self._currentLane].spline:CalculatePositionAt(self._t)
+	local targetLanePos = self._splines[self._targetLane].spline:CalculatePositionAt(self._t)
+	local lanePos = currentLanePos:Lerp(targetLanePos, self._laneBlend)
+	local laneOffset = lanePos - centerPos
 
-	local currentPos = currentSpline:CalculatePositionAt(self._t)
-	local targetPos = targetSpline:CalculatePositionAt(self._t)
-	local finalPos = currentPos:Lerp(targetPos, self._laneBlend)
+	-- Direction from center spline for forward orientation
+	local centerDir = centerSpline:CalculateDerivativeAt(self._t)
+	if centerDir.Magnitude < 0.001 then centerDir = Vector3.new(0, 0, -1) end
+	centerDir = centerDir.Unit
 
-	local currentDir = currentSpline:CalculateDerivativeAt(self._t)
-	local targetDir = targetSpline:CalculateDerivativeAt(self._t)
-	local dir = currentDir:Lerp(targetDir, self._laneBlend)
-
-	if dir.Magnitude < 0.001 then
-		dir = Vector3.new(0, 0, -1)
-	end
-	dir = dir.Unit
-
-	local lateralDelta = finalPos.X - self._lastXPos
-	self._lastXPos = finalPos.X
+	-- Banking
+	local machineWorldPos = FIXED_MACHINE_POS + laneOffset
+	local lateralDelta = machineWorldPos.X - self._lastXPos
+	self._lastXPos = machineWorldPos.X
 
 	local curvatureBank = 0
 	if dt > 0 then
@@ -1296,12 +1260,11 @@ function LakelandRaceController:_updateMovement(dt)
 		switchBank = -self._switchDir * LANE_SWITCH_BANK * blend
 	end
 
-	local targetRoll = curvatureBank + switchBank
-	targetRoll = math.clamp(targetRoll, -MAX_BANK_ANGLE, MAX_BANK_ANGLE)
+	local targetRoll = math.clamp(curvatureBank + switchBank, -MAX_BANK_ANGLE, MAX_BANK_ANGLE)
 	self._currentRoll = self._currentRoll + (targetRoll - self._currentRoll) * math.min(BANK_SMOOTH_SPEED * dt, 1)
 
-	local lookTarget = finalPos + dir
-	local baseCF = CFrame.lookAt(finalPos, lookTarget)
+	local lookTarget = machineWorldPos + centerDir
+	local baseCF = CFrame.lookAt(machineWorldPos, lookTarget)
 	local finalCF = baseCF * CFrame.Angles(0, 0, self._currentRoll)
 	machine:PivotTo(finalCF)
 	self._lastCFrame = finalCF
@@ -1309,56 +1272,21 @@ function LakelandRaceController:_updateMovement(dt)
 	self.RaceProgress:Fire(self._t)
 end
 
-function LakelandRaceController:GetProgress()
-	return self._t
-end
-
-function LakelandRaceController:GetCurrentLane()
-	return self._currentLane
-end
-
-function LakelandRaceController:GetCurrentSpeed()
-	return self._currentSpeed
-end
-
-function LakelandRaceController:GetMachineCFrame()
-	return self._lastCFrame
-end
-
-function LakelandRaceController:GetMaxSpeed()
-	return MAX_SPEED
-end
-
-function LakelandRaceController:IsBoosting()
-	return self._boosting
-end
-
-function LakelandRaceController:GetBoostTally()
-	return math.floor(self._currentBoostTally)
-end
-
-function LakelandRaceController:GetHealth()
-	return self._health
-end
-
-function LakelandRaceController:GetMaxHealth()
-	return MAX_HEALTH
-end
-
-function LakelandRaceController:GetDistance()
-	return self._totalDistance
-end
-
-function LakelandRaceController:GetTrackLength()
-	return TRACK_LENGTH
-end
-
-function LakelandRaceController:GetCoinScore()
-	return self._coinScore + math.floor(self._boostScore)
-end
-
-function LakelandRaceController:GetCoinsCollected()
-	return self._coinsCollected
-end
+---------------------------------------------------------------------------
+-- Public getters
+---------------------------------------------------------------------------
+function LakelandRaceController:GetProgress() return self._t end
+function LakelandRaceController:GetCurrentLane() return self._currentLane end
+function LakelandRaceController:GetCurrentSpeed() return self._currentSpeed end
+function LakelandRaceController:GetMachineCFrame() return self._lastCFrame end
+function LakelandRaceController:GetMaxSpeed() return MAX_SPEED end
+function LakelandRaceController:IsBoosting() return self._boosting end
+function LakelandRaceController:GetBoostTally() return math.floor(self._currentBoostTally) end
+function LakelandRaceController:GetHealth() return self._health end
+function LakelandRaceController:GetMaxHealth() return MAX_HEALTH end
+function LakelandRaceController:GetDistance() return self._totalDistance end
+function LakelandRaceController:GetTrackLength() return TRACK_LENGTH end
+function LakelandRaceController:GetCoinScore() return self._coinScore + math.floor(self._boostScore) end
+function LakelandRaceController:GetCoinsCollected() return self._coinsCollected end
 
 return LakelandRaceController
