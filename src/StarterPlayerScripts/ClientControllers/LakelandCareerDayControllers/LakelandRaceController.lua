@@ -94,6 +94,8 @@ local MAX_HEALTH = 100
 local HAZARD_DAMAGE = 25
 local HAZARD_HIT_COOLDOWN = 1.5
 local HAZARD_SIZE = 0.0015
+local HIT_FREEZE_BASE = 0.25
+local HIT_FREEZE_MAX  = 0.45
 
 -- Difficulty saw phases shared by hazard generation and visual difficulty
 local HAZARD_PHASES = {
@@ -290,6 +292,7 @@ local BOMB_CHAIN_T_SPAN = 0.022
 local BOMB_CHAIN_LIFE   = 0.8
 local BOMB_POOL         = 8
 local BOMB_CHAIN_POOL   = 26
+local BOMB_IND_MAX      = 5
 
 local BOMBS = {}
 do
@@ -486,8 +489,10 @@ local LakelandRaceController = Knit.CreateController({
 	_hardTransitionSmooth = false,
 	_difficultyTransitionProgress = 0,
 
-	_hasBomb = false,
-	_bombIndicator = nil,
+	_hitFreezeTimer = 0,
+
+	_bombCount = 0,
+	_bombIndicators = {},
 	_bombChainActive = false,
 	_bombChainParts = {},
 	_bombChainTimer = 0,
@@ -845,11 +850,12 @@ function LakelandRaceController:_initPools()
 		)
 	end
 
-	do
+	self._bombIndicators = {}
+	for i = 1, BOMB_IND_MAX do
 		local ind = Instance.new("Part")
-		ind.Name = "BombIndicator"
+		ind.Name = "BombIndicator_" .. i
 		ind.Shape = Enum.PartType.Block
-		ind.Size = Vector3.new(2.2, 2.2, 2.2)
+		ind.Size = Vector3.new(2, 2, 2)
 		ind.Anchored = true
 		ind.CanCollide = false
 		ind.Material = Enum.Material.Neon
@@ -862,7 +868,7 @@ function LakelandRaceController:_initPools()
 		gl.Range = 20
 		gl.Shadows = false
 		gl.Parent = ind
-		self._bombIndicator = ind
+		self._bombIndicators[i] = ind
 	end
 
 	self._bombChainParts = {}
@@ -1378,25 +1384,30 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	end
 	for i = bi, BOMB_PICKUP_POOL do hideCubeAssembly(self._pools.bomb[i]) end
 
-	-- Bomb indicator orbiting the player's machine
-	if self._hasBomb and self._lastCFrame then
-		local orbitSpeed = 2.2
-		local orbitRadius = 4.5
-		local orbitHeight = 2.5
-		local bobY = 0.3 * math.sin(time() * 3)
-		local angle = time() * orbitSpeed
-		local selfSpin = (time() * 2.5) % (math.pi * 2)
-		local center = self._lastCFrame.Position
-		local offsetX = math.cos(angle) * orbitRadius
-		local offsetZ = math.sin(angle) * orbitRadius
-		local indPos = center + Vector3.new(offsetX, orbitHeight + bobY, offsetZ)
-		self._bombIndicator.CFrame = CFrame.new(indPos) * CFrame.Angles(selfSpin, selfSpin * 0.6, 0)
-		self._bombIndicator.Size = Vector3.new(2, 2, 2)
-		self._bombIndicator.Transparency = 0.15
-		self._bombIndicator.PointLight.Brightness = 1.2 + 0.4 * math.sin(time() * 4)
-	else
-		self._bombIndicator.Transparency = 1
-		self._bombIndicator.PointLight.Brightness = 0
+	-- Bomb indicators orbiting the player's machine (evenly spaced)
+	local showCount = math.min(self._bombCount, BOMB_IND_MAX)
+	for i = 1, BOMB_IND_MAX do
+		local ind = self._bombIndicators[i]
+		if i <= showCount and self._lastCFrame then
+			local orbitSpeed = 2.2
+			local orbitRadius = 4.5
+			local orbitHeight = 2.5
+			local bobY = 0.3 * math.sin(time() * 3 + i * 0.5)
+			local spacing = (2 * math.pi) / showCount
+			local angle = time() * orbitSpeed + (i - 1) * spacing
+			local selfSpin = (time() * 2.5 + i) % (math.pi * 2)
+			local center = self._lastCFrame.Position
+			local offsetX = math.cos(angle) * orbitRadius
+			local offsetZ = math.sin(angle) * orbitRadius
+			local indPos = center + Vector3.new(offsetX, orbitHeight + bobY, offsetZ)
+			ind.CFrame = CFrame.new(indPos) * CFrame.Angles(selfSpin, selfSpin * 0.6, 0)
+			ind.Size = Vector3.new(2, 2, 2)
+			ind.Transparency = 0.15
+			ind.PointLight.Brightness = 1.2 + 0.4 * math.sin(time() * 4 + i)
+		else
+			ind.Transparency = 1
+			ind.PointLight.Brightness = 0
+		end
 	end
 
 	-- Bomb chain animation
@@ -1593,7 +1604,8 @@ function LakelandRaceController:PositionAtStart()
 
 	for _, coin in ipairs(COINS) do coin.collected = false end
 	for _, bomb in ipairs(BOMBS) do bomb.collected = false end
-	self._hasBomb = false
+	self._bombCount = 0
+	self._hitFreezeTimer = 0
 	self._bombChainActive = false
 	self._bombChainTimer = 0
 	self._bombChainCount = 0
@@ -1769,8 +1781,8 @@ function LakelandRaceController:_checkBombCollection()
 	for _, bomb in ipairs(BOMBS) do
 		if not bomb.collected and bomb.lane == lane and self._t >= bomb.t and self._t <= bomb.t + BOMB_SIZE then
 			bomb.collected = true
-			self._hasBomb = true
-			self.BombCollected:Fire(true)
+			self._bombCount = self._bombCount + 1
+			self.BombCollected:Fire(self._bombCount)
 			self:_spawnBurst(Color3.fromRGB(50, 220, 70), Color3.fromRGB(100, 255, 120))
 			if self._cameraController then
 				self._cameraController:ShakeCamera(1.5, 0.12, 0, 0, 0.15, Vector3.new(0.7, 0.7, 0.1), Vector3.new(0.03, 0.03, 0.02))
@@ -1781,8 +1793,8 @@ function LakelandRaceController:_checkBombCollection()
 end
 
 function LakelandRaceController:_deployBomb()
-	if not self._hasBomb or self._bombChainActive then return end
-	self._hasBomb = false
+	if self._bombCount <= 0 or self._bombChainActive then return end
+	self._bombCount = self._bombCount - 1
 	self._bombChainActive = true
 	self._bombChainTimer = 0
 	self._bombChainCount = 0
@@ -1848,6 +1860,19 @@ function LakelandRaceController:_updateBombChain(dt)
 				end
 			end
 		end
+
+		for _, bomb in ipairs(BOMBS) do
+			if not bomb.collected and bomb.lane == self._bombChainLane
+				and math.abs(bomb.t - chainT) < 0.002 then
+				bomb.collected = true
+				self._bombCount = self._bombCount + 1
+				self.BombCollected:Fire(self._bombCount)
+				self:_spawnBurst(Color3.fromRGB(50, 220, 70), Color3.fromRGB(100, 255, 120))
+				if self._cameraController then
+					self._cameraController:ShakeCamera(1.5, 0.12, 0, 0, 0.15, Vector3.new(0.7, 0.7, 0.1), Vector3.new(0.03, 0.03, 0.02))
+				end
+			end
+		end
 	end
 
 	if self._bombChainCount >= BOMB_CHAIN_LENGTH then
@@ -1861,6 +1886,11 @@ end
 function LakelandRaceController:_updateMovement(dt)
 	local machine = Workspace:FindFirstChild("ActiveMachine")
 	if not machine or not machine.PrimaryPart then return end
+
+	if self._hitFreezeTimer > 0 then
+		self._hitFreezeTimer = self._hitFreezeTimer - dt
+		return
+	end
 
 	if not self._countdownDrive then
 		if self._launching then
@@ -1892,7 +1922,12 @@ function LakelandRaceController:_updateMovement(dt)
 			self:_spawnBurst(Color3.fromRGB(255, 50, 50), Color3.fromRGB(255, 100, 100))
 			if self._cameraController then
 				self._cameraController:ShakeCamera(3, 0.1, 0, 0.05, 0.3, Vector3.new(1.5, 1.5, 0.3), Vector3.new(0.08, 0.08, 0.04))
+				local speedFrac = math.clamp((self._currentSpeed - MOVE_SPEED) / (MAX_SPEED - MOVE_SPEED), 0, 1)
+				self._cameraController:ZoomPunch(8 + 10 * speedFrac)
 			end
+			local speedFrac = math.clamp((self._currentSpeed - MOVE_SPEED) / (MAX_SPEED - MOVE_SPEED), 0, 1)
+			self._hitFreezeTimer = HIT_FREEZE_BASE + (HIT_FREEZE_MAX - HIT_FREEZE_BASE) * speedFrac
+			return
 		end
 
 		self:_checkCoinCollection()

@@ -26,6 +26,8 @@ local LakelandCameraController = Knit.CreateController({
 	_targetFOV = BASE_FOV,
 	_raceController = nil,
 	_activeShakes = {},
+	_zoomPunchOffset = 0,
+	_zoomPunchVelocity = 0,
 })
 
 function LakelandCameraController:KnitInit()
@@ -103,6 +105,11 @@ function LakelandCameraController:ShakeCamera(amplitude, frequency, fadeIn, sust
 	return shake
 end
 
+function LakelandCameraController:ZoomPunch(amount)
+	self._zoomPunchOffset = -(amount or 8)
+	self._zoomPunchVelocity = 0
+end
+
 function LakelandCameraController:_update(dt)
 	local camera = Workspace.CurrentCamera
 
@@ -134,7 +141,17 @@ function LakelandCameraController:_update(dt)
 
 	local fovSpeed = (self._targetFOV > self._currentFOV) and FOV_ATTACK_SPEED or FOV_RECOVER_SPEED
 	self._currentFOV = self._currentFOV + (self._targetFOV - self._currentFOV) * math.min(fovSpeed * dt, 1)
-	camera.FieldOfView = self._currentFOV
+
+	local stiffness = 180
+	local damping = 14
+	self._zoomPunchVelocity = self._zoomPunchVelocity + (-stiffness * self._zoomPunchOffset - damping * self._zoomPunchVelocity) * dt
+	self._zoomPunchOffset = self._zoomPunchOffset + self._zoomPunchVelocity * dt
+	if math.abs(self._zoomPunchOffset) < 0.05 and math.abs(self._zoomPunchVelocity) < 0.1 then
+		self._zoomPunchOffset = 0
+		self._zoomPunchVelocity = 0
+	end
+
+	camera.FieldOfView = self._currentFOV + self._zoomPunchOffset
 end
 
 return LakelandCameraController
