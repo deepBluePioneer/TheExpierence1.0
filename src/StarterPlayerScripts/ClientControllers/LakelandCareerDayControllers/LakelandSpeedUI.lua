@@ -35,7 +35,7 @@ function LakelandSpeedUI.new(playerGui, gameState)
 	end)
 
 	local slideY = Spring(Computed(function()
-		return visible:get() and 0.97 or 1.2
+		return visible:get() and 0.965 or 1.1
 	end), 16, 0.75)
 
 	local speedFrac = Computed(function()
@@ -77,18 +77,18 @@ function LakelandSpeedUI.new(playerGui, gameState)
 		[Children] = {
 			New "Frame" {
 				Name = "SpeedContainer",
-				AnchorPoint = Vector2.new(0, 1),
+				AnchorPoint = Vector2.new(1, 1),
 				Position = Computed(function()
-					return UDim2.fromScale(0.015, slideY:get())
+					return UDim2.fromScale(0.44, slideY:get())
 				end),
-				Size = UDim2.fromScale(0.13, 0.17),
+				Size = UDim2.fromScale(0.16, 0.045),
 				BackgroundColor3 = BG_PANEL,
 				BackgroundTransparency = 0.12,
 				Visible = visible,
 
 				[Children] = {
 					New "UICorner" {
-						CornerRadius = UDim.new(0.1, 0),
+						CornerRadius = UDim.new(0.2, 0),
 					},
 
 					New "UIStroke" {
@@ -107,39 +107,29 @@ function LakelandSpeedUI.new(playerGui, gameState)
 
 					New "TextLabel" {
 						Name = "SpeedValue",
-						AnchorPoint = Vector2.new(0.5, 0),
-						Position = UDim2.fromScale(0.5, 0.04),
-						Size = UDim2.fromScale(0.9, 0.45),
+						AnchorPoint = Vector2.new(0, 0.5),
+						Position = UDim2.fromScale(0.05, 0.5),
+						Size = UDim2.fromScale(0.32, 0.8),
 						BackgroundTransparency = 1,
 						Text = speedText,
 						TextColor3 = TEXT_PRIMARY,
 						Font = Enum.Font.GothamBlack,
 						TextScaled = true,
-					},
-
-					New "TextLabel" {
-						Name = "SpeedUnit",
-						AnchorPoint = Vector2.new(0.5, 0),
-						Position = UDim2.fromScale(0.5, 0.47),
-						Size = UDim2.fromScale(0.9, 0.13),
-						BackgroundTransparency = 1,
-						Text = "STUDS/S",
-						TextColor3 = TEXT_DIM,
-						Font = Enum.Font.GothamBold,
-						TextScaled = true,
+						TextXAlignment = Enum.TextXAlignment.Left,
+						[Children] = { New "UITextSizeConstraint" { MaxTextSize = 18 } },
 					},
 
 					New "Frame" {
 						Name = "BarBg",
-						AnchorPoint = Vector2.new(0.5, 0),
-						Position = UDim2.fromScale(0.5, 0.66),
-						Size = UDim2.fromScale(0.82, 0.13),
+						AnchorPoint = Vector2.new(0, 0.5),
+						Position = UDim2.fromScale(0.36, 0.5),
+						Size = UDim2.fromScale(0.42, 0.4),
 						BackgroundColor3 = BAR_BG,
 						BorderSizePixel = 0,
 
 						[Children] = {
 							New "UICorner" {
-								CornerRadius = UDim.new(0.35, 0),
+								CornerRadius = UDim.new(0.4, 0),
 							},
 
 							New "Frame" {
@@ -155,7 +145,7 @@ function LakelandSpeedUI.new(playerGui, gameState)
 
 								[Children] = {
 									New "UICorner" {
-										CornerRadius = UDim.new(0.35, 0),
+										CornerRadius = UDim.new(0.4, 0),
 									},
 								},
 							},
@@ -164,17 +154,19 @@ function LakelandSpeedUI.new(playerGui, gameState)
 
 					New "TextLabel" {
 						Name = "BoostLabel",
-						AnchorPoint = Vector2.new(0.5, 1),
-						Position = UDim2.fromScale(0.5, 0.96),
-						Size = UDim2.fromScale(0.9, 0.13),
+						AnchorPoint = Vector2.new(1, 0.5),
+						Position = UDim2.fromScale(0.97, 0.5),
+						Size = UDim2.fromScale(0.2, 0.7),
 						BackgroundTransparency = 1,
 						Text = Computed(function()
-							if boosting:get() then return "BOOST ACTIVE" end
+							if boosting:get() then return "BOOST" end
 							return ""
 						end),
 						TextColor3 = BOOST_ORANGE,
 						Font = Enum.Font.GothamBlack,
 						TextScaled = true,
+						TextXAlignment = Enum.TextXAlignment.Right,
+						[Children] = { New "UITextSizeConstraint" { MaxTextSize = 12 } },
 					},
 				},
 			},

@@ -16,19 +16,16 @@ local Spring = Fusion.Spring
 
 local BG_PANEL = Color3.fromRGB(8, 14, 28)
 local BORDER_CYAN = Color3.fromRGB(0, 140, 200)
-local TEXT_PRIMARY = Color3.fromRGB(220, 235, 255)
 local TEXT_DIM = Color3.fromRGB(70, 100, 140)
 local SCORE_GOLD = Color3.fromRGB(255, 220, 60)
 local PLAYER_CYAN = Color3.fromRGB(0, 210, 255)
 local BOOST_CYAN = Color3.fromRGB(50, 200, 255)
-local DIVIDER_COLOR = Color3.fromRGB(0, 80, 120)
 
 local LakelandDistanceUI = {}
 
 function LakelandDistanceUI.new(playerGui, gameState, playerName)
 	local trove = Trove.new()
 
-	local distance = Value(0)
 	local score = Value(0)
 	local coinPickupText = Value("")
 	local coinPickupAlpha = Value(0)
@@ -52,13 +49,6 @@ function LakelandDistanceUI.new(playerGui, gameState, playerName)
 		return visible:get() and 0.015 or -0.15
 	end), 16, 0.75)
 
-	local distanceText = Computed(function()
-		local d = math.floor(distance:get())
-		if d >= 1000 then
-			return string.format("%.1fkm", d / 1000)
-		end
-		return d .. "m"
-	end)
 
 	local animatedScore = Spring(score, 12, 0.8)
 	local scoreDisplay = Computed(function()
@@ -80,7 +70,7 @@ function LakelandDistanceUI.new(playerGui, gameState, playerName)
 				Position = Computed(function()
 					return UDim2.fromScale(0.5, slideY:get())
 				end),
-				Size = UDim2.fromScale(0.30, 0.13),
+				Size = UDim2.fromScale(0.18, 0.13),
 				BackgroundColor3 = BG_PANEL,
 				BackgroundTransparency = 0.12,
 				Visible = visible,
@@ -105,10 +95,10 @@ function LakelandDistanceUI.new(playerGui, gameState, playerName)
 					},
 
 					New "Frame" {
-						Name = "LeftSection",
+						Name = "ScoreSection",
 						AnchorPoint = Vector2.new(0, 0),
 						Position = UDim2.fromScale(0.03, 0.08),
-						Size = UDim2.fromScale(0.55, 0.84),
+						Size = UDim2.fromScale(0.94, 0.84),
 						BackgroundTransparency = 1,
 
 						[Children] = {
@@ -150,52 +140,6 @@ function LakelandDistanceUI.new(playerGui, gameState, playerName)
 								TextScaled = true,
 								TextXAlignment = Enum.TextXAlignment.Left,
 								TextTruncate = Enum.TextTruncate.AtEnd,
-							},
-						},
-					},
-
-					New "Frame" {
-						Name = "Divider",
-						AnchorPoint = Vector2.new(0.5, 0.5),
-						Position = UDim2.fromScale(0.62, 0.5),
-						Size = UDim2.new(0, 2, 0.7, 0),
-						BackgroundColor3 = DIVIDER_COLOR,
-						BackgroundTransparency = 0.3,
-						BorderSizePixel = 0,
-					},
-
-					New "Frame" {
-						Name = "RightSection",
-						AnchorPoint = Vector2.new(1, 0),
-						Position = UDim2.fromScale(0.97, 0.08),
-						Size = UDim2.fromScale(0.32, 0.84),
-						BackgroundTransparency = 1,
-
-						[Children] = {
-							New "TextLabel" {
-								Name = "DistLabel",
-								AnchorPoint = Vector2.new(0, 0),
-								Position = UDim2.fromScale(0, 0),
-								Size = UDim2.fromScale(1, 0.28),
-								BackgroundTransparency = 1,
-								Text = "DISTANCE",
-								TextColor3 = TEXT_DIM,
-								Font = Enum.Font.GothamBold,
-								TextScaled = true,
-								TextXAlignment = Enum.TextXAlignment.Left,
-							},
-
-							New "TextLabel" {
-								Name = "DistValue",
-								AnchorPoint = Vector2.new(0, 0.5),
-								Position = UDim2.fromScale(0, 0.6),
-								Size = UDim2.fromScale(1, 0.45),
-								BackgroundTransparency = 1,
-								Text = distanceText,
-								TextColor3 = TEXT_PRIMARY,
-								Font = Enum.Font.GothamBlack,
-								TextScaled = true,
-								TextXAlignment = Enum.TextXAlignment.Left,
 							},
 						},
 					},
@@ -277,7 +221,6 @@ function LakelandDistanceUI.new(playerGui, gameState, playerName)
 			if gameState:get() ~= "PLAYING" then return end
 			local dist = raceController:GetDistance()
 			local coinBonus = raceController:GetCoinScore()
-			distance:set(dist)
 			score:set(math.floor(dist * 10) + coinBonus)
 			if raceController:IsBoosting() then
 				boostTally:set(raceController:GetBoostTally())

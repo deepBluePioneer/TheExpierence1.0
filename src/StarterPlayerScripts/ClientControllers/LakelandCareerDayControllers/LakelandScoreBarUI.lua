@@ -39,11 +39,11 @@ end
 local function createRankMarker(frac, label, color, scoreText)
 	return New "Frame" {
 		Name = "Rank" .. label,
-		AnchorPoint = Vector2.new(0.5, 0),
+		AnchorPoint = Vector2.new(0, 0.5),
 		Position = Computed(function()
-			return UDim2.fromScale(frac:get(), 0)
+			return UDim2.fromScale(0, 1 - frac:get())
 		end),
-		Size = UDim2.fromScale(0, 1),
+		Size = UDim2.fromScale(1, 0),
 		BackgroundTransparency = 1,
 
 		Visible = Computed(function()
@@ -55,7 +55,7 @@ local function createRankMarker(frac, label, color, scoreText)
 				Name = "Tick",
 				AnchorPoint = Vector2.new(0.5, 0.5),
 				Position = UDim2.fromScale(0.5, 0.5),
-				Size = UDim2.new(0, 2, 0.65, 0),
+				Size = UDim2.new(0.65, 0, 0, 2),
 				BackgroundColor3 = color,
 				BackgroundTransparency = 0.15,
 				BorderSizePixel = 0,
@@ -63,9 +63,9 @@ local function createRankMarker(frac, label, color, scoreText)
 
 			New "TextLabel" {
 				Name = "RankLabel",
-				AnchorPoint = Vector2.new(0.5, 1),
-				Position = UDim2.fromScale(0.5, 0.08),
-				Size = UDim2.new(0, 28, 0, 16),
+				AnchorPoint = Vector2.new(1, 0.5),
+				Position = UDim2.fromScale(-0.1, 0.5),
+				Size = UDim2.new(0, 22, 0, 14),
 				BackgroundTransparency = 1,
 				Text = "#" .. label,
 				TextColor3 = color,
@@ -75,15 +75,16 @@ local function createRankMarker(frac, label, color, scoreText)
 
 			New "TextLabel" {
 				Name = "ScoreLabel",
-				AnchorPoint = Vector2.new(0.5, 0),
-				Position = UDim2.fromScale(0.5, 0.9),
-				Size = UDim2.new(0, 44, 0, 12),
+				AnchorPoint = Vector2.new(0, 0.5),
+				Position = UDim2.fromScale(1.1, 0.5),
+				Size = UDim2.new(0, 40, 0, 12),
 				BackgroundTransparency = 1,
 				Text = scoreText,
 				TextColor3 = color,
 				Font = Enum.Font.GothamBold,
 				TextScaled = true,
 				TextTransparency = 0.25,
+				TextXAlignment = Enum.TextXAlignment.Left,
 			},
 		},
 	}
@@ -101,8 +102,8 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores, playerName)
 		return gameState:get() == "PLAYING"
 	end)
 
-	local slideY = Spring(Computed(function()
-		return visible:get() and 0.92 or 1.1
+	local slideX = Spring(Computed(function()
+		return visible:get() and 0.02 or -0.06
 	end), 16, 0.75)
 
 	local function getTopScore(rank)
@@ -158,18 +159,18 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores, playerName)
 		[Children] = {
 			New "Frame" {
 				Name = "BarContainer",
-				AnchorPoint = Vector2.new(0.5, 0.5),
+				AnchorPoint = Vector2.new(0, 0.5),
 				Position = Computed(function()
-					return UDim2.fromScale(0.5, slideY:get())
+					return UDim2.fromScale(slideX:get(), 0.5)
 				end),
-				Size = UDim2.fromScale(0.55, 0.055),
+				Size = UDim2.fromScale(0.035, 0.55),
 				BackgroundColor3 = BG_PANEL,
 				BackgroundTransparency = 0.15,
 				Visible = visible,
 
 				[Children] = {
 					New "UICorner" {
-						CornerRadius = UDim.new(0.25, 0),
+						CornerRadius = UDim.new(0.15, 0),
 					},
 
 					New "UIStroke" {
@@ -179,15 +180,15 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores, playerName)
 					},
 
 					New "UIPadding" {
-						PaddingLeft = UDim.new(0.03, 0),
-						PaddingRight = UDim.new(0.03, 0),
+						PaddingTop = UDim.new(0.03, 0),
+						PaddingBottom = UDim.new(0.03, 0),
 					},
 
 					New "Frame" {
 						Name = "Track",
 						AnchorPoint = Vector2.new(0.5, 0.5),
 						Position = UDim2.fromScale(0.5, 0.5),
-						Size = UDim2.fromScale(1, 0.1),
+						Size = UDim2.fromScale(0.1, 1),
 						BackgroundColor3 = TRACK_BG,
 						BackgroundTransparency = 0.2,
 						BorderSizePixel = 0,
@@ -201,10 +202,10 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores, playerName)
 
 					New "Frame" {
 						Name = "FillBar",
-						AnchorPoint = Vector2.new(0, 0.5),
-						Position = UDim2.fromScale(0, 0.5),
+						AnchorPoint = Vector2.new(0.5, 1),
+						Position = UDim2.fromScale(0.5, 1),
 						Size = Computed(function()
-							return UDim2.fromScale(math.clamp(playerFrac:get(), 0, 1), 0.1)
+							return UDim2.fromScale(0.1, math.clamp(playerFrac:get(), 0, 1))
 						end),
 						BackgroundColor3 = PLAYER_CYAN,
 						BackgroundTransparency = 0.4,
@@ -233,9 +234,9 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores, playerName)
 						Name = "PlayerMarker",
 						AnchorPoint = Vector2.new(0.5, 0.5),
 						Position = Computed(function()
-							return UDim2.fromScale(math.clamp(playerFrac:get(), 0, 1), 0.5)
+							return UDim2.fromScale(0.5, 1 - math.clamp(playerFrac:get(), 0, 1))
 						end),
-						Size = UDim2.new(0, 14, 0, 14),
+						Size = UDim2.new(0, 12, 0, 12),
 						BackgroundColor3 = PLAYER_CYAN,
 						BackgroundTransparency = 0,
 						Rotation = 45,
@@ -256,11 +257,11 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores, playerName)
 
 					New "TextLabel" {
 						Name = "PlayerScoreLabel",
-						AnchorPoint = Vector2.new(0.5, 0),
+						AnchorPoint = Vector2.new(0, 0.5),
 						Position = Computed(function()
-							return UDim2.fromScale(math.clamp(playerFrac:get(), 0.05, 0.95), 0.72)
+							return UDim2.fromScale(1.15, 1 - math.clamp(playerFrac:get(), 0.03, 0.97))
 						end),
-						Size = UDim2.new(0, 52, 0, 13),
+						Size = UDim2.new(0, 48, 0, 13),
 						BackgroundTransparency = 1,
 						Text = Computed(function()
 							return formatScore(animatedScore:get())
@@ -268,15 +269,16 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores, playerName)
 						TextColor3 = PLAYER_CYAN,
 						Font = Enum.Font.GothamBlack,
 						TextScaled = true,
+						TextXAlignment = Enum.TextXAlignment.Left,
 					},
 
 					New "TextLabel" {
 						Name = "YouLabel",
-						AnchorPoint = Vector2.new(0.5, 1),
+						AnchorPoint = Vector2.new(0, 0.5),
 						Position = Computed(function()
-							return UDim2.fromScale(math.clamp(playerFrac:get(), 0.05, 0.95), 0.2)
+							return UDim2.fromScale(1.15, 1 - math.clamp(playerFrac:get(), 0.03, 0.97) - 0.04)
 						end),
-						Size = UDim2.new(0, 64, 0, 13),
+						Size = UDim2.new(0, 56, 0, 12),
 						BackgroundTransparency = 1,
 						Text = Computed(function()
 							local name = playerName and playerName:get() or ""
@@ -287,6 +289,7 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores, playerName)
 						Font = Enum.Font.GothamBlack,
 						TextScaled = true,
 						TextTruncate = Enum.TextTruncate.AtEnd,
+						TextXAlignment = Enum.TextXAlignment.Left,
 					},
 				},
 			},

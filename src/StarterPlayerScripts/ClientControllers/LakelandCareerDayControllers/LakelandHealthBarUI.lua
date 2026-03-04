@@ -37,8 +37,8 @@ function LakelandHealthBarUI.new(playerGui, gameState)
 		return gameState:get() == "PLAYING"
 	end)
 
-	local slideX = Spring(Computed(function()
-		return visible:get() and 0.985 or 1.25
+	local slideY = Spring(Computed(function()
+		return visible:get() and 0.91 or 1.1
 	end), 16, 0.75)
 
 	local heartStates = {}
@@ -82,11 +82,11 @@ function LakelandHealthBarUI.new(playerGui, gameState)
 		[Children] = {
 			New "Frame" {
 				Name = "ShieldContainer",
-				AnchorPoint = Vector2.new(1, 0),
+				AnchorPoint = Vector2.new(1, 1),
 				Position = Computed(function()
-					return UDim2.fromScale(slideX:get(), 0.015)
+					return UDim2.fromScale(0.44, slideY:get())
 				end),
-				Size = UDim2.fromScale(0.22, 0.06),
+				Size = UDim2.fromScale(0.18, 0.05),
 				BackgroundColor3 = BG_PANEL,
 				BackgroundTransparency = 0.15,
 				Visible = visible,

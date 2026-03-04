@@ -96,6 +96,8 @@ local HAZARD_HIT_COOLDOWN = 1.5
 local HAZARD_SIZE = 0.0015
 local HIT_FREEZE_BASE = 0.25
 local HIT_FREEZE_MAX  = 0.45
+local BOMB_HIT_FREEZE = 0.06
+local BOMB_HIT_ZOOM   = 3
 
 -- Difficulty saw phases shared by hazard generation and visual difficulty
 local HAZARD_PHASES = {
@@ -1841,8 +1843,10 @@ function LakelandRaceController:_updateBombChain(dt)
 				and math.abs(hazard.t - chainT) < 0.002 then
 				hazard._hit = true
 				self:_spawnBurst(Color3.fromRGB(255, 160, 30), Color3.fromRGB(255, 200, 80))
+				self._hitFreezeTimer = math.max(self._hitFreezeTimer, BOMB_HIT_FREEZE)
 				if self._cameraController then
 					self._cameraController:ShakeCamera(2.5, 0.08, 0, 0.04, 0.2, Vector3.new(1.2, 1.2, 0.2), Vector3.new(0.06, 0.06, 0.03))
+					self._cameraController:ZoomPunch(BOMB_HIT_ZOOM)
 				end
 			end
 		end

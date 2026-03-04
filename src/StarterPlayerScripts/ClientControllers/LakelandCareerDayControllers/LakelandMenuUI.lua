@@ -254,19 +254,78 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, onPlay)
 								},
 							},
 
-							New "TextLabel" {
-								Name = "HintLabel",
+							New "Frame" {
+								Name = "HintContainer",
 								LayoutOrder = 2,
-								Size = UDim2.fromScale(0.75, 0.2),
+								Size = UDim2.fromScale(0.85, 0.35),
 								BackgroundTransparency = 1,
-								Text = "< >  Arrow keys to switch lanes",
-								TextColor3 = TEXT_DIM,
-								Font = Enum.Font.GothamMedium,
-								TextScaled = true,
 
 								[Children] = {
-									New "UITextSizeConstraint" {
-										MaxTextSize = 18,
+									New "UIListLayout" {
+										FillDirection = Enum.FillDirection.Vertical,
+										HorizontalAlignment = Enum.HorizontalAlignment.Center,
+										Padding = UDim.new(0.04, 0),
+									},
+
+									New "TextLabel" {
+										Name = "ControlsHint",
+										LayoutOrder = 1,
+										Size = UDim2.fromScale(1, 0.28),
+										BackgroundTransparency = 1,
+										Text = "A / D  or  < >  Switch Lanes    |    SPACE  Deploy Bomb",
+										TextColor3 = TEXT_DIM,
+										Font = Enum.Font.GothamMedium,
+										TextScaled = true,
+										[Children] = { New "UITextSizeConstraint" { MaxTextSize = 15 } },
+									},
+
+									New "Frame" {
+										Name = "LegendRow",
+										LayoutOrder = 2,
+										Size = UDim2.fromScale(1, 0.55),
+										BackgroundTransparency = 1,
+
+										[Children] = {
+											New "UIListLayout" {
+												FillDirection = Enum.FillDirection.Horizontal,
+												HorizontalAlignment = Enum.HorizontalAlignment.Center,
+												VerticalAlignment = Enum.VerticalAlignment.Center,
+												Padding = UDim.new(0.04, 0),
+											},
+
+											New "TextLabel" {
+												Size = UDim2.fromScale(0.28, 1),
+												BackgroundTransparency = 1,
+												RichText = true,
+												Text = '<font color="#ff5050">RED</font>  Avoid',
+												TextColor3 = TEXT_DIM,
+												Font = Enum.Font.GothamMedium,
+												TextScaled = true,
+												[Children] = { New "UITextSizeConstraint" { MaxTextSize = 14 } },
+											},
+
+											New "TextLabel" {
+												Size = UDim2.fromScale(0.28, 1),
+												BackgroundTransparency = 1,
+												RichText = true,
+												Text = '<font color="#3c8cff">BLUE</font>  Collect',
+												TextColor3 = TEXT_DIM,
+												Font = Enum.Font.GothamMedium,
+												TextScaled = true,
+												[Children] = { New "UITextSizeConstraint" { MaxTextSize = 14 } },
+											},
+
+											New "TextLabel" {
+												Size = UDim2.fromScale(0.28, 1),
+												BackgroundTransparency = 1,
+												RichText = true,
+												Text = '<font color="#3cdc50">GREEN</font>  Bomb',
+												TextColor3 = TEXT_DIM,
+												Font = Enum.Font.GothamMedium,
+												TextScaled = true,
+												[Children] = { New "UITextSizeConstraint" { MaxTextSize = 14 } },
+											},
+										},
 									},
 								},
 							},
