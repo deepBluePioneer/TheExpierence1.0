@@ -4,6 +4,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
+local Debris = game:GetService("Debris")
 
 local Packages = ReplicatedStorage.Packages
 local Knit = require(Packages.Knit)
@@ -57,7 +58,7 @@ local ELEVATION_PROFILE = {
 }
 
 local MOVE_SPEED = 80
-local BOOST_ACCEL = 35
+local BOOST_ACCEL = 20
 local MAX_SPEED = 350
 local LAUNCH_ACCEL = 160
 local LANE_SWITCH_SPEED = 8
@@ -96,20 +97,51 @@ local HAZARD_SIZE = 0.0015
 
 local HAZARDS = {}
 do
-	local hazLanes = {2, 1, 3}
-	local hazSections = {
-		{from = 0.005, to = 0.33, gap = 0.006},
-		{from = 0.333, to = 0.66, gap = 0.004},
-		{from = 0.663, to = 0.99, gap = 0.003},
+	--[[
+		Difficulty Saw — hazard density follows a sawtooth curve:
+		Each phase ramps up in density, then drops at the start of the next phase
+		before climbing again to a higher ceiling. The baseline rises over time.
+
+		Phase layout (fraction of track):
+		  Tutorial  0.00–0.12  (gentle intro, very few hazards)
+		  Level 1   0.12–0.30  (first ramp)
+		  Level 2   0.30–0.50  (dip then steeper ramp)
+		  Level 3   0.50–0.70  (dip then harder)
+		  Level 4   0.70–0.88  (dip then intense)
+		  Climax    0.88–1.00  (short dip then maximum density)
+
+		gapMax = widest spacing (easiest), gapMin = tightest (hardest)
+		dipFrac = how far into the phase the "dip" lasts (0-1)
+	]]
+	local phases = {
+		{ from = 0.04,  to = 0.12, gapMax = 0.012, gapMin = 0.008, dipFrac = 0.0 },
+		{ from = 0.12,  to = 0.30, gapMax = 0.009, gapMin = 0.005, dipFrac = 0.25 },
+		{ from = 0.30,  to = 0.50, gapMax = 0.010, gapMin = 0.004, dipFrac = 0.20 },
+		{ from = 0.50,  to = 0.70, gapMax = 0.009, gapMin = 0.0035, dipFrac = 0.20 },
+		{ from = 0.70,  to = 0.88, gapMax = 0.008, gapMin = 0.0025, dipFrac = 0.15 },
+		{ from = 0.88,  to = 0.99, gapMax = 0.006, gapMin = 0.002, dipFrac = 0.15 },
 	}
+
+	local hazLanes = {2, 1, 3}
 	local idx = 1
-	for _, sec in ipairs(hazSections) do
-		local t = sec.from
-		while t < sec.to do
+	for _, phase in ipairs(phases) do
+		local t = phase.from
+		while t < phase.to do
+			local phaseFrac = (t - phase.from) / (phase.to - phase.from)
+
+			local gap
+			if phaseFrac < phase.dipFrac then
+				gap = phase.gapMax
+			else
+				local rampFrac = (phaseFrac - phase.dipFrac) / (1 - phase.dipFrac)
+				gap = phase.gapMax + (phase.gapMin - phase.gapMax) * rampFrac
+			end
+
 			local lane = hazLanes[((idx - 1) % 3) + 1]
 			local tRound = math.floor(t * 1000 + 0.5) / 1000
-			table.insert(HAZARDS, {lane = lane, t = tRound})
-			t = t + sec.gap
+			table.insert(HAZARDS, { lane = lane, t = tRound })
+
+			t = t + gap
 			idx = idx + 1
 		end
 	end
@@ -369,6 +401,8 @@ function LakelandRaceController:KnitStart()
 	self:_setupDarkEnvironment()
 	self:_buildSplines()
 	self:_initPools()
+
+	self._cameraController = Knit.GetController("LakelandCameraController")
 
 	local gameController = Knit.GetController("LakelandGameController")
 	gameController.GameStateChanged:Connect(function(newState)
@@ -1163,6 +1197,10 @@ function LakelandRaceController:_checkCoinCollection()
 			self._coinScore = self._coinScore + COIN_VALUE
 			self._coinsCollected = self._coinsCollected + 1
 			self.CoinCollected:Fire(self._coinScore, self._coinsCollected)
+			self:_spawnBurst(Color3.fromRGB(50, 140, 255), Color3.fromRGB(100, 180, 255))
+			if self._cameraController then
+				self._cameraController:ShakeCamera(1.2, 0.15, 0, 0, 0.15, Vector3.new(0.6, 0.6, 0.1), Vector3.new(0.03, 0.03, 0.02))
+			end
 		end
 	end
 end
@@ -1201,6 +1239,10 @@ function LakelandRaceController:_updateMovement(dt)
 			self._health = math.max(self._health - HAZARD_DAMAGE, 0)
 			self.HealthChanged:Fire(self._health)
 			self.HazardHit:Fire(self._health)
+			self:_spawnBurst(Color3.fromRGB(255, 50, 50), Color3.fromRGB(255, 100, 100))
+			if self._cameraController then
+				self._cameraController:ShakeCamera(3, 0.1, 0, 0.05, 0.3, Vector3.new(1.5, 1.5, 0.3), Vector3.new(0.08, 0.08, 0.04))
+			end
 		end
 
 		self:_checkCoinCollection()
@@ -1270,6 +1312,79 @@ function LakelandRaceController:_updateMovement(dt)
 	self._lastCFrame = finalCF
 
 	self.RaceProgress:Fire(self._t)
+end
+
+---------------------------------------------------------------------------
+-- Cube burst VFX
+---------------------------------------------------------------------------
+local BURST_COUNT        = 28
+local BURST_BASE_SIZE    = Vector3.new(2.8, 2.8, 2.8)
+local BURST_BASE_LIFE    = 0.7
+local BURST_BASE_SPD_MIN = 140
+local BURST_BASE_SPD_MAX = 260
+local BURST_SPREAD_ANGLE = math.rad(85)
+
+function LakelandRaceController:_spawnBurst(color, highlightColor)
+	local cf = self._lastCFrame
+	if not cf then return end
+
+	local origin = cf.Position
+	local forward = cf.LookVector
+	local right = cf.RightVector
+	local up = cf.UpVector
+
+	local folder = self._folder
+	if not folder then return end
+
+	local speedFrac = math.clamp(self._currentSpeed / MAX_SPEED, 0, 1)
+
+	local sizeScale = 1 - speedFrac * 0.45
+	local cubeSize = BURST_BASE_SIZE * sizeScale
+	local lifetime = BURST_BASE_LIFE * (1 - speedFrac * 0.55)
+	local spdMin = BURST_BASE_SPD_MIN * (1 + speedFrac * 1.2)
+	local spdMax = BURST_BASE_SPD_MAX * (1 + speedFrac * 1.2)
+
+	for i = 1, BURST_COUNT do
+		local cube = Instance.new("Part")
+		cube.Size = cubeSize * (0.6 + math.random() * 0.8)
+		cube.Anchored = false
+		cube.CanCollide = false
+		cube.Color = color
+		cube.Material = Enum.Material.Neon
+		cube.Transparency = 0
+		cube.Shape = Enum.PartType.Block
+		cube.Parent = folder
+
+		local hl = Instance.new("Highlight")
+		hl.FillColor = highlightColor
+		hl.FillTransparency = 0.4
+		hl.OutlineTransparency = 1
+		hl.Parent = cube
+
+		local hAngle = (math.random() - 0.5) * 2 * BURST_SPREAD_ANGLE
+		local vAngle = (math.random() - 0.5) * BURST_SPREAD_ANGLE
+		local dir = (forward + right * math.sin(hAngle) + up * math.sin(vAngle)).Unit
+		local speed = spdMin + math.random() * (spdMax - spdMin)
+
+		cube.CFrame = CFrame.new(origin + forward * 3) * CFrame.Angles(
+			math.random() * math.pi * 2,
+			math.random() * math.pi * 2,
+			0
+		)
+		cube.AssemblyLinearVelocity = dir * speed + Vector3.new(0, math.random() * 15 + 5, 0)
+		cube.AssemblyAngularVelocity = Vector3.new(
+			(math.random() - 0.5) * 20,
+			(math.random() - 0.5) * 20,
+			(math.random() - 0.5) * 20
+		)
+
+		TweenService:Create(cube, TweenInfo.new(lifetime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Transparency = 1,
+			Size = cube.Size * 0.2,
+		}):Play()
+
+		Debris:AddItem(cube, lifetime + 0.1)
+	end
 end
 
 ---------------------------------------------------------------------------
