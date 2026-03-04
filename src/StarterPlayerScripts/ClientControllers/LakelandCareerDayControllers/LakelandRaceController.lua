@@ -955,9 +955,9 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		self._lastScorePhaseForStreak = scorePhase
 	end
 
-	-- Road surface
+	-- Road surface (snap to fixed grid so parts slide smoothly)
 	local ri = 1
-	local t = tMin
+	local t = math.floor(tMin / ROAD_T_STEP) * ROAD_T_STEP
 	while t < tMax and ri <= ROAD_POOL do
 		local t1 = math.min(t + ROAD_T_STEP, tMax)
 		local posA = centerSpline:CalculatePositionAt(t)
@@ -981,7 +981,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	local li = 1
 	for _, laneData in ipairs(self._splines) do
 		local spline = laneData.spline
-		local lt = tMin
+		local lt = math.floor(tMin / LANE_T_STEP) * LANE_T_STEP
 		while lt < tMax and li <= LANE_POOL do
 			local lt1 = math.min(lt + LANE_T_STEP, tMax)
 			local ltMid = (lt + lt1) / 2
@@ -1015,9 +1015,9 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	end
 	for i = li, LANE_POOL do self._pools.lane[i].Transparency = 1 end
 
-	-- Track lights
+	-- Track lights (snap to grid)
 	local tli = 1
-	local tlt = tMin
+	local tlt = math.floor(tMin / LIGHT_T_STEP) * LIGHT_T_STEP
 	while tlt < tMax and tli <= LIGHT_POOL do
 		local zone = getTrackZone(tlt)
 		local pos = centerSpline:CalculatePositionAt(tlt)
@@ -1042,10 +1042,11 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	end
 	for i = tli, LIGHT_POOL do self._pools.light[i].light.Brightness = 0 end
 
-	-- Tunnel streaks
+	-- Tunnel streaks (snap to fixed grid so they slide smoothly)
 	local si = 1
-	local st = tMin
-	local segCounter = math.floor(tMin / STREAK_T_STEP)
+	local stStart = math.floor(tMin / STREAK_T_STEP) * STREAK_T_STEP
+	local st = stStart
+	local segCounter = math.floor(stStart / STREAK_T_STEP)
 	while st < tMax do
 		local st1 = math.min(st + STREAK_T_STEP, tMax)
 		local stMid = (st + st1) / 2
@@ -1527,9 +1528,10 @@ function LakelandRaceController:_startRenderLoop()
 	end
 
 	RunService:BindToRenderStep("LakelandMachineUpdate", Enum.RenderPriority.Camera.Value - 1, function(dt)
+		if self._running or self._countdownDrive then
+			self:_updateMovement(dt)
+		end
 		self:_updateWorldScroll(dt)
-		if not self._running and not self._countdownDrive then return end
-		self:_updateMovement(dt)
 	end)
 	self._renderConn = true
 
