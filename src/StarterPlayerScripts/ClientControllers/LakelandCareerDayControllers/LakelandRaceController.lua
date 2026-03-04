@@ -204,15 +204,15 @@ local function getDifficultyTier(t)
 	end
 end
 
--- Difficulty from current score (points). Scaled down for testing so tiers/patterns change sooner.
+-- Difficulty saw-curve driven by score (points).
 local SCORE_DIFFICULTY_PHASES = {
-	{ from = 0,    to = 90,   minD = 0,   maxD = 0.2  },
-	{ from = 90,   to = 300,  minD = 0.2, maxD = 0.7  },
-	{ from = 300,  to = 420,  minD = 0.25, maxD = 0.45 },
-	{ from = 420,  to = 720,  minD = 0.45, maxD = 0.85 },
-	{ from = 720,  to = 870,  minD = 0.4, maxD = 0.55 },
-	{ from = 870,  to = 1450, minD = 0.55, maxD = 1   },
-	{ from = 1450, to = 1e9,  minD = 0.7, maxD = 1   },
+	{ from = 0,     to = 500,   minD = 0,    maxD = 0.25 },
+	{ from = 500,   to = 1500,  minD = 0.2,  maxD = 0.65 },
+	{ from = 1500,  to = 2200,  minD = 0.25, maxD = 0.45 },
+	{ from = 2200,  to = 4000,  minD = 0.45, maxD = 0.85 },
+	{ from = 4000,  to = 5000,  minD = 0.35, maxD = 0.55 },
+	{ from = 5000,  to = 8000,  minD = 0.55, maxD = 1    },
+	{ from = 8000,  to = 1e9,   minD = 0.7,  maxD = 1    },
 }
 
 local function getDifficultyFromScore(score)
@@ -339,7 +339,7 @@ end
 -- Treadmill constants
 ---------------------------------------------------------------------------
 local FIXED_MACHINE_POS = Vector3.new(0, TRACK_HEIGHT + 5, 0)
-local WINDOW_AHEAD  = 0.015
+local WINDOW_AHEAD  = 0.025
 local WINDOW_BEHIND = 0.005
 
 local ROAD_HALF_W = LANE_SPACING * 1.5
@@ -350,17 +350,31 @@ local LANE_T_STEP    = 0.00075
 local LIGHT_T_STEP   = 0.005
 local TUNNEL_T_STEP  = 0.0025
 
-local ROAD_POOL       = 25
-local LANE_POOL       = 120
-local LIGHT_POOL      = 10
-local TUNNEL_POOL     = 24
+local CUBE_FADE_ZONE = 0.35
+
+local ROAD_POOL       = 40
+local LANE_POOL       = 200
+local LIGHT_POOL      = 16
+local TUNNEL_POOL     = 40
 local HAZARD_POOL     = 20
 
-local TUNNEL_HEIGHT    = 14
-local TUNNEL_HALF_W    = ROAD_HALF_W + 2
-local TUNNEL_BAR_THICK = 0.18
-local TUNNEL_GLOW_RANGE = 30
+local TUNNEL_HEIGHT      = 14
+local TUNNEL_HALF_W      = ROAD_HALF_W + 2
+local TUNNEL_BAR_THICK   = 0.18
+local TUNNEL_GLOW_RANGE  = 30
 local TUNNEL_GLOW_BRIGHT = 1.2
+
+local SIDE_LASER_POOL        = 16
+local SIDE_LASER_T_STEP      = 0.005
+local SIDE_LASER_BARS        = 4
+local SIDE_LASER_RADIUS      = 3.5
+local SIDE_LASER_SPIN        = 1.2
+local SIDE_LASER_BAR_THICK   = 0.12
+local SIDE_LASER_OFFSET      = ROAD_HALF_W + 5
+local SIDE_LASER_HEIGHT      = 7
+local SIDE_LASER_PULSE_SPEED = 2.5
+local SIDE_LASER_GLOW_RANGE  = 18
+
 local COIN_POOL       = 30
 local BOOST_PAD_POOL   = 35
 local BOOST_CHEV_POOL  = 90
@@ -375,7 +389,7 @@ local BOOST_OFF_COLOR       = Color3.fromRGB(155, 115, 50)
 local BOOST_ON_COLOR        = Color3.fromRGB(255, 200, 50)
 
 local HARD_TRANSITION_SPEED = 2.5
-local DIFFICULTY_SECTION_SCORE_STEP = 70
+local DIFFICULTY_SECTION_SCORE_STEP = 500
 
 local RW_COUNT         = 10
 local RW_SPACING_STUDS = 20
@@ -639,6 +653,29 @@ function LakelandRaceController:_initPools()
 			frame[name] = bar
 		end
 		self._pools.tunnel[i] = frame
+	end
+
+	-- Side laser decorations: spinning asterisk shapes on alternating sides
+	self._pools.sideLaser = {}
+	for i = 1, SIDE_LASER_POOL do
+		local bars = {}
+		for b = 1, SIDE_LASER_BARS do
+			local bar = Instance.new("Part")
+			bar.Name = "SideLaserBar"
+			bar.Anchored = true
+			bar.CanCollide = false
+			bar.Material = Enum.Material.Neon
+			bar.Color = Color3.fromRGB(50, 140, 255)
+			bar.Transparency = 1
+			bar.Parent = folder
+			local glow = Instance.new("PointLight")
+			glow.Brightness = 0
+			glow.Range = SIDE_LASER_GLOW_RANGE
+			glow.Shadows = false
+			glow.Parent = bar
+			bars[b] = bar
+		end
+		self._pools.sideLaser[i] = bars
 	end
 
 	local function buildCubeAssembly(size, outerColor, innerColor, glowColor, hlFill, hlOutline, lightRange)
@@ -914,9 +951,11 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	else
 		self._difficultyTransitionProgress = 1
 	end
-	local tierChanged = (self._lastDifficultyTier ~= nil and tier ~= self._lastDifficultyTier)
 	self._lastDifficultyTier = tier
 	local hardBlend = (tier == "hard") and self._difficultyTransitionProgress or 0
+
+	local visibleRange = tMax - tMin
+	local fadeStart = tMax - visibleRange * CUBE_FADE_ZONE
 
 	-- Road surface (snap to fixed grid so parts slide smoothly)
 	local ri = 1
@@ -1005,7 +1044,21 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	end
 	for i = tli, LIGHT_POOL do self._pools.light[i].light.Brightness = 0 end
 
-	-- Laser tunnel frames  |-|
+	-- Laser tunnel frames — shape variety: gate |-|  aframe /‾\  cross X  arch \_/
+	local function placeBar(bar, s, e, color, trans, bright)
+		local mid = (s + e) * 0.5
+		local len = (e - s).Magnitude
+		if len < 0.01 then
+			bar.Transparency = 1; bar.PointLight.Brightness = 0; return
+		end
+		bar.Size = Vector3.new(TUNNEL_BAR_THICK, TUNNEL_BAR_THICK, len)
+		bar.CFrame = CFrame.lookAt(mid, e)
+		bar.Color = color
+		bar.Transparency = trans
+		bar.PointLight.Color = color
+		bar.PointLight.Brightness = bright
+	end
+
 	local tfi = 1
 	local tft = math.floor(tMin / TUNNEL_T_STEP) * TUNNEL_T_STEP
 	while tft < tMax and tfi <= TUNNEL_POOL do
@@ -1028,38 +1081,26 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				color = accent:Lerp(Color3.fromRGB(140, 220, 255), 0.45)
 			end
 
+			local tAlpha = 1
+			if tft > fadeStart then
+				tAlpha = math.clamp(1 - (tft - fadeStart) / (tMax - fadeStart), 0, 1)
+			end
+			local trans = 1 - tAlpha
+			local bright = TUNNEL_GLOW_BRIGHT * tAlpha
+
 			local frame = self._pools.tunnel[tfi]
 			local baseY = wP.Y + 0.1
+			local hw = TUNNEL_HALF_W
+			local h = TUNNEL_HEIGHT
 
-			-- Left post (vertical)
-			local leftBase = wP - right * TUNNEL_HALF_W
-			leftBase = Vector3.new(leftBase.X, baseY + TUNNEL_HEIGHT / 2, leftBase.Z)
-			frame.left.Size = Vector3.new(TUNNEL_BAR_THICK, TUNNEL_HEIGHT, TUNNEL_BAR_THICK)
-			frame.left.CFrame = CFrame.lookAt(leftBase, leftBase + fwd)
-			frame.left.Color = color
-			frame.left.Transparency = 0
-			frame.left.PointLight.Color = color
-			frame.left.PointLight.Brightness = TUNNEL_GLOW_BRIGHT
+			local bl = wP - right * hw + up * (baseY - wP.Y)
+			local br = wP + right * hw + up * (baseY - wP.Y)
+			local tl = bl + up * h
+			local tr = br + up * h
 
-			-- Right post (vertical)
-			local rightBase = wP + right * TUNNEL_HALF_W
-			rightBase = Vector3.new(rightBase.X, baseY + TUNNEL_HEIGHT / 2, rightBase.Z)
-			frame.right.Size = Vector3.new(TUNNEL_BAR_THICK, TUNNEL_HEIGHT, TUNNEL_BAR_THICK)
-			frame.right.CFrame = CFrame.lookAt(rightBase, rightBase + fwd)
-			frame.right.Color = color
-			frame.right.Transparency = 0
-			frame.right.PointLight.Color = color
-			frame.right.PointLight.Brightness = TUNNEL_GLOW_BRIGHT
-
-			-- Top bar (horizontal, connects left to right)
-			local topCenter = wP + up * (baseY - wP.Y + TUNNEL_HEIGHT)
-			topCenter = Vector3.new(wP.X, baseY + TUNNEL_HEIGHT, wP.Z)
-			frame.top.Size = Vector3.new(TUNNEL_HALF_W * 2, TUNNEL_BAR_THICK, TUNNEL_BAR_THICK)
-			frame.top.CFrame = CFrame.lookAt(topCenter, topCenter + fwd)
-			frame.top.Color = color
-			frame.top.Transparency = 0
-			frame.top.PointLight.Color = color
-			frame.top.PointLight.Brightness = TUNNEL_GLOW_BRIGHT
+			placeBar(frame.left,  bl, tl, color, trans, bright)
+			placeBar(frame.top,   tl, tr, color, trans, bright)
+			placeBar(frame.right, br, tr, color, trans, bright)
 
 			tfi = tfi + 1
 		end
@@ -1072,28 +1113,89 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		frame.top.Transparency = 1;   frame.top.PointLight.Brightness = 0
 	end
 
-	local function showCubeAssembly(model, cf, show)
+	-- Side laser decorations — spinning asterisk shapes on alternating sides
+	local sli = 1
+	local slt = math.floor(tMin / SIDE_LASER_T_STEP) * SIDE_LASER_T_STEP
+	local now = time()
+	while slt < tMax and sli <= SIDE_LASER_POOL do
+		local zone = getTrackZone(slt)
+		local posA = centerSpline:CalculatePositionAt(slt)
+		local posB = centerSpline:CalculatePositionAt(math.min(slt + SIDE_LASER_T_STEP * 0.1, 1))
+		local dir = posB - posA
+		if dir.Magnitude > 0.001 then
+			local wP = toWorld(posA)
+			local fwd = dir.Unit
+			local right = fwd:Cross(Vector3.new(0, 1, 0)).Unit
+			local up = Vector3.new(0, 1, 0)
+
+			local side = (sli % 2 == 0) and 1 or -1
+			local center = wP + right * (SIDE_LASER_OFFSET * side) + up * SIDE_LASER_HEIGHT
+
+			local accent = zone.accent
+			local color = accent
+			if tier == "hard" then
+				color = accent:Lerp(Color3.fromRGB(255, 80, 80), 0.6 * hardBlend)
+			elseif tier == "reprieve" then
+				color = accent:Lerp(Color3.fromRGB(140, 220, 255), 0.45)
+			end
+
+			local slAlpha = 1
+			if slt > fadeStart then
+				slAlpha = math.clamp(1 - (slt - fadeStart) / (tMax - fadeStart), 0, 1)
+			end
+
+			local pulse = 0.7 + 0.3 * math.sin(now * SIDE_LASER_PULSE_SPEED + sli * 1.7)
+			local spin = now * SIDE_LASER_SPIN + sli * 0.8
+
+			local bars = self._pools.sideLaser[sli]
+			for b = 1, SIDE_LASER_BARS do
+				local angle = spin + (b - 1) * math.pi / SIDE_LASER_BARS
+				local planeDir = math.cos(angle) * up + math.sin(angle) * right
+				local bar = bars[b]
+				bar.Size = Vector3.new(SIDE_LASER_BAR_THICK, SIDE_LASER_BAR_THICK, SIDE_LASER_RADIUS * 2)
+				bar.CFrame = CFrame.lookAt(center, center + planeDir)
+				bar.Color = color
+				bar.Transparency = 1 - slAlpha * pulse
+				bar.PointLight.Color = color
+				bar.PointLight.Brightness = TUNNEL_GLOW_BRIGHT * 0.5 * slAlpha * pulse
+			end
+			sli = sli + 1
+		end
+		slt = slt + SIDE_LASER_T_STEP
+	end
+	for i = sli, SIDE_LASER_POOL do
+		for b = 1, SIDE_LASER_BARS do
+			self._pools.sideLaser[i][b].Transparency = 1
+			self._pools.sideLaser[i][b].PointLight.Brightness = 0
+		end
+	end
+
+	local function showCubeAssembly(model, cf, show, alpha)
+		alpha = alpha or 1
 		local shell = model.PrimaryPart
 		shell.CFrame = cf
-		shell.Transparency = show and 0.25 or 1
+		shell.Transparency = show and (1 - 0.75 * alpha) or 1
 
 		local hl = shell:FindFirstChildOfClass("Highlight")
-		if hl then hl.Enabled = show end
+		if hl then
+			hl.Enabled = show and alpha > 0.1
+			if hl.Enabled then hl.FillTransparency = 1 - 0.7 * alpha end
+		end
 		local light = shell:FindFirstChildOfClass("PointLight")
-		if light then light.Enabled = show end
+		if light then light.Enabled = show and alpha > 0.1 end
 
 		for _, child in ipairs(model:GetChildren()) do
 			if child == shell or not child:IsA("BasePart") then continue end
 			if child.Name == "Core" then
 				local spin = (time() * 2.5) % (math.pi * 2)
 				child.CFrame = cf * CFrame.Angles(spin, spin * 0.7, 0)
-				child.Transparency = show and 0 or 1
+				child.Transparency = show and (1 - alpha) or 1
 			else
 				local localOff = child:GetAttribute("LocalOffset")
 				if localOff then
 					child.CFrame = cf * CFrame.new(localOff)
 				end
-				child.Transparency = show and 0 or 1
+				child.Transparency = show and (1 - alpha) or 1
 			end
 		end
 	end
@@ -1118,10 +1220,15 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		if hi > HAZARD_POOL then break end
 		if hazard.t >= tMin and hazard.t <= tMax then
 			local show = self._obstaclesVisible
+			local alpha = 1
+			if hazard.t > fadeStart then
+				alpha = math.clamp(1 - (hazard.t - fadeStart) / (tMax - fadeStart), 0, 1)
+				alpha = alpha * alpha
+			end
 			local spline = self._splines[hazard.lane].spline
 			local pos = spline:CalculatePositionAt(hazard.t)
 			local wP = toWorld(pos)
-			showCubeAssembly(self._pools.hazard[hi], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show)
+			showCubeAssembly(self._pools.hazard[hi], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha)
 			hi = hi + 1
 		end
 	end
@@ -1133,10 +1240,15 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		if ci > COIN_POOL then break end
 		if not coin.collected and coin.t >= tMin and coin.t <= tMax then
 			local show = self._obstaclesVisible
+			local alpha = 1
+			if coin.t > fadeStart then
+				alpha = math.clamp(1 - (coin.t - fadeStart) / (tMax - fadeStart), 0, 1)
+				alpha = alpha * alpha
+			end
 			local spline = self._splines[coin.lane].spline
 			local pos = spline:CalculatePositionAt(coin.t)
 			local wP = toWorld(pos)
-			showCubeAssembly(self._pools.coin[ci], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show)
+			showCubeAssembly(self._pools.coin[ci], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha)
 			ci = ci + 1
 		end
 	end
