@@ -283,6 +283,44 @@ do
 	end
 end
 
+local BOMB_SIZE = 0.0012
+local BOMB_CHAIN_LENGTH = 24
+local BOMB_CHAIN_SPEED  = 0.45
+local BOMB_CHAIN_T_SPAN = 0.022
+local BOMB_CHAIN_LIFE   = 0.8
+local BOMB_POOL         = 8
+local BOMB_CHAIN_POOL   = 26
+
+local BOMBS = {}
+do
+	local bombLanes = {2, 1, 3, 2, 3, 1}
+	local bombGap = 0.045
+	local t = 0.06
+	local idx = 1
+	while t < 0.94 do
+		local lane = bombLanes[((idx - 1) % #bombLanes) + 1]
+		local tRound = math.floor(t * 10000 + 0.5) / 10000
+
+		local overlaps = false
+		for _, h in ipairs(HAZARDS) do
+			if h.lane == lane and math.abs(h.t - tRound) < 0.004 then overlaps = true; break end
+		end
+		if not overlaps then
+			for _, b in ipairs(BOOST_ZONES) do
+				if b.lane == lane and tRound >= b.tStart and tRound <= b.tStart + BOOST_LENGTH then
+					overlaps = true; break
+				end
+			end
+		end
+		if not overlaps then
+			table.insert(BOMBS, {lane = lane, t = tRound, collected = false})
+		end
+
+		t = t + bombGap
+		idx = idx + 1
+	end
+end
+
 local TRACK_ZONES = {
 	{
 		from = 0.00, to = 0.16,
@@ -375,7 +413,8 @@ local SIDE_LASER_HEIGHT      = 7
 local SIDE_LASER_PULSE_SPEED = 2.5
 local SIDE_LASER_GLOW_RANGE  = 18
 
-local COIN_POOL       = 30
+local COIN_POOL        = 30
+local BOMB_PICKUP_POOL = 10
 local BOOST_PAD_POOL   = 35
 local BOOST_CHEV_POOL  = 90
 
@@ -447,6 +486,15 @@ local LakelandRaceController = Knit.CreateController({
 	_hardTransitionSmooth = false,
 	_difficultyTransitionProgress = 0,
 
+	_hasBomb = false,
+	_bombIndicator = nil,
+	_bombChainActive = false,
+	_bombChainParts = {},
+	_bombChainTimer = 0,
+	_bombChainCount = 0,
+	_bombChainLane = 2,
+	_bombChainStartT = 0,
+
 	LaneChanged = Signal.new(),
 	RaceProgress = Signal.new(),
 	BoostChanged = Signal.new(),
@@ -454,6 +502,8 @@ local LakelandRaceController = Knit.CreateController({
 	HealthChanged = Signal.new(),
 	HazardHit = Signal.new(),
 	CoinCollected = Signal.new(),
+	BombCollected = Signal.new(),
+	BombDeployed = Signal.new(),
 })
 
 function LakelandRaceController:KnitInit()
@@ -780,6 +830,60 @@ function LakelandRaceController:_initPools()
 			Color3.fromRGB(100, 180, 255),
 			20
 		)
+	end
+
+	self._pools.bomb = {}
+	for i = 1, BOMB_PICKUP_POOL do
+		self._pools.bomb[i] = buildCubeAssembly(
+			4.2,
+			Color3.fromRGB(20, 160, 40),
+			Color3.fromRGB(80, 255, 100),
+			Color3.fromRGB(60, 255, 80),
+			Color3.fromRGB(50, 220, 70),
+			Color3.fromRGB(100, 255, 120),
+			22
+		)
+	end
+
+	do
+		local ind = Instance.new("Part")
+		ind.Name = "BombIndicator"
+		ind.Shape = Enum.PartType.Block
+		ind.Size = Vector3.new(2.2, 2.2, 2.2)
+		ind.Anchored = true
+		ind.CanCollide = false
+		ind.Material = Enum.Material.Neon
+		ind.Color = Color3.fromRGB(60, 255, 80)
+		ind.Transparency = 1
+		ind.Parent = folder
+		local gl = Instance.new("PointLight")
+		gl.Color = Color3.fromRGB(60, 255, 80)
+		gl.Brightness = 0
+		gl.Range = 20
+		gl.Shadows = false
+		gl.Parent = ind
+		self._bombIndicator = ind
+	end
+
+	self._bombChainParts = {}
+	for i = 1, BOMB_CHAIN_POOL do
+		local p = Instance.new("Part")
+		p.Name = "BombChain"
+		p.Shape = Enum.PartType.Block
+		p.Size = Vector3.new(3.5, 3.5, 3.5)
+		p.Anchored = true
+		p.CanCollide = false
+		p.Material = Enum.Material.Neon
+		p.Color = Color3.fromRGB(60, 255, 80)
+		p.Transparency = 1
+		p.Parent = folder
+		local gl = Instance.new("PointLight")
+		gl.Color = Color3.fromRGB(60, 255, 80)
+		gl.Brightness = 0
+		gl.Range = 18
+		gl.Shadows = false
+		gl.Parent = p
+		self._bombChainParts[i] = { part = p, spawnTime = 0, active = false }
 	end
 
 	makePool("boostPad", BOOST_PAD_POOL, function(p)
@@ -1218,7 +1322,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	local hi = 1
 	for _, hazard in ipairs(HAZARDS) do
 		if hi > HAZARD_POOL then break end
-		if hazard.t >= tMin and hazard.t <= tMax then
+		if not hazard._hit and hazard.t >= tMin and hazard.t <= tMax then
 			local show = self._obstaclesVisible
 			local alpha = 1
 			if hazard.t > fadeStart then
@@ -1253,6 +1357,68 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		end
 	end
 	for i = ci, COIN_POOL do hideCubeAssembly(self._pools.coin[i]) end
+
+	-- Bomb pickups
+	local bi = 1
+	for _, bomb in ipairs(BOMBS) do
+		if bi > BOMB_PICKUP_POOL then break end
+		if not bomb.collected and bomb.t >= tMin and bomb.t <= tMax then
+			local show = self._obstaclesVisible
+			local alpha = 1
+			if bomb.t > fadeStart then
+				alpha = math.clamp(1 - (bomb.t - fadeStart) / (tMax - fadeStart), 0, 1)
+				alpha = alpha * alpha
+			end
+			local spline = self._splines[bomb.lane].spline
+			local pos = spline:CalculatePositionAt(bomb.t)
+			local wP = toWorld(pos)
+			showCubeAssembly(self._pools.bomb[bi], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha)
+			bi = bi + 1
+		end
+	end
+	for i = bi, BOMB_PICKUP_POOL do hideCubeAssembly(self._pools.bomb[i]) end
+
+	-- Bomb indicator orbiting the player's machine
+	if self._hasBomb and self._lastCFrame then
+		local orbitSpeed = 2.2
+		local orbitRadius = 4.5
+		local orbitHeight = 2.5
+		local bobY = 0.3 * math.sin(time() * 3)
+		local angle = time() * orbitSpeed
+		local selfSpin = (time() * 2.5) % (math.pi * 2)
+		local center = self._lastCFrame.Position
+		local offsetX = math.cos(angle) * orbitRadius
+		local offsetZ = math.sin(angle) * orbitRadius
+		local indPos = center + Vector3.new(offsetX, orbitHeight + bobY, offsetZ)
+		self._bombIndicator.CFrame = CFrame.new(indPos) * CFrame.Angles(selfSpin, selfSpin * 0.6, 0)
+		self._bombIndicator.Size = Vector3.new(2, 2, 2)
+		self._bombIndicator.Transparency = 0.15
+		self._bombIndicator.PointLight.Brightness = 1.2 + 0.4 * math.sin(time() * 4)
+	else
+		self._bombIndicator.Transparency = 1
+		self._bombIndicator.PointLight.Brightness = 0
+	end
+
+	-- Bomb chain animation
+	local now = time()
+	for i = 1, BOMB_CHAIN_POOL do
+		local entry = self._bombChainParts[i]
+		if entry.active then
+			local age = now - entry.spawnTime
+			if age > BOMB_CHAIN_LIFE then
+				entry.active = false
+				entry.part.Transparency = 1
+				entry.part.PointLight.Brightness = 0
+			else
+				local fade = 1 - (age / BOMB_CHAIN_LIFE)
+				local pop = math.min(age / 0.08, 1)
+				local s = 3.5 * pop
+				entry.part.Size = Vector3.new(s, s, s)
+				entry.part.Transparency = 1 - fade * 0.85
+				entry.part.PointLight.Brightness = 1.5 * fade
+			end
+		end
+	end
 
 	-- Boost zones (pad surface + chevrons down the middle, edge to edge, runway effect)
 	local boostChaseHead = (time() * BOOST_CHASE_SPEED) % BOOST_CHEVRONS_PER_ZONE
@@ -1426,6 +1592,11 @@ function LakelandRaceController:PositionAtStart()
 	self._currentBoostTally = 0
 
 	for _, coin in ipairs(COINS) do coin.collected = false end
+	for _, bomb in ipairs(BOMBS) do bomb.collected = false end
+	self._hasBomb = false
+	self._bombChainActive = false
+	self._bombChainTimer = 0
+	self._bombChainCount = 0
 	self._lastDifficultyTier = nil
 	self._difficultyTransitionProgress = 0
 
@@ -1495,6 +1666,8 @@ function LakelandRaceController:_bindInput()
 			self:SwitchLane(-1)
 		elseif input.KeyCode == Enum.KeyCode.D or input.KeyCode == Enum.KeyCode.Right then
 			self:SwitchLane(1)
+		elseif input.KeyCode == Enum.KeyCode.Space then
+			self:_deployBomb()
 		end
 	end), "Disconnect")
 
@@ -1591,6 +1764,97 @@ function LakelandRaceController:_checkCoinCollection()
 	end
 end
 
+function LakelandRaceController:_checkBombCollection()
+	local lane = self:_getEffectiveLane()
+	for _, bomb in ipairs(BOMBS) do
+		if not bomb.collected and bomb.lane == lane and self._t >= bomb.t and self._t <= bomb.t + BOMB_SIZE then
+			bomb.collected = true
+			self._hasBomb = true
+			self.BombCollected:Fire(true)
+			self:_spawnBurst(Color3.fromRGB(50, 220, 70), Color3.fromRGB(100, 255, 120))
+			if self._cameraController then
+				self._cameraController:ShakeCamera(1.5, 0.12, 0, 0, 0.15, Vector3.new(0.7, 0.7, 0.1), Vector3.new(0.03, 0.03, 0.02))
+			end
+			return
+		end
+	end
+end
+
+function LakelandRaceController:_deployBomb()
+	if not self._hasBomb or self._bombChainActive then return end
+	self._hasBomb = false
+	self._bombChainActive = true
+	self._bombChainTimer = 0
+	self._bombChainCount = 0
+	self._bombChainLane = self:_getEffectiveLane()
+	self._bombChainStartT = self._t
+	self.BombDeployed:Fire()
+	if self._cameraController then
+		self._cameraController:ShakeCamera(2, 0.08, 0, 0.03, 0.25, Vector3.new(1, 1, 0.2), Vector3.new(0.05, 0.05, 0.03))
+	end
+end
+
+function LakelandRaceController:_updateBombChain(dt)
+	if not self._bombChainActive then return end
+	self._bombChainTimer = self._bombChainTimer + dt
+
+	local centerSpline = self._splines[2].spline
+	local centerRef = centerSpline:CalculatePositionAt(self._t)
+
+	local interval = BOMB_CHAIN_SPEED / BOMB_CHAIN_LENGTH
+	while self._bombChainCount < BOMB_CHAIN_LENGTH and self._bombChainTimer >= interval do
+		self._bombChainTimer = self._bombChainTimer - interval
+		self._bombChainCount = self._bombChainCount + 1
+
+		local frac = self._bombChainCount / BOMB_CHAIN_LENGTH
+		local chainT = self._bombChainStartT + BOMB_CHAIN_T_SPAN * frac
+		if chainT > 1 then chainT = chainT - 1 end
+
+		local spline = self._splines[self._bombChainLane].spline
+		local pos = spline:CalculatePositionAt(chainT)
+		local wP = FIXED_MACHINE_POS + (pos - centerRef)
+
+		local poolIdx = ((self._bombChainCount - 1) % BOMB_CHAIN_POOL) + 1
+		local entry = self._bombChainParts[poolIdx]
+		entry.active = true
+		entry.spawnTime = time()
+		entry.part.CFrame = CFrame.new(wP + Vector3.new(0, 2.5, 0))
+		entry.part.Size = Vector3.new(0.5, 0.5, 0.5)
+		entry.part.Transparency = 0.15
+		entry.part.Color = Color3.fromRGB(60, 255, 80)
+		entry.part.PointLight.Brightness = 1.5
+
+		for _, hazard in ipairs(HAZARDS) do
+			if not hazard._hit and hazard.lane == self._bombChainLane
+				and math.abs(hazard.t - chainT) < 0.002 then
+				hazard._hit = true
+				self:_spawnBurst(Color3.fromRGB(255, 160, 30), Color3.fromRGB(255, 200, 80))
+				if self._cameraController then
+					self._cameraController:ShakeCamera(2.5, 0.08, 0, 0.04, 0.2, Vector3.new(1.2, 1.2, 0.2), Vector3.new(0.06, 0.06, 0.03))
+				end
+			end
+		end
+
+		for _, coin in ipairs(COINS) do
+			if not coin.collected and coin.lane == self._bombChainLane
+				and math.abs(coin.t - chainT) < 0.002 then
+				coin.collected = true
+				self._coinScore = self._coinScore + COIN_VALUE
+				self._coinsCollected = self._coinsCollected + 1
+				self.CoinCollected:Fire(self._coinScore, self._coinsCollected)
+				self:_spawnBurst(Color3.fromRGB(50, 140, 255), Color3.fromRGB(100, 180, 255))
+				if self._cameraController then
+					self._cameraController:ShakeCamera(1.2, 0.15, 0, 0, 0.15, Vector3.new(0.6, 0.6, 0.1), Vector3.new(0.03, 0.03, 0.02))
+				end
+			end
+		end
+	end
+
+	if self._bombChainCount >= BOMB_CHAIN_LENGTH then
+		self._bombChainActive = false
+	end
+end
+
 ---------------------------------------------------------------------------
 -- Movement (treadmill: machine stays at FIXED_MACHINE_POS)
 ---------------------------------------------------------------------------
@@ -1632,6 +1896,8 @@ function LakelandRaceController:_updateMovement(dt)
 		end
 
 		self:_checkCoinCollection()
+		self:_checkBombCollection()
+		self:_updateBombChain(dt)
 		self.SpeedChanged:Fire(self._currentSpeed)
 	end
 
