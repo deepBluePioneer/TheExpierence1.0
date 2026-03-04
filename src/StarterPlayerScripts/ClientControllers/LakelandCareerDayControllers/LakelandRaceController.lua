@@ -95,45 +95,43 @@ local HAZARD_DAMAGE = 25
 local HAZARD_HIT_COOLDOWN = 1.5
 local HAZARD_SIZE = 0.0015
 
+-- Difficulty saw phases shared by hazard generation and visual difficulty
+local HAZARD_PHASES = {
+	{ from = 0.04,  to = 0.12, gapMax = 0.012, gapMin = 0.008,  dipFrac = 0.0  }, -- tutorial
+	{ from = 0.12,  to = 0.30, gapMax = 0.009,  gapMin = 0.005,  dipFrac = 0.25 }, -- level 1
+	{ from = 0.30,  to = 0.50, gapMax = 0.010,  gapMin = 0.004,  dipFrac = 0.20 }, -- level 2
+	-- slightly eased higher phases: bigger gapMin + longer dip (reprieve)
+	{ from = 0.50,  to = 0.70, gapMax = 0.009,  gapMin = 0.0042, dipFrac = 0.28 }, -- level 3
+	{ from = 0.70,  to = 0.88, gapMax = 0.008,  gapMin = 0.0032, dipFrac = 0.25 }, -- level 4
+	{ from = 0.88,  to = 0.99, gapMax = 0.006,  gapMin = 0.0027, dipFrac = 0.25 }, -- climax
+}
+
 local HAZARDS = {}
 do
 	--[[
 		Difficulty Saw — hazard density follows a sawtooth curve:
 		Each phase ramps up in density, then drops at the start of the next phase
 		before climbing again to a higher ceiling. The baseline rises over time.
-
-		Phase layout (fraction of track):
-		  Tutorial  0.00–0.12  (gentle intro, very few hazards)
-		  Level 1   0.12–0.30  (first ramp)
-		  Level 2   0.30–0.50  (dip then steeper ramp)
-		  Level 3   0.50–0.70  (dip then harder)
-		  Level 4   0.70–0.88  (dip then intense)
-		  Climax    0.88–1.00  (short dip then maximum density)
-
-		gapMax = widest spacing (easiest), gapMin = tightest (hardest)
-		dipFrac = how far into the phase the "dip" lasts (0-1)
 	]]
-	local phases = {
-		{ from = 0.04,  to = 0.12, gapMax = 0.012, gapMin = 0.008, dipFrac = 0.0 },
-		{ from = 0.12,  to = 0.30, gapMax = 0.009, gapMin = 0.005, dipFrac = 0.25 },
-		{ from = 0.30,  to = 0.50, gapMax = 0.010, gapMin = 0.004, dipFrac = 0.20 },
-		{ from = 0.50,  to = 0.70, gapMax = 0.009, gapMin = 0.0035, dipFrac = 0.20 },
-		{ from = 0.70,  to = 0.88, gapMax = 0.008, gapMin = 0.0025, dipFrac = 0.15 },
-		{ from = 0.88,  to = 0.99, gapMax = 0.006, gapMin = 0.002, dipFrac = 0.15 },
-	}
+	local phases = HAZARD_PHASES
 
 	local hazLanes = {2, 1, 3}
 	local idx = 1
 	for _, phase in ipairs(phases) do
 		local t = phase.from
 		while t < phase.to do
-			local phaseFrac = (t - phase.from) / (phase.to - phase.from)
+			local span = phase.to - phase.from
+			if span <= 0 then break end
+
+			local phaseFrac = (t - phase.from) / span
 
 			local gap
 			if phaseFrac < phase.dipFrac then
 				gap = phase.gapMax
 			else
-				local rampFrac = (phaseFrac - phase.dipFrac) / (1 - phase.dipFrac)
+				local denom = 1 - phase.dipFrac
+				local rampFrac = (denom > 1e-6) and ((phaseFrac - phase.dipFrac) / denom) or 1
+				if rampFrac < 0 then rampFrac = 0 elseif rampFrac > 1 then rampFrac = 1 end
 				gap = phase.gapMax + (phase.gapMin - phase.gapMax) * rampFrac
 			end
 
@@ -144,6 +142,101 @@ do
 			t = t + gap
 			idx = idx + 1
 		end
+	end
+end
+
+-- Returns a 0–1 difficulty value at normalized track position t
+local function getHazardDifficulty(t)
+	if t <= 0 then
+		return 0
+	end
+
+	for index, phase in ipairs(HAZARD_PHASES) do
+		if t >= phase.from and t < phase.to then
+			local span = phase.to - phase.from
+			if span <= 0 then
+				return 0
+			end
+
+			local phaseFrac = (t - phase.from) / span
+			local dipFrac = phase.dipFrac or 0
+
+			local rampFrac
+			if phaseFrac <= dipFrac then
+				rampFrac = 0
+			else
+				local denom = 1 - dipFrac
+				if denom <= 1e-6 then
+					rampFrac = 1
+				else
+					rampFrac = (phaseFrac - dipFrac) / denom
+				end
+			end
+
+			if rampFrac < 0 then rampFrac = 0 elseif rampFrac > 1 then rampFrac = 1 end
+
+			local maxIndex = #HAZARD_PHASES - 1
+			local global = (maxIndex > 0) and ((index - 1) / maxIndex) or 0
+
+			-- Blend global phase and in-phase ramp to get a smooth 0–1 difficulty
+			local difficulty = 0.3 * global + 0.7 * rampFrac
+			if difficulty < 0 then difficulty = 0 elseif difficulty > 1 then difficulty = 1 end
+			return difficulty
+		end
+	end
+
+	-- After last phase treat as max difficulty, before first as zero
+	if t < HAZARD_PHASES[1].from then
+		return 0
+	end
+	return 1
+end
+
+-- Buckets track-position difficulty into tiers (used only for reference; visuals use score)
+local function getDifficultyTier(t)
+	local d = getHazardDifficulty(t)
+	if d < 0.3 then
+		return "reprieve", d
+	elseif d > 0.7 then
+		return "hard", d
+	else
+		return "normal", d
+	end
+end
+
+-- Difficulty from current score (points). Scaled down for testing so tiers/patterns change sooner.
+local SCORE_DIFFICULTY_PHASES = {
+	{ from = 0,    to = 90,   minD = 0,   maxD = 0.2  },
+	{ from = 90,   to = 300,  minD = 0.2, maxD = 0.7  },
+	{ from = 300,  to = 420,  minD = 0.25, maxD = 0.45 },
+	{ from = 420,  to = 720,  minD = 0.45, maxD = 0.85 },
+	{ from = 720,  to = 870,  minD = 0.4, maxD = 0.55 },
+	{ from = 870,  to = 1450, minD = 0.55, maxD = 1   },
+	{ from = 1450, to = 1e9,  minD = 0.7, maxD = 1   },
+}
+
+local function getDifficultyFromScore(score)
+	if score <= 0 then return 0 end
+	for _, phase in ipairs(SCORE_DIFFICULTY_PHASES) do
+		if score >= phase.from and score < phase.to then
+			local span = phase.to - phase.from
+			if span <= 0 then return phase.maxD end
+			local frac = (score - phase.from) / span
+			if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
+			return phase.minD + (phase.maxD - phase.minD) * frac
+		end
+	end
+	return 1
+end
+
+local function getDifficultyTierFromScore(score)
+	local d = getDifficultyFromScore(score)
+	if d < 0.35 then
+		return "reprieve", d
+	elseif d > 0.65 then
+		return "hard", d
+	else
+		return "normal", d
 	end
 end
 
@@ -263,20 +356,43 @@ local LIGHT_POOL      = 10
 local STREAK_POOL     = 100
 local HAZARD_POOL     = 20
 local COIN_POOL       = 30
-local BOOST_PAD_POOL  = 35
-local BOOST_EDGE_POOL = 70
-local BOOST_CHEV_POOL = 18
+local BOOST_PAD_POOL   = 35
+local BOOST_CHEV_POOL  = 90
 
 local BOOST_VIS_SEGS  = 6
 local BOOST_VIS_WIDTH = LANE_SPACING * 0.7
+local BOOST_CHEVRONS_PER_ZONE = 8
+local BOOST_CHASE_SPEED       = 8
+local BOOST_FADE_TAIL       = 2
+local BOOST_DIM_FLOOR       = 0.1
+local BOOST_OFF_COLOR       = Color3.fromRGB(155, 115, 50)
+local BOOST_ON_COLOR        = Color3.fromRGB(255, 200, 50)
 
 local TUNNEL_RADIUS    = 22
-local STREAK_THICKNESS = 0.2
-local STREAK_HEIGHT    = 0.15
+local STREAK_RADIUS    = 14
+local STREAK_THICKNESS = 0.5
+local STREAK_HEIGHT    = 0.4
 local STREAK_LINES     = 10
 local STREAK_ARCH_START = math.rad(-10)
 local STREAK_ARCH_END   = math.rad(190)
 local STREAK_ARCH_SPAN  = STREAK_ARCH_END - STREAK_ARCH_START
+local STREAK_WAVE_AMP   = 5
+local STREAK_WAVE_FREQ  = 1.4
+local STREAK_SPIN_SPEED = 4
+local STREAK_PULSE_AMP  = 0.4
+local STREAK_PULSE_FREQ = 2
+local STREAK_ZIGZAG_AMP = 6
+local STREAK_ZIGZAG_FREQ = 1.2
+local STREAK_BOB_AMP    = 2.2
+local STREAK_BOB_FREQ   = 2
+local STREAK_CUBE_SIZE  = 2.8
+local STREAK_BLOCK_W    = 2
+local STREAK_BLOCK_H    = 0.5
+local STREAK_BLOCK_D    = 2.2
+local STREAK_FORMATION_OFFSET = 2.5
+local HARD_TRANSITION_SPEED = 2.5
+-- Lower = new streak pattern chosen more often (for testing use 60–80)
+local DIFFICULTY_SECTION_SCORE_STEP = 70
 
 local STREAK_COLORS = {
 	Color3.fromRGB(50, 140, 255),
@@ -355,6 +471,12 @@ local LakelandRaceController = Knit.CreateController({
 	_rwLights = {},
 	_rwElapsed = 0,
 	_gateParts = {},
+
+	_lastDifficultyTier = nil,
+	_hardTransitionSmooth = false,
+	_difficultyTransitionProgress = 0,
+	_lastScorePhaseForStreak = nil,
+	_streakPatternIndex = 1,
 
 	LaneChanged = Signal.new(),
 	RaceProgress = Signal.new(),
@@ -545,60 +667,133 @@ function LakelandRaceController:_initPools()
 		p.Material = Enum.Material.Neon
 	end)
 
-	self._pools.hazard = {}
-	for i = 1, HAZARD_POOL do
-		local cube = Instance.new("Part")
-		cube.Shape = Enum.PartType.Block
-		cube.Size = Vector3.new(6, 5, 6)
-		cube.Anchored = true
-		cube.CanCollide = false
-		cube.Color = Color3.fromRGB(255, 40, 40)
-		cube.Material = Enum.Material.Neon
-		cube.Transparency = 1
-		cube.Parent = folder
+	local function buildCubeAssembly(size, outerColor, innerColor, glowColor, hlFill, hlOutline, lightRange)
+		local model = Instance.new("Model")
+		model.Name = "CubeAssembly"
+
+		local shell = Instance.new("Part")
+		shell.Name = "Shell"
+		shell.Shape = Enum.PartType.Block
+		shell.Size = Vector3.new(size, size, size)
+		shell.Anchored = true
+		shell.CanCollide = false
+		shell.Color = outerColor
+		shell.Material = Enum.Material.Glass
+		shell.Transparency = 1
+		shell.Parent = model
+		model.PrimaryPart = shell
+
 		local hl = Instance.new("Highlight")
-		hl.FillColor = Color3.fromRGB(255, 50, 50)
+		hl.FillColor = hlFill
 		hl.FillTransparency = 0.3
-		hl.OutlineColor = Color3.fromRGB(255, 100, 100)
+		hl.OutlineColor = hlOutline
 		hl.OutlineTransparency = 0
 		hl.Enabled = false
-		hl.Parent = cube
-		self._pools.hazard[i] = cube
+		hl.Parent = shell
+
+		local core = Instance.new("Part")
+		core.Name = "Core"
+		core.Shape = Enum.PartType.Block
+		core.Size = Vector3.new(size * 0.45, size * 0.45, size * 0.45)
+		core.Anchored = true
+		core.CanCollide = false
+		core.Color = innerColor
+		core.Material = Enum.Material.Neon
+		core.Transparency = 1
+		core.Parent = model
+
+		local glow = Instance.new("PointLight")
+		glow.Color = glowColor
+		glow.Brightness = 0.8
+		glow.Range = lightRange
+		glow.Shadows = false
+		glow.Enabled = false
+		glow.Parent = shell
+
+		local edgeLen = size
+		local edgeThick = size * 0.06
+		local half = size / 2
+		local edgeOffsets = {
+			{ Vector3.new(0,  half,  half), Vector3.new(edgeLen, edgeThick, edgeThick) },
+			{ Vector3.new(0,  half, -half), Vector3.new(edgeLen, edgeThick, edgeThick) },
+			{ Vector3.new(0, -half,  half), Vector3.new(edgeLen, edgeThick, edgeThick) },
+			{ Vector3.new(0, -half, -half), Vector3.new(edgeLen, edgeThick, edgeThick) },
+			{ Vector3.new( half, 0,  half), Vector3.new(edgeThick, edgeLen, edgeThick) },
+			{ Vector3.new( half, 0, -half), Vector3.new(edgeThick, edgeLen, edgeThick) },
+			{ Vector3.new(-half, 0,  half), Vector3.new(edgeThick, edgeLen, edgeThick) },
+			{ Vector3.new(-half, 0, -half), Vector3.new(edgeThick, edgeLen, edgeThick) },
+			{ Vector3.new( half,  half, 0), Vector3.new(edgeThick, edgeThick, edgeLen) },
+			{ Vector3.new( half, -half, 0), Vector3.new(edgeThick, edgeThick, edgeLen) },
+			{ Vector3.new(-half,  half, 0), Vector3.new(edgeThick, edgeThick, edgeLen) },
+			{ Vector3.new(-half, -half, 0), Vector3.new(edgeThick, edgeThick, edgeLen) },
+		}
+		for idx, e in ipairs(edgeOffsets) do
+			local edge = Instance.new("Part")
+			edge.Name = "Edge_" .. idx
+			edge.Shape = Enum.PartType.Block
+			edge.Size = e[2]
+			edge.Anchored = true
+			edge.CanCollide = false
+			edge.Color = glowColor
+			edge.Material = Enum.Material.Neon
+			edge.Transparency = 1
+			edge.Parent = model
+			edge:SetAttribute("LocalOffset", e[1])
+		end
+
+		model.Parent = folder
+		return model
+	end
+
+	self._pools.hazard = {}
+	for i = 1, HAZARD_POOL do
+		self._pools.hazard[i] = buildCubeAssembly(
+			5,
+			Color3.fromRGB(180, 20, 20),
+			Color3.fromRGB(255, 60, 60),
+			Color3.fromRGB(255, 80, 80),
+			Color3.fromRGB(255, 50, 50),
+			Color3.fromRGB(255, 100, 100),
+			25
+		)
 	end
 
 	self._pools.coin = {}
 	for i = 1, COIN_POOL do
-		local cube = Instance.new("Part")
-		cube.Shape = Enum.PartType.Block
-		cube.Size = Vector3.new(5, 4, 5)
-		cube.Anchored = true
-		cube.CanCollide = false
-		cube.Color = Color3.fromRGB(40, 120, 255)
-		cube.Material = Enum.Material.Neon
-		cube.Transparency = 1
-		cube.Parent = folder
-		local hl = Instance.new("Highlight")
-		hl.FillColor = Color3.fromRGB(50, 140, 255)
-		hl.FillTransparency = 0.3
-		hl.OutlineColor = Color3.fromRGB(100, 180, 255)
-		hl.OutlineTransparency = 0
-		hl.Enabled = false
-		hl.Parent = cube
-		self._pools.coin[i] = cube
+		self._pools.coin[i] = buildCubeAssembly(
+			4,
+			Color3.fromRGB(20, 80, 180),
+			Color3.fromRGB(60, 150, 255),
+			Color3.fromRGB(80, 160, 255),
+			Color3.fromRGB(50, 140, 255),
+			Color3.fromRGB(100, 180, 255),
+			20
+		)
 	end
 
 	makePool("boostPad", BOOST_PAD_POOL, function(p)
-		p.Color = Color3.fromRGB(255, 175, 0)
-		p.Material = Enum.Material.Neon
+		p.Color = Color3.fromRGB(165, 125, 60)
+		p.Material = Enum.Material.Glass
 	end)
-	makePool("boostEdge", BOOST_EDGE_POOL, function(p)
-		p.Color = Color3.fromRGB(255, 120, 0)
-		p.Material = Enum.Material.Neon
-	end)
-	makePool("boostChev", BOOST_CHEV_POOL, function(p)
-		p.Color = Color3.fromRGB(255, 240, 120)
-		p.Material = Enum.Material.Neon
-	end)
+	self._pools.boostChev = {}
+	for i = 1, BOOST_CHEV_POOL do
+		local chev = Instance.new("Part")
+		chev.Name = "BoostChevron"
+		chev.Size = Vector3.new(0.8, 0.2, 0.5)
+		chev.Anchored = true
+		chev.CanCollide = false
+		chev.Color = BOOST_OFF_COLOR
+		chev.Material = Enum.Material.Neon
+		chev.Transparency = 1
+		chev.Parent = folder
+		local pl = Instance.new("PointLight")
+		pl.Color = BOOST_ON_COLOR
+		pl.Brightness = 0
+		pl.Range = 18
+		pl.Shadows = false
+		pl.Parent = chev
+		self._pools.boostChev[i] = chev
+	end
 
 	-- Runway lights (fixed small set)
 	self._rwLights = {}
@@ -729,6 +924,37 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		return FIXED_MACHINE_POS + (splinePos - centerRef)
 	end
 
+	-- Difficulty tier from current score (points), not track position — same for whole view
+	local currentScore = self:GetCurrentScore()
+	local tier = select(1, getDifficultyTierFromScore(currentScore))
+
+	-- Smooth vs sudden transition into hard (chosen at random each time we enter hard)
+	if tier == "hard" and self._lastDifficultyTier ~= "hard" then
+		self._hardTransitionSmooth = (math.random() > 0.5)
+		self._difficultyTransitionProgress = 0
+	end
+	if tier ~= "hard" then
+		self._difficultyTransitionProgress = 0
+	elseif self._hardTransitionSmooth then
+		self._difficultyTransitionProgress = math.min(1, self._difficultyTransitionProgress + dt * HARD_TRANSITION_SPEED)
+	else
+		self._difficultyTransitionProgress = 1
+	end
+	local tierChanged = (self._lastDifficultyTier ~= nil and tier ~= self._lastDifficultyTier)
+	self._lastDifficultyTier = tier
+	local hardBlend = (tier == "hard") and self._difficultyTransitionProgress or 0
+
+	-- New streak movement pattern when entering a new difficulty section (tier or score phase change)
+	local scorePhase = math.floor(currentScore / DIFFICULTY_SECTION_SCORE_STEP)
+	if self._lastScorePhaseForStreak == nil then
+		self._lastScorePhaseForStreak = scorePhase
+		self._streakPatternIndex = math.random(1, 6)
+	end
+	if scorePhase ~= self._lastScorePhaseForStreak or tierChanged then
+		self._streakPatternIndex = math.random(1, 6)
+		self._lastScorePhaseForStreak = scorePhase
+	end
+
 	-- Road surface
 	local ri = 1
 	local t = tMin
@@ -758,7 +984,8 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		local lt = tMin
 		while lt < tMax and li <= LANE_POOL do
 			local lt1 = math.min(lt + LANE_T_STEP, tMax)
-			local zone = getTrackZone((lt + lt1) / 2)
+			local ltMid = (lt + lt1) / 2
+			local zone = getTrackZone(ltMid)
 			local posA = spline:CalculatePositionAt(lt)
 			local posB = spline:CalculatePositionAt(lt1)
 			local mid = (posA + posB) / 2
@@ -769,8 +996,18 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				local line = self._pools.lane[li]
 				line.Size = Vector3.new(0.35, 0.1, segLen + 0.25)
 				line.CFrame = CFrame.lookAt(wM + Vector3.new(0, 0.01, 0), wM + Vector3.new(0, 0.01, 0) + dir.Unit)
-				line.Color = zone.accent
-				line.Transparency = 0.25
+				local accent = zone.accent
+				local hardColor = Color3.fromRGB(255, 80, 80)
+				if tier == "hard" then
+					line.Color = accent:Lerp(hardColor, 0.55 * hardBlend)
+					line.Transparency = 0.15 * hardBlend + 0.25 * (1 - hardBlend)
+				elseif tier == "reprieve" then
+					line.Color = accent:Lerp(Color3.fromRGB(140, 220, 255), 0.45)
+					line.Transparency = 0.4
+				else
+					line.Color = accent
+					line.Transparency = 0.25
+				end
 				li = li + 1
 			end
 			lt = lt + LANE_T_STEP
@@ -787,8 +1024,19 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		local wP = toWorld(pos)
 		local info = self._pools.light[tli]
 		info.part.Position = wP + Vector3.new(0, 6, 0)
-		info.light.Color = zone.accent
-		info.light.Brightness = 0.6
+		local accent = zone.accent
+		local hardColor = Color3.fromRGB(255, 80, 80)
+		local color = accent
+		local brightness = 0.6
+		if tier == "hard" then
+			color = accent:Lerp(hardColor, 0.55 * hardBlend)
+			brightness = 0.6 + 0.4 * hardBlend
+		elseif tier == "reprieve" then
+			color = accent:Lerp(Color3.fromRGB(140, 220, 255), 0.45)
+			brightness = 0.4
+		end
+		info.light.Color = color
+		info.light.Brightness = brightness
 		tli = tli + 1
 		tlt = tlt + LIGHT_T_STEP
 	end
@@ -818,16 +1066,107 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				if (segCounter % pat.gap) < math.ceil(pat.gap * pat.duty) then
 					local frac = (lineIdx - 1) / (STREAK_LINES - 1)
 					local angle = STREAK_ARCH_START + STREAK_ARCH_SPAN * frac
-					local ex = math.cos(angle) * TUNNEL_RADIUS
-					local ey = math.sin(angle) * TUNNEL_RADIUS
+					local ex = math.cos(angle) * STREAK_RADIUS
+					local ey = math.sin(angle) * STREAK_RADIUS
 					local baseColor = STREAK_COLORS[lineIdx]
 					local blended = baseColor:Lerp(zone.accent, 0.4)
+					if tier == "hard" then
+						blended = blended:Lerp(Color3.fromRGB(255, 80, 80), 0.5 * hardBlend)
+					elseif tier == "reprieve" then
+						blended = blended:Lerp(Color3.fromRGB(140, 220, 255), 0.45)
+					end
 
+					local T = time()
+					local patIdx = self._streakPatternIndex
+					local moveCF = CFrame.new(0, 0, 0)
+					if patIdx == 1 then
+						local waveY = STREAK_WAVE_AMP * math.sin(T * STREAK_WAVE_FREQ + lineIdx * 0.7)
+						local waveX = STREAK_WAVE_AMP * 0.6 * math.cos(T * STREAK_WAVE_FREQ * 0.8 + lineIdx * 0.5)
+						local waveZ = 3 * math.sin(T * 1.5 + lineIdx * 0.3)
+						moveCF = CFrame.new(waveX, waveY, waveZ)
+					elseif patIdx == 2 then
+						moveCF = CFrame.Angles(0, 0, T * STREAK_SPIN_SPEED + lineIdx * 0.4)
+					elseif patIdx == 3 then
+						local s = 1 + STREAK_PULSE_AMP * math.sin(T * STREAK_PULSE_FREQ + segCounter * 0.2)
+						moveCF = CFrame.new(ex * (s - 1), ey * (s - 1), 0)
+					elseif patIdx == 4 then
+						local sway = math.sin(T * STREAK_ZIGZAG_FREQ + lineIdx * 0.25)
+						moveCF = CFrame.new(STREAK_ZIGZAG_AMP * sway, 0, 0)
+					elseif patIdx == 5 then
+						local waveY = STREAK_WAVE_AMP * 0.8 * math.sin(T * STREAK_WAVE_FREQ + lineIdx * 0.7)
+						local waveZ = 2.5 * math.sin(T * 1.2 + lineIdx * 0.4)
+						moveCF = CFrame.new(0, waveY, waveZ) * CFrame.Angles(0, 0, math.rad(45))
+					else
+						-- Pattern 6: formation - wave + forward pop
+						local waveY = STREAK_WAVE_AMP * 0.5 * math.sin(T * STREAK_WAVE_FREQ + lineIdx * 0.7)
+						local waveX = STREAK_WAVE_AMP * 0.3 * math.cos(T * STREAK_WAVE_FREQ * 0.8 + lineIdx * 0.5)
+						local waveZ = 4 * math.sin(T * 1.2 + lineIdx * 0.5)
+						moveCF = CFrame.new(waveX, waveY, waveZ)
+					end
+
+					-- Shape by line position: 1-2=line, 3-4=cube, 5-6=block, 7-8=diamond, 9-10=line (guaranteed mix)
+					local shapeType
+					if lineIdx <= 2 then shapeType = 0
+					elseif lineIdx <= 4 then shapeType = 1
+					elseif lineIdx <= 6 then shapeType = 2
+					elseif lineIdx <= 8 then shapeType = 3
+					else shapeType = 0
+					end
+					local sz
+					local shapeRot = CFrame.new(0, 0, 0)
+					if shapeType == 0 then
+						sz = Vector3.new(STREAK_THICKNESS, STREAK_HEIGHT, segLen + 0.12)
+					elseif shapeType == 1 then
+						sz = Vector3.new(STREAK_CUBE_SIZE, STREAK_CUBE_SIZE, STREAK_CUBE_SIZE)
+					elseif shapeType == 2 then
+						sz = Vector3.new(STREAK_BLOCK_W, STREAK_BLOCK_H, math.min(STREAK_BLOCK_D, segLen + 0.5))
+					else
+						sz = Vector3.new(STREAK_THICKNESS * 1.6, STREAK_HEIGHT * 1.6, segLen + 0.12)
+						shapeRot = CFrame.Angles(0, 0, math.rad(45))
+					end
+
+					-- Global bob: smooth sine so motion is fluid (world-up oscillation)
+					local bobY = STREAK_BOB_AMP * math.sin(T * STREAK_BOB_FREQ + lineIdx * 0.35)
+					local bobCF = CFrame.new(0, bobY, 0)
+
+					local baseCF = fwdCF * CFrame.new(ex, ey, 0)
 					local streak = self._pools.streak[si]
-					streak.Size = Vector3.new(STREAK_THICKNESS, STREAK_HEIGHT, segLen + 0.12)
-					streak.CFrame = fwdCF * CFrame.new(ex, ey, 0)
+					streak.Size = sz
+					streak.CFrame = baseCF * bobCF * moveCF * shapeRot
 					streak.Color = blended
-					streak.Transparency = 0
+
+					local baseAlpha
+					local animSpeed
+					local animAmp
+					if tier == "hard" then
+						baseAlpha = 0.02
+						animSpeed = 2.5
+						animAmp = 0.05
+					elseif tier == "reprieve" then
+						baseAlpha = 0.15
+						animSpeed = 1.8
+						animAmp = 0.06
+					else
+						baseAlpha = 0.04
+						animSpeed = 2.2
+						animAmp = 0.06
+					end
+
+					local pulse = animAmp * (0.5 + 0.5 * math.sin(T * animSpeed + segCounter * 0.3))
+					local alpha = baseAlpha + pulse
+					if alpha < 0 then alpha = 0 elseif alpha > 1 then alpha = 1 end
+					streak.Transparency = alpha
+
+					-- Pattern 6: formation — add a second small cube next to this one (cube formation)
+					if patIdx == 6 and si + 1 <= STREAK_POOL then
+						local buddy = self._pools.streak[si + 1]
+						local formOff = STREAK_FORMATION_OFFSET
+						buddy.Size = Vector3.new(STREAK_CUBE_SIZE * 0.75, STREAK_CUBE_SIZE * 0.75, STREAK_CUBE_SIZE * 0.75)
+						buddy.CFrame = baseCF * bobCF * CFrame.new(formOff, formOff * 0.6, 0) * moveCF
+						buddy.Color = blended
+						buddy.Transparency = alpha
+						si = si + 1
+					end
 					si = si + 1
 				end
 			end
@@ -838,6 +1177,46 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	end
 	for i = si, STREAK_POOL do self._pools.streak[i].Transparency = 1 end
 
+	local function showCubeAssembly(model, cf, show)
+		local shell = model.PrimaryPart
+		shell.CFrame = cf
+		shell.Transparency = show and 0.25 or 1
+
+		local hl = shell:FindFirstChildOfClass("Highlight")
+		if hl then hl.Enabled = show end
+		local light = shell:FindFirstChildOfClass("PointLight")
+		if light then light.Enabled = show end
+
+		for _, child in ipairs(model:GetChildren()) do
+			if child == shell or not child:IsA("BasePart") then continue end
+			if child.Name == "Core" then
+				local spin = (time() * 2.5) % (math.pi * 2)
+				child.CFrame = cf * CFrame.Angles(spin, spin * 0.7, 0)
+				child.Transparency = show and 0 or 1
+			else
+				local localOff = child:GetAttribute("LocalOffset")
+				if localOff then
+					child.CFrame = cf * CFrame.new(localOff)
+				end
+				child.Transparency = show and 0 or 1
+			end
+		end
+	end
+
+	local function hideCubeAssembly(model)
+		local shell = model.PrimaryPart
+		shell.Transparency = 1
+		local hl = shell:FindFirstChildOfClass("Highlight")
+		if hl then hl.Enabled = false end
+		local light = shell:FindFirstChildOfClass("PointLight")
+		if light then light.Enabled = false end
+		for _, child in ipairs(model:GetChildren()) do
+			if child:IsA("BasePart") and child ~= shell then
+				child.Transparency = 1
+			end
+		end
+	end
+
 	-- Hazards
 	local hi = 1
 	for _, hazard in ipairs(HAZARDS) do
@@ -847,19 +1226,11 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local spline = self._splines[hazard.lane].spline
 			local pos = spline:CalculatePositionAt(hazard.t)
 			local wP = toWorld(pos)
-			local cube = self._pools.hazard[hi]
-			cube.CFrame = CFrame.new(wP + Vector3.new(0, 2.25, 0))
-			cube.Transparency = show and 0.15 or 1
-			local hl = cube:FindFirstChildOfClass("Highlight")
-			if hl then hl.Enabled = show end
+			showCubeAssembly(self._pools.hazard[hi], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show)
 			hi = hi + 1
 		end
 	end
-	for i = hi, HAZARD_POOL do
-		self._pools.hazard[i].Transparency = 1
-		local hl = self._pools.hazard[i]:FindFirstChildOfClass("Highlight")
-		if hl then hl.Enabled = false end
-	end
+	for i = hi, HAZARD_POOL do hideCubeAssembly(self._pools.hazard[i]) end
 
 	-- Coins
 	local ci = 1
@@ -870,32 +1241,28 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local spline = self._splines[coin.lane].spline
 			local pos = spline:CalculatePositionAt(coin.t)
 			local wP = toWorld(pos)
-			local cube = self._pools.coin[ci]
-			cube.CFrame = CFrame.new(wP + Vector3.new(0, 3, 0))
-			cube.Transparency = show and 0.15 or 1
-			local hl = cube:FindFirstChildOfClass("Highlight")
-			if hl then hl.Enabled = show end
+			showCubeAssembly(self._pools.coin[ci], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show)
 			ci = ci + 1
 		end
 	end
-	for i = ci, COIN_POOL do
-		self._pools.coin[i].Transparency = 1
-		local hl = self._pools.coin[i]:FindFirstChildOfClass("Highlight")
-		if hl then hl.Enabled = false end
-	end
+	for i = ci, COIN_POOL do hideCubeAssembly(self._pools.coin[i]) end
 
-	-- Boost zones
-	local pi, ei, chi = 1, 1, 1
+	-- Boost zones (pad surface + chevrons down the middle, edge to edge, runway effect)
+	local boostChaseHead = (time() * BOOST_CHASE_SPEED) % BOOST_CHEVRONS_PER_ZONE
+	local pi, chi = 1, 1
 	for _, bz in ipairs(BOOST_ZONES) do
 		local tEnd = bz.tStart + BOOST_LENGTH
 		if tEnd < tMin or bz.tStart > tMax then continue end
 		local show = self._obstaclesVisible
 		local spline = self._splines[bz.lane].spline
+		local zoneLen = tEnd - bz.tStart
+		local zoneLenStuds = (spline:CalculatePositionAt(tEnd) - spline:CalculatePositionAt(bz.tStart)).Magnitude
+		local chevDepth = math.max(0.4, zoneLenStuds / BOOST_CHEVRONS_PER_ZONE * 0.85)
 
 		for s = 0, BOOST_VIS_SEGS - 1 do
 			if pi > BOOST_PAD_POOL then break end
-			local bt0 = bz.tStart + (tEnd - bz.tStart) * (s / BOOST_VIS_SEGS)
-			local bt1 = bz.tStart + (tEnd - bz.tStart) * ((s + 1) / BOOST_VIS_SEGS)
+			local bt0 = bz.tStart + zoneLen * (s / BOOST_VIS_SEGS)
+			local bt1 = bz.tStart + zoneLen * ((s + 1) / BOOST_VIS_SEGS)
 			local posA = spline:CalculatePositionAt(bt0)
 			local posB = spline:CalculatePositionAt(bt1)
 			local mid = (posA + posB) / 2
@@ -904,43 +1271,52 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			if segLen < 0.01 then continue end
 
 			local wM = toWorld(mid)
-			local lookCF = CFrame.lookAt(wM, wM + dir.Unit)
-
 			local pad = self._pools.boostPad[pi]
 			pad.Size = Vector3.new(BOOST_VIS_WIDTH, 0.12, segLen + 0.15)
 			pad.CFrame = CFrame.lookAt(wM + Vector3.new(0, 0.03, 0), wM + Vector3.new(0, 0.03, 0) + dir.Unit)
-			pad.Transparency = show and 0.15 or 1
+			pad.Transparency = show and 0.25 or 1
 			pi = pi + 1
-
-			for _, edgeSign in ipairs({ -1, 1 }) do
-				if ei > BOOST_EDGE_POOL then break end
-				local off = lookCF.RightVector * edgeSign * (BOOST_VIS_WIDTH * 0.5)
-				local edge = self._pools.boostEdge[ei]
-				edge.Size = Vector3.new(0.25, 0.18, segLen + 0.15)
-				edge.CFrame = CFrame.lookAt(wM + off + Vector3.new(0, 0.06, 0), wM + off + Vector3.new(0, 0.06, 0) + dir.Unit)
-				edge.Transparency = show and 0.1 or 1
-				ei = ei + 1
-			end
 		end
 
-		for c = 0, 2 do
+		-- Single row of chevrons (rectangles) down the center, runway chase
+		for chevIdx = 0, BOOST_CHEVRONS_PER_ZONE - 1 do
 			if chi > BOOST_CHEV_POOL then break end
-			local chevT = bz.tStart + (tEnd - bz.tStart) * ((c + 0.5) / 3)
+			local tFrac = (chevIdx + 0.5) / BOOST_CHEVRONS_PER_ZONE
+			local chevT = bz.tStart + zoneLen * tFrac
 			local chevPos = spline:CalculatePositionAt(chevT)
 			local chevDir = spline:CalculateDerivativeAt(chevT)
-			if chevDir.Magnitude > 0.001 then
-				local wP = toWorld(chevPos)
-				local chev = self._pools.boostChev[chi]
-				chev.Size = Vector3.new(BOOST_VIS_WIDTH * 0.4, 0.16, 0.5)
-				chev.CFrame = CFrame.lookAt(wP + Vector3.new(0, 0.1, 0), wP + Vector3.new(0, 0.1, 0) + chevDir.Unit)
-				chev.Transparency = show and 0.05 or 1
-				chi = chi + 1
+			if chevDir.Magnitude < 0.001 then continue end
+			chevDir = chevDir.Unit
+			local wP = toWorld(chevPos)
+			local chevCF = CFrame.lookAt(wP + Vector3.new(0, 0.12, 0), wP + Vector3.new(0, 0.12, 0) + chevDir)
+
+			local chev = self._pools.boostChev[chi]
+			chev.Size = Vector3.new(BOOST_VIS_WIDTH, 0.18, chevDepth)
+			chev.CFrame = chevCF
+			if show then
+				local behind = (boostChaseHead - chevIdx) % BOOST_CHEVRONS_PER_ZONE
+				local intensity
+				if behind < 1 then intensity = 1
+				elseif behind < 1 + BOOST_FADE_TAIL then intensity = math.max(BOOST_DIM_FLOOR, 1 - (behind - 1) / BOOST_FADE_TAIL)
+				else intensity = BOOST_DIM_FLOOR end
+				chev.Color = BOOST_OFF_COLOR:Lerp(BOOST_ON_COLOR, intensity)
+				chev.Transparency = 1 - intensity * 0.35
+				local pl = chev:FindFirstChildOfClass("PointLight")
+				if pl then pl.Brightness = intensity * 4 end
+			else
+				chev.Transparency = 1
+				local pl = chev:FindFirstChildOfClass("PointLight")
+				if pl then pl.Brightness = 0 end
 			end
+			chi = chi + 1
 		end
 	end
 	for i = pi, BOOST_PAD_POOL do self._pools.boostPad[i].Transparency = 1 end
-	for i = ei, BOOST_EDGE_POOL do self._pools.boostEdge[i].Transparency = 1 end
-	for i = chi, BOOST_CHEV_POOL do self._pools.boostChev[i].Transparency = 1 end
+	for i = chi, BOOST_CHEV_POOL do
+		self._pools.boostChev[i].Transparency = 1
+		local pl = self._pools.boostChev[i]:FindFirstChildOfClass("PointLight")
+		if pl then pl.Brightness = 0 end
+	end
 
 	-- Runway lights (reposition + chase animation)
 	self._rwElapsed = self._rwElapsed + dt * RW_CHASE_SPEED
@@ -1043,6 +1419,10 @@ function LakelandRaceController:PositionAtStart()
 	self._currentBoostTally = 0
 
 	for _, coin in ipairs(COINS) do coin.collected = false end
+	self._lastDifficultyTier = nil
+	self._difficultyTransitionProgress = 0
+	self._lastScorePhaseForStreak = nil
+	self._streakPatternIndex = math.random(1, 6)
 
 	task.spawn(function()
 		local machine = Workspace:WaitForChild("ActiveMachine", 5)
@@ -1403,5 +1783,6 @@ function LakelandRaceController:GetDistance() return self._totalDistance end
 function LakelandRaceController:GetTrackLength() return TRACK_LENGTH end
 function LakelandRaceController:GetCoinScore() return self._coinScore + math.floor(self._boostScore) end
 function LakelandRaceController:GetCoinsCollected() return self._coinsCollected end
+function LakelandRaceController:GetCurrentScore() return math.floor(self._totalDistance * 10) + self._coinScore + math.floor(self._boostScore) end
 
 return LakelandRaceController
