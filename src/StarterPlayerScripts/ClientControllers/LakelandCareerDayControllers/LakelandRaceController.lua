@@ -348,13 +348,19 @@ local ROAD_W      = ROAD_HALF_W * 2
 local ROAD_T_STEP    = 0.0015
 local LANE_T_STEP    = 0.00075
 local LIGHT_T_STEP   = 0.005
-local STREAK_T_STEP  = 0.002
+local TUNNEL_T_STEP  = 0.0025
 
 local ROAD_POOL       = 25
 local LANE_POOL       = 120
 local LIGHT_POOL      = 10
-local STREAK_POOL     = 100
+local TUNNEL_POOL     = 24
 local HAZARD_POOL     = 20
+
+local TUNNEL_HEIGHT    = 14
+local TUNNEL_HALF_W    = ROAD_HALF_W + 2
+local TUNNEL_BAR_THICK = 0.18
+local TUNNEL_GLOW_RANGE = 30
+local TUNNEL_GLOW_BRIGHT = 1.2
 local COIN_POOL       = 30
 local BOOST_PAD_POOL   = 35
 local BOOST_CHEV_POOL  = 90
@@ -368,57 +374,8 @@ local BOOST_DIM_FLOOR       = 0.1
 local BOOST_OFF_COLOR       = Color3.fromRGB(155, 115, 50)
 local BOOST_ON_COLOR        = Color3.fromRGB(255, 200, 50)
 
-local TUNNEL_RADIUS    = 22
-local STREAK_RADIUS    = 14
-local STREAK_THICKNESS = 0.5
-local STREAK_HEIGHT    = 0.4
-local STREAK_LINES     = 10
-local STREAK_ARCH_START = math.rad(-10)
-local STREAK_ARCH_END   = math.rad(190)
-local STREAK_ARCH_SPAN  = STREAK_ARCH_END - STREAK_ARCH_START
-local STREAK_WAVE_AMP   = 5
-local STREAK_WAVE_FREQ  = 1.4
-local STREAK_SPIN_SPEED = 4
-local STREAK_PULSE_AMP  = 0.4
-local STREAK_PULSE_FREQ = 2
-local STREAK_ZIGZAG_AMP = 6
-local STREAK_ZIGZAG_FREQ = 1.2
-local STREAK_BOB_AMP    = 2.2
-local STREAK_BOB_FREQ   = 2
-local STREAK_CUBE_SIZE  = 2.8
-local STREAK_BLOCK_W    = 2
-local STREAK_BLOCK_H    = 0.5
-local STREAK_BLOCK_D    = 2.2
-local STREAK_FORMATION_OFFSET = 2.5
 local HARD_TRANSITION_SPEED = 2.5
--- Lower = new streak pattern chosen more often (for testing use 60–80)
 local DIFFICULTY_SECTION_SCORE_STEP = 70
-
-local STREAK_COLORS = {
-	Color3.fromRGB(50, 140, 255),
-	Color3.fromRGB(0, 255, 200),
-	Color3.fromRGB(170, 50, 255),
-	Color3.fromRGB(255, 60, 100),
-	Color3.fromRGB(0, 210, 255),
-	Color3.fromRGB(255, 180, 40),
-	Color3.fromRGB(80, 255, 80),
-	Color3.fromRGB(255, 100, 255),
-	Color3.fromRGB(100, 200, 255),
-	Color3.fromRGB(255, 60, 40),
-}
-
-local STREAK_PATTERNS = {
-	{ gap = 2, duty = 0.8 },
-	{ gap = 3, duty = 0.6 },
-	{ gap = 4, duty = 0.5 },
-	{ gap = 2, duty = 1.0 },
-	{ gap = 5, duty = 0.4 },
-	{ gap = 3, duty = 0.7 },
-	{ gap = 6, duty = 0.3 },
-	{ gap = 2, duty = 0.9 },
-	{ gap = 4, duty = 0.6 },
-	{ gap = 3, duty = 1.0 },
-}
 
 local RW_COUNT         = 10
 local RW_SPACING_STUDS = 20
@@ -475,8 +432,6 @@ local LakelandRaceController = Knit.CreateController({
 	_lastDifficultyTier = nil,
 	_hardTransitionSmooth = false,
 	_difficultyTransitionProgress = 0,
-	_lastScorePhaseForStreak = nil,
-	_streakPatternIndex = 1,
 
 	LaneChanged = Signal.new(),
 	RaceProgress = Signal.new(),
@@ -663,9 +618,28 @@ function LakelandRaceController:_initPools()
 		self._pools.light[i] = { part = anchor, light = pl }
 	end
 
-	makePool("streak", STREAK_POOL, function(p)
-		p.Material = Enum.Material.Neon
-	end)
+	-- Laser tunnel frames: each frame = left post + top bar + right post (3 parts)
+	self._pools.tunnel = {}
+	for i = 1, TUNNEL_POOL do
+		local frame = {}
+		for _, name in ipairs({ "left", "top", "right" }) do
+			local bar = Instance.new("Part")
+			bar.Name = "TunnelBar_" .. name
+			bar.Anchored = true
+			bar.CanCollide = false
+			bar.Material = Enum.Material.Neon
+			bar.Color = Color3.fromRGB(50, 140, 255)
+			bar.Transparency = 1
+			bar.Parent = folder
+			local glow = Instance.new("PointLight")
+			glow.Brightness = 0
+			glow.Range = TUNNEL_GLOW_RANGE
+			glow.Shadows = false
+			glow.Parent = bar
+			frame[name] = bar
+		end
+		self._pools.tunnel[i] = frame
+	end
 
 	local function buildCubeAssembly(size, outerColor, innerColor, glowColor, hlFill, hlOutline, lightRange)
 		local model = Instance.new("Model")
@@ -944,17 +918,6 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	self._lastDifficultyTier = tier
 	local hardBlend = (tier == "hard") and self._difficultyTransitionProgress or 0
 
-	-- New streak movement pattern when entering a new difficulty section (tier or score phase change)
-	local scorePhase = math.floor(currentScore / DIFFICULTY_SECTION_SCORE_STEP)
-	if self._lastScorePhaseForStreak == nil then
-		self._lastScorePhaseForStreak = scorePhase
-		self._streakPatternIndex = math.random(1, 6)
-	end
-	if scorePhase ~= self._lastScorePhaseForStreak or tierChanged then
-		self._streakPatternIndex = math.random(1, 6)
-		self._lastScorePhaseForStreak = scorePhase
-	end
-
 	-- Road surface (snap to fixed grid so parts slide smoothly)
 	local ri = 1
 	local t = math.floor(tMin / ROAD_T_STEP) * ROAD_T_STEP
@@ -1042,141 +1005,72 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	end
 	for i = tli, LIGHT_POOL do self._pools.light[i].light.Brightness = 0 end
 
-	-- Tunnel streaks (snap to fixed grid so they slide smoothly)
-	local si = 1
-	local stStart = math.floor(tMin / STREAK_T_STEP) * STREAK_T_STEP
-	local st = stStart
-	local segCounter = math.floor(stStart / STREAK_T_STEP)
-	while st < tMax do
-		local st1 = math.min(st + STREAK_T_STEP, tMax)
-		local stMid = (st + st1) / 2
-		local zone = getTrackZone(stMid)
-		local posA = centerSpline:CalculatePositionAt(st)
-		local posB = centerSpline:CalculatePositionAt(st1)
-		local mid = (posA + posB) / 2
+	-- Laser tunnel frames  |-|
+	local tfi = 1
+	local tft = math.floor(tMin / TUNNEL_T_STEP) * TUNNEL_T_STEP
+	while tft < tMax and tfi <= TUNNEL_POOL do
+		local zone = getTrackZone(tft)
+		local posA = centerSpline:CalculatePositionAt(tft)
+		local posB = centerSpline:CalculatePositionAt(math.min(tft + TUNNEL_T_STEP * 0.1, 1))
 		local dir = posB - posA
-		local segLen = dir.Magnitude
+		if dir.Magnitude > 0.001 then
+			local wP = toWorld(posA)
+			local fwd = dir.Unit
+			local right = fwd:Cross(Vector3.new(0, 1, 0)).Unit
+			local up = Vector3.new(0, 1, 0)
 
-		if segLen > 0.01 then
-			local wM = toWorld(mid)
-			local fwdCF = CFrame.lookAt(wM, wM + dir.Unit)
-
-			for lineIdx = 1, STREAK_LINES do
-				if si > STREAK_POOL then break end
-				local pat = STREAK_PATTERNS[lineIdx]
-				if (segCounter % pat.gap) < math.ceil(pat.gap * pat.duty) then
-					local frac = (lineIdx - 1) / (STREAK_LINES - 1)
-					local angle = STREAK_ARCH_START + STREAK_ARCH_SPAN * frac
-					local ex = math.cos(angle) * STREAK_RADIUS
-					local ey = math.sin(angle) * STREAK_RADIUS
-					local baseColor = STREAK_COLORS[lineIdx]
-					local blended = baseColor:Lerp(zone.accent, 0.4)
-					if tier == "hard" then
-						blended = blended:Lerp(Color3.fromRGB(255, 80, 80), 0.5 * hardBlend)
-					elseif tier == "reprieve" then
-						blended = blended:Lerp(Color3.fromRGB(140, 220, 255), 0.45)
-					end
-
-					local T = time()
-					local patIdx = self._streakPatternIndex
-					local moveCF = CFrame.new(0, 0, 0)
-					if patIdx == 1 then
-						local waveY = STREAK_WAVE_AMP * math.sin(T * STREAK_WAVE_FREQ + lineIdx * 0.7)
-						local waveX = STREAK_WAVE_AMP * 0.6 * math.cos(T * STREAK_WAVE_FREQ * 0.8 + lineIdx * 0.5)
-						local waveZ = 3 * math.sin(T * 1.5 + lineIdx * 0.3)
-						moveCF = CFrame.new(waveX, waveY, waveZ)
-					elseif patIdx == 2 then
-						moveCF = CFrame.Angles(0, 0, T * STREAK_SPIN_SPEED + lineIdx * 0.4)
-					elseif patIdx == 3 then
-						local s = 1 + STREAK_PULSE_AMP * math.sin(T * STREAK_PULSE_FREQ + segCounter * 0.2)
-						moveCF = CFrame.new(ex * (s - 1), ey * (s - 1), 0)
-					elseif patIdx == 4 then
-						local sway = math.sin(T * STREAK_ZIGZAG_FREQ + lineIdx * 0.25)
-						moveCF = CFrame.new(STREAK_ZIGZAG_AMP * sway, 0, 0)
-					elseif patIdx == 5 then
-						local waveY = STREAK_WAVE_AMP * 0.8 * math.sin(T * STREAK_WAVE_FREQ + lineIdx * 0.7)
-						local waveZ = 2.5 * math.sin(T * 1.2 + lineIdx * 0.4)
-						moveCF = CFrame.new(0, waveY, waveZ) * CFrame.Angles(0, 0, math.rad(45))
-					else
-						-- Pattern 6: formation - wave + forward pop
-						local waveY = STREAK_WAVE_AMP * 0.5 * math.sin(T * STREAK_WAVE_FREQ + lineIdx * 0.7)
-						local waveX = STREAK_WAVE_AMP * 0.3 * math.cos(T * STREAK_WAVE_FREQ * 0.8 + lineIdx * 0.5)
-						local waveZ = 4 * math.sin(T * 1.2 + lineIdx * 0.5)
-						moveCF = CFrame.new(waveX, waveY, waveZ)
-					end
-
-					-- Shape by line position: 1-2=line, 3-4=cube, 5-6=block, 7-8=diamond, 9-10=line (guaranteed mix)
-					local shapeType
-					if lineIdx <= 2 then shapeType = 0
-					elseif lineIdx <= 4 then shapeType = 1
-					elseif lineIdx <= 6 then shapeType = 2
-					elseif lineIdx <= 8 then shapeType = 3
-					else shapeType = 0
-					end
-					local sz
-					local shapeRot = CFrame.new(0, 0, 0)
-					if shapeType == 0 then
-						sz = Vector3.new(STREAK_THICKNESS, STREAK_HEIGHT, segLen + 0.12)
-					elseif shapeType == 1 then
-						sz = Vector3.new(STREAK_CUBE_SIZE, STREAK_CUBE_SIZE, STREAK_CUBE_SIZE)
-					elseif shapeType == 2 then
-						sz = Vector3.new(STREAK_BLOCK_W, STREAK_BLOCK_H, math.min(STREAK_BLOCK_D, segLen + 0.5))
-					else
-						sz = Vector3.new(STREAK_THICKNESS * 1.6, STREAK_HEIGHT * 1.6, segLen + 0.12)
-						shapeRot = CFrame.Angles(0, 0, math.rad(45))
-					end
-
-					-- Global bob: smooth sine so motion is fluid (world-up oscillation)
-					local bobY = STREAK_BOB_AMP * math.sin(T * STREAK_BOB_FREQ + lineIdx * 0.35)
-					local bobCF = CFrame.new(0, bobY, 0)
-
-					local baseCF = fwdCF * CFrame.new(ex, ey, 0)
-					local streak = self._pools.streak[si]
-					streak.Size = sz
-					streak.CFrame = baseCF * bobCF * moveCF * shapeRot
-					streak.Color = blended
-
-					local baseAlpha
-					local animSpeed
-					local animAmp
-					if tier == "hard" then
-						baseAlpha = 0.02
-						animSpeed = 2.5
-						animAmp = 0.05
-					elseif tier == "reprieve" then
-						baseAlpha = 0.15
-						animSpeed = 1.8
-						animAmp = 0.06
-					else
-						baseAlpha = 0.04
-						animSpeed = 2.2
-						animAmp = 0.06
-					end
-
-					local pulse = animAmp * (0.5 + 0.5 * math.sin(T * animSpeed + segCounter * 0.3))
-					local alpha = baseAlpha + pulse
-					if alpha < 0 then alpha = 0 elseif alpha > 1 then alpha = 1 end
-					streak.Transparency = alpha
-
-					-- Pattern 6: formation — add a second small cube next to this one (cube formation)
-					if patIdx == 6 and si + 1 <= STREAK_POOL then
-						local buddy = self._pools.streak[si + 1]
-						local formOff = STREAK_FORMATION_OFFSET
-						buddy.Size = Vector3.new(STREAK_CUBE_SIZE * 0.75, STREAK_CUBE_SIZE * 0.75, STREAK_CUBE_SIZE * 0.75)
-						buddy.CFrame = baseCF * bobCF * CFrame.new(formOff, formOff * 0.6, 0) * moveCF
-						buddy.Color = blended
-						buddy.Transparency = alpha
-						si = si + 1
-					end
-					si = si + 1
-				end
+			local accent = zone.accent
+			local hardColor = Color3.fromRGB(255, 80, 80)
+			local color = accent
+			if tier == "hard" then
+				color = accent:Lerp(hardColor, 0.6 * hardBlend)
+			elseif tier == "reprieve" then
+				color = accent:Lerp(Color3.fromRGB(140, 220, 255), 0.45)
 			end
+
+			local frame = self._pools.tunnel[tfi]
+			local baseY = wP.Y + 0.1
+
+			-- Left post (vertical)
+			local leftBase = wP - right * TUNNEL_HALF_W
+			leftBase = Vector3.new(leftBase.X, baseY + TUNNEL_HEIGHT / 2, leftBase.Z)
+			frame.left.Size = Vector3.new(TUNNEL_BAR_THICK, TUNNEL_HEIGHT, TUNNEL_BAR_THICK)
+			frame.left.CFrame = CFrame.lookAt(leftBase, leftBase + fwd)
+			frame.left.Color = color
+			frame.left.Transparency = 0
+			frame.left.PointLight.Color = color
+			frame.left.PointLight.Brightness = TUNNEL_GLOW_BRIGHT
+
+			-- Right post (vertical)
+			local rightBase = wP + right * TUNNEL_HALF_W
+			rightBase = Vector3.new(rightBase.X, baseY + TUNNEL_HEIGHT / 2, rightBase.Z)
+			frame.right.Size = Vector3.new(TUNNEL_BAR_THICK, TUNNEL_HEIGHT, TUNNEL_BAR_THICK)
+			frame.right.CFrame = CFrame.lookAt(rightBase, rightBase + fwd)
+			frame.right.Color = color
+			frame.right.Transparency = 0
+			frame.right.PointLight.Color = color
+			frame.right.PointLight.Brightness = TUNNEL_GLOW_BRIGHT
+
+			-- Top bar (horizontal, connects left to right)
+			local topCenter = wP + up * (baseY - wP.Y + TUNNEL_HEIGHT)
+			topCenter = Vector3.new(wP.X, baseY + TUNNEL_HEIGHT, wP.Z)
+			frame.top.Size = Vector3.new(TUNNEL_HALF_W * 2, TUNNEL_BAR_THICK, TUNNEL_BAR_THICK)
+			frame.top.CFrame = CFrame.lookAt(topCenter, topCenter + fwd)
+			frame.top.Color = color
+			frame.top.Transparency = 0
+			frame.top.PointLight.Color = color
+			frame.top.PointLight.Brightness = TUNNEL_GLOW_BRIGHT
+
+			tfi = tfi + 1
 		end
-		segCounter = segCounter + 1
-		st = st + STREAK_T_STEP
-		if si > STREAK_POOL then break end
+		tft = tft + TUNNEL_T_STEP
 	end
-	for i = si, STREAK_POOL do self._pools.streak[i].Transparency = 1 end
+	for i = tfi, TUNNEL_POOL do
+		local frame = self._pools.tunnel[i]
+		frame.left.Transparency = 1;  frame.left.PointLight.Brightness = 0
+		frame.right.Transparency = 1; frame.right.PointLight.Brightness = 0
+		frame.top.Transparency = 1;   frame.top.PointLight.Brightness = 0
+	end
 
 	local function showCubeAssembly(model, cf, show)
 		local shell = model.PrimaryPart
@@ -1422,8 +1316,6 @@ function LakelandRaceController:PositionAtStart()
 	for _, coin in ipairs(COINS) do coin.collected = false end
 	self._lastDifficultyTier = nil
 	self._difficultyTransitionProgress = 0
-	self._lastScorePhaseForStreak = nil
-	self._streakPatternIndex = math.random(1, 6)
 
 	task.spawn(function()
 		local machine = Workspace:WaitForChild("ActiveMachine", 5)
