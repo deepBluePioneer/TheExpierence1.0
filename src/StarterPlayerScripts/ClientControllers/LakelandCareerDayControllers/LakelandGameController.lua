@@ -57,6 +57,7 @@ local LakelandGameController = Knit.CreateController({
 	_wipe = nil,
 	_healthConn = nil,
 	_introCutscene = nil,
+	_gameEnding = false,
 })
 
 local MAX_LEADERBOARD_ENTRIES = 10
@@ -268,7 +269,8 @@ function LakelandGameController:_bindHealthWatch()
 end
 
 function LakelandGameController:_onGameEnd(endReason)
-	if self._gameState:get() == STATES.GAME_OVER then return end
+	if self._gameEnding or self._gameState:get() == STATES.GAME_OVER then return end
+	self._gameEnding = true
 
 	if self._healthConn then
 		self._healthConn:Disconnect()
@@ -280,6 +282,8 @@ function LakelandGameController:_onGameEnd(endReason)
 
 	local finalScore = self._distanceUI.getScore()
 	local finalDistance = self._raceController:GetDistance()
+
+	self._raceController:StopRace()
 
 	local function computeRank(sc)
 		local entries = self._topScores:get()
@@ -344,6 +348,7 @@ function LakelandGameController:_onGameEnd(endReason)
 			pcall(function()
 				self:_cleanup()
 			end)
+			self._gameEnding = false
 			self:_setState(STATES.MENU)
 			self:_startIntroCutscene()
 		end)

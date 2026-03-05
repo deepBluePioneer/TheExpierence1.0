@@ -485,7 +485,6 @@ local LakelandRaceController = Knit.CreateController({
 	_obstaclesVisible = false,
 	_rwLights = {},
 	_rwElapsed = 0,
-	_gateParts = {},
 
 	_lastDifficultyTier = nil,
 	_hardTransitionSmooth = false,
@@ -957,49 +956,6 @@ function LakelandRaceController:_initPools()
 		table.insert(self._rwLights, pair)
 	end
 
-	-- Start / finish gate parts
-	self._gateParts = {}
-	for _, gateInfo in ipairs({
-		{ name = "start", t = 0.001, color = Color3.fromRGB(255, 255, 255) },
-		{ name = "finish", t = 0.998, color = Color3.fromRGB(255, 215, 40) },
-	}) do
-		local parts = {}
-		local line = Instance.new("Part")
-		line.Size = Vector3.new(ROAD_W, 0.12, 2)
-		line.Anchored = true
-		line.CanCollide = false
-		line.Color = gateInfo.color
-		line.Material = Enum.Material.Neon
-		line.Transparency = 1
-		line.Parent = folder
-		parts.line = line
-
-		parts.posts = {}
-		for _, sv in ipairs({ -1, 1 }) do
-			local post = Instance.new("Part")
-			post.Size = Vector3.new(0.5, 7, 0.5)
-			post.Anchored = true
-			post.CanCollide = false
-			post.Color = gateInfo.color
-			post.Material = Enum.Material.Neon
-			post.Transparency = 1
-			post.Parent = folder
-			table.insert(parts.posts, { part = post, sign = sv })
-		end
-
-		local beam = Instance.new("Part")
-		beam.Size = Vector3.new(ROAD_W + 1, 0.4, 0.4)
-		beam.Anchored = true
-		beam.CanCollide = false
-		beam.Color = gateInfo.color
-		beam.Material = Enum.Material.Neon
-		beam.Transparency = 1
-		beam.Parent = folder
-		parts.beam = beam
-		parts.t = gateInfo.t
-
-		self._gateParts[gateInfo.name] = parts
-	end
 
 	-- Static ambient lights around the stationary machine
 	self._machineLights = {}
@@ -1541,34 +1497,6 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		end
 	end
 
-	-- Start / finish gates
-	for _, gateInfo in pairs(self._gateParts) do
-		local gT = gateInfo.t
-		local inWin = gT >= tMin and gT <= tMax
-		if inWin then
-			local gPos = centerSpline:CalculatePositionAt(gT)
-			local gDir = centerSpline:CalculateDerivativeAt(gT)
-			if gDir.Magnitude < 0.001 then gDir = Vector3.new(0, 0, -1) end
-			local wP = toWorld(gPos)
-			local gCF = CFrame.lookAt(wP, wP + gDir.Unit)
-
-			gateInfo.line.CFrame = gCF + Vector3.new(0, 0.02, 0)
-			gateInfo.line.Transparency = 0.1
-
-			for _, postInfo in ipairs(gateInfo.posts) do
-				local pPos = wP + gCF.RightVector * postInfo.sign * (ROAD_HALF_W + 0.5)
-				postInfo.part.CFrame = CFrame.new(pPos + Vector3.new(0, 3.5, 0))
-				postInfo.part.Transparency = 0.1
-			end
-
-			gateInfo.beam.CFrame = gCF * CFrame.new(0, 7, 0)
-			gateInfo.beam.Transparency = 0.1
-		else
-			gateInfo.line.Transparency = 1
-			for _, postInfo in ipairs(gateInfo.posts) do postInfo.part.Transparency = 1 end
-			gateInfo.beam.Transparency = 1
-		end
-	end
 end
 
 ---------------------------------------------------------------------------
