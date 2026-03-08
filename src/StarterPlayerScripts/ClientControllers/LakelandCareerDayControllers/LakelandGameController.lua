@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SoundService = game:GetService("SoundService")
 local StarterPlayer = game:GetService("StarterPlayer")
 
 local Packages = ReplicatedStorage.Packages
@@ -299,6 +300,21 @@ function LakelandGameController:_onGameEnd(endReason)
 	end
 
 	task.spawn(function()
+		if endReason == "DESTROYED" then
+			local cam = self._raceController._cameraController
+			local impactsFolder = SoundService:FindFirstChild("Impacts")
+			local finalSound = impactsFolder and impactsFolder:FindFirstChild("OnImpactHazardFinal")
+			local soundLen = (finalSound and finalSound:IsA("Sound")) and finalSound.TimeLength or 1.5
+			local waitDuration = math.max(soundLen - 2.0, 0.3)
+			if cam then
+				cam:DeathZoom(waitDuration)
+			end
+			task.wait(waitDuration)
+			if cam then
+				cam:ResetZoom()
+			end
+		end
+
 		self._wipe.wipe(function()
 			self:_setState(STATES.GAME_OVER)
 

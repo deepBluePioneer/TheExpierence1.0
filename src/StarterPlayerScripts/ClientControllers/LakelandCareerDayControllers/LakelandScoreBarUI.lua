@@ -15,7 +15,7 @@ local Children = Fusion.Children
 local Spring = Fusion.Spring
 
 local BG_PANEL = Color3.fromRGB(8, 14, 28)
-local BORDER_CYAN = Color3.fromRGB(0, 100, 160)
+local BORDER_CYAN = Color3.fromRGB(0, 140, 200)
 local TRACK_BG = Color3.fromRGB(18, 28, 45)
 local PLAYER_CYAN = Color3.fromRGB(0, 210, 255)
 

@@ -13,7 +13,7 @@ local Children = Fusion.Children
 local Spring = Fusion.Spring
 
 local BG_DARK = Color3.fromRGB(3, 5, 12)
-local BG_PANEL = Color3.fromRGB(10, 16, 30)
+local BG_PANEL = Color3.fromRGB(8, 14, 28)
 local BORDER_CYAN = Color3.fromRGB(0, 140, 200)
 local TEXT_PRIMARY = Color3.fromRGB(220, 235, 255)
 local TEXT_DIM = Color3.fromRGB(70, 100, 140)

@@ -11,11 +11,11 @@ local OnEvent = Fusion.OnEvent
 local Spring = Fusion.Spring
 local ForPairs = Fusion.ForPairs
 
-local BG_PANEL = Color3.fromRGB(10, 16, 30)
+local BG_PANEL = Color3.fromRGB(8, 14, 28)
 local BORDER_CYAN = Color3.fromRGB(0, 140, 200)
 local ACCENT_CYAN = Color3.fromRGB(0, 200, 255)
 local TEXT_PRIMARY = Color3.fromRGB(220, 235, 255)
-local TEXT_DIM = Color3.fromRGB(60, 90, 130)
+local TEXT_DIM = Color3.fromRGB(70, 100, 140)
 local LAUNCH_GREEN = Color3.fromRGB(0, 220, 110)
 local LAUNCH_GREEN_GLOW = Color3.fromRGB(0, 255, 140)
 

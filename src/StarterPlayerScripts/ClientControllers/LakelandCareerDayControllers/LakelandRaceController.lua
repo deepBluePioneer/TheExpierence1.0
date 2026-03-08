@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local SoundService = game:GetService("SoundService")
 local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
 local Debris = game:GetService("Debris")
@@ -14,6 +15,26 @@ local Input = require(Packages.Input)
 
 local CustomPackages = ReplicatedStorage.CustomPackages
 local CatmullRomSpline = require(CustomPackages.Splines.CatmullRomSpline)
+
+local SFX_Impacts = SoundService:FindFirstChild("Impacts")
+local SFX_RandomImpact = SoundService:FindFirstChild("RandonOnImpact")
+local SFX_Countdown = SoundService:FindFirstChild("DuringCountDown")
+
+local function playSound(sound)
+	if sound and sound:IsA("Sound") then
+		sound:Play()
+	end
+end
+
+local function playRandomImpact()
+	if not SFX_RandomImpact then return end
+	local children = SFX_RandomImpact:GetChildren()
+	if #children == 0 then return end
+	local pick = children[math.random(1, #children)]
+	if pick:IsA("Sound") then
+		pick:Play()
+	end
+end
 
 local LANE_COUNT = 3
 local LANE_SPACING = 10
@@ -556,11 +577,23 @@ function LakelandRaceController:KnitStart()
 		if newState == "COUNTDOWN" then
 			self._obstaclesVisible = false
 			self:PositionAtStart()
+			if SFX_Countdown then
+				local ml = SFX_Countdown:FindFirstChild("MachineLoad")
+				if ml then ml:Play() end
+			end
 		elseif newState == "PLAYING" then
 			self._obstaclesVisible = true
 			self:StartRace()
+			if SFX_Countdown then
+				local ml = SFX_Countdown:FindFirstChild("MachineLoad")
+				if ml and ml.IsPlaying then ml:Stop() end
+			end
 		elseif newState == "GAME_OVER" or newState == "MENU" then
 			self:StopRace()
+			if SFX_Countdown then
+				local ml = SFX_Countdown:FindFirstChild("MachineLoad")
+				if ml and ml.IsPlaying then ml:Stop() end
+			end
 		end
 	end)
 end
@@ -1699,6 +1732,7 @@ function LakelandRaceController:_checkCoinCollection()
 			self._coinsCollected = self._coinsCollected + 1
 			self.CoinCollected:Fire(self._coinScore, self._coinsCollected)
 			self:_spawnBurst(Color3.fromRGB(50, 140, 255), Color3.fromRGB(100, 180, 255))
+			playRandomImpact()
 			if self._cameraController then
 				self._cameraController:ShakeCamera(1.2, 0.15, 0, 0, 0.15, Vector3.new(0.6, 0.6, 0.1), Vector3.new(0.03, 0.03, 0.02))
 			end
@@ -1714,6 +1748,7 @@ function LakelandRaceController:_checkBombCollection()
 			self._bombCount = self._bombCount + 1
 			self.BombCollected:Fire(self._bombCount)
 			self:_spawnBurst(Color3.fromRGB(50, 220, 70), Color3.fromRGB(100, 255, 120))
+			if SFX_Impacts then playSound(SFX_Impacts:FindFirstChild("FirePickup")) end
 			if self._cameraController then
 				self._cameraController:ShakeCamera(1.5, 0.12, 0, 0, 0.15, Vector3.new(0.7, 0.7, 0.1), Vector3.new(0.03, 0.03, 0.02))
 			end
@@ -1787,6 +1822,7 @@ function LakelandRaceController:_updateBombChain(dt)
 				self._coinsCollected = self._coinsCollected + 1
 				self.CoinCollected:Fire(self._coinScore, self._coinsCollected)
 				self:_spawnBurst(Color3.fromRGB(50, 140, 255), Color3.fromRGB(100, 180, 255))
+				playRandomImpact()
 				if self._cameraController then
 					self._cameraController:ShakeCamera(1.2, 0.15, 0, 0, 0.15, Vector3.new(0.6, 0.6, 0.1), Vector3.new(0.03, 0.03, 0.02))
 				end
@@ -1852,6 +1888,9 @@ function LakelandRaceController:_updateMovement(dt)
 			self.HealthChanged:Fire(self._health)
 			self.HazardHit:Fire(self._health)
 			self:_spawnBurst(Color3.fromRGB(255, 50, 50), Color3.fromRGB(255, 100, 100))
+			if self._health <= 0 then
+				if SFX_Impacts then playSound(SFX_Impacts:FindFirstChild("OnImpactHazardFinal")) end
+			end
 			if self._cameraController then
 				self._cameraController:ShakeCamera(3, 0.1, 0, 0.05, 0.3, Vector3.new(1.5, 1.5, 0.3), Vector3.new(0.08, 0.08, 0.04))
 				local speedFrac = math.clamp((self._currentSpeed - MOVE_SPEED) / (MAX_SPEED - MOVE_SPEED), 0, 1)

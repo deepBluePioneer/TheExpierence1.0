@@ -52,7 +52,15 @@ function LakelandDistanceUI.new(playerGui, gameState, playerName)
 
 	local animatedScore = Spring(score, 12, 0.8)
 	local scoreDisplay = Computed(function()
-		return string.format("%06d", math.floor(animatedScore:get()))
+		local n = math.floor(animatedScore:get())
+		local s = tostring(n)
+		local parts = {}
+		while #s > 3 do
+			table.insert(parts, 1, s:sub(-3))
+			s = s:sub(1, -4)
+		end
+		table.insert(parts, 1, s)
+		return table.concat(parts, ",")
 	end)
 
 	local screenGui = New "ScreenGui" {

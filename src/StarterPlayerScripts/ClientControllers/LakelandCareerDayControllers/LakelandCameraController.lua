@@ -28,6 +28,10 @@ local LakelandCameraController = Knit.CreateController({
 	_activeShakes = {},
 	_zoomPunchOffset = 0,
 	_zoomPunchVelocity = 0,
+	_deathZoomActive = false,
+	_deathZoomTarget = 0,
+	_deathZoomElapsed = 0,
+	_deathZoomDuration = 1.5,
 })
 
 function LakelandCameraController:KnitInit()
@@ -110,6 +114,17 @@ function LakelandCameraController:ZoomPunch(amount)
 	self._zoomPunchVelocity = 0
 end
 
+function LakelandCameraController:DeathZoom(duration)
+	self._deathZoomActive = true
+	self._deathZoomTarget = -25
+	self._deathZoomElapsed = 0
+	self._deathZoomDuration = duration or 1.5
+end
+
+function LakelandCameraController:ResetZoom()
+	self._deathZoomActive = false
+end
+
 function LakelandCameraController:_update(dt)
 	local camera = Workspace.CurrentCamera
 
@@ -142,13 +157,21 @@ function LakelandCameraController:_update(dt)
 	local fovSpeed = (self._targetFOV > self._currentFOV) and FOV_ATTACK_SPEED or FOV_RECOVER_SPEED
 	self._currentFOV = self._currentFOV + (self._targetFOV - self._currentFOV) * math.min(fovSpeed * dt, 1)
 
-	local stiffness = 180
-	local damping = 14
-	self._zoomPunchVelocity = self._zoomPunchVelocity + (-stiffness * self._zoomPunchOffset - damping * self._zoomPunchVelocity) * dt
-	self._zoomPunchOffset = self._zoomPunchOffset + self._zoomPunchVelocity * dt
-	if math.abs(self._zoomPunchOffset) < 0.05 and math.abs(self._zoomPunchVelocity) < 0.1 then
-		self._zoomPunchOffset = 0
+	if self._deathZoomActive then
+		self._deathZoomElapsed = (self._deathZoomElapsed or 0) + dt
+		local frac = math.clamp(self._deathZoomElapsed / self._deathZoomDuration, 0, 1)
+		local eased = frac * frac * (3 - 2 * frac)
+		self._zoomPunchOffset = self._deathZoomTarget * eased
 		self._zoomPunchVelocity = 0
+	else
+		local stiffness = 180
+		local damping = 14
+		self._zoomPunchVelocity = self._zoomPunchVelocity + (-stiffness * self._zoomPunchOffset - damping * self._zoomPunchVelocity) * dt
+		self._zoomPunchOffset = self._zoomPunchOffset + self._zoomPunchVelocity * dt
+		if math.abs(self._zoomPunchOffset) < 0.05 and math.abs(self._zoomPunchVelocity) < 0.1 then
+			self._zoomPunchOffset = 0
+			self._zoomPunchVelocity = 0
+		end
 	end
 
 	camera.FieldOfView = self._currentFOV + self._zoomPunchOffset
