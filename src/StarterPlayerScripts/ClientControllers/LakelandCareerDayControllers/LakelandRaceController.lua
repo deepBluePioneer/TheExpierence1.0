@@ -19,6 +19,9 @@ local CatmullRomSpline = require(CustomPackages.Splines.CatmullRomSpline)
 local SFX_Impacts = SoundService:FindFirstChild("Impacts")
 local SFX_RandomImpact = SoundService:FindFirstChild("RandonOnImpact")
 local SFX_Countdown = SoundService:FindFirstChild("DuringCountDown")
+local SFX_Flyby = SoundService:FindFirstChild("flyby")
+
+local SFX_BoostPad = SoundService:FindFirstChild("BoostPad")
 
 local function playSoundAt(sound, worldPos, volume)
 	if not sound or not sound:IsA("Sound") then return end
@@ -49,6 +52,31 @@ local function playRandomImpactAt(worldPos, volume)
 	if pick:IsA("Sound") then
 		playSoundAt(pick, worldPos, volume)
 	end
+end
+
+local function playRandomFlybyAt(worldPos, speedFrac)
+	if not SFX_Flyby then return end
+	local children = SFX_Flyby:GetChildren()
+	if #children == 0 then return end
+	local pick = children[math.random(1, #children)]
+	local sf = math.clamp(speedFrac or 0.5, 0, 1)
+	local emitter = Instance.new("Part")
+	emitter.Size = Vector3.new(0.1, 0.1, 0.1)
+	emitter.Transparency = 1
+	emitter.Anchored = true
+	emitter.CanCollide = false
+	emitter.CanQuery = false
+	emitter.CFrame = CFrame.new(worldPos)
+	emitter.Parent = Workspace
+	local clone = pick:Clone()
+	clone.RollOffMode = Enum.RollOffMode.InverseTapered
+	clone.RollOffMinDistance = 20
+	clone.RollOffMaxDistance = 200
+	clone.Volume = 0.2 + sf * 0.8
+	clone.PlaybackSpeed = 0.7 + sf * 0.6
+	clone.Parent = emitter
+	clone:Play()
+	Debris:AddItem(emitter, (clone.TimeLength / clone.PlaybackSpeed) + 0.5)
 end
 
 local LANE_COUNT = 3
@@ -419,7 +447,7 @@ end
 ---------------------------------------------------------------------------
 local FIXED_MACHINE_POS = Vector3.new(0, TRACK_HEIGHT + 5, 0)
 local WINDOW_AHEAD  = 0.025
-local WINDOW_BEHIND = 0.005
+local WINDOW_BEHIND = 0.015
 
 local ROAD_HALF_W = LANE_SPACING * 1.5
 local ROAD_W      = ROAD_HALF_W * 2
@@ -483,6 +511,18 @@ local RW_CHASE_SPEED   = 12
 local RW_FADE_TAIL     = 3
 local RW_DIM_FLOOR     = 0.08
 
+local SPEC_BAND_COUNT   = 32
+local SPEC_SIDE_OFFSET  = ROAD_HALF_W + 1
+local SPEC_BAR_WIDTH    = 1.2
+local SPEC_BAR_DEPTH    = 0.8
+local SPEC_BAR_SPACING  = 4.0
+local SPEC_MAX_HEIGHT   = 12
+local SPEC_MIN_HEIGHT   = 0.5
+local SPEC_GLOW_RANGE   = 20
+local SPEC_GLOW_BRIGHT  = 2.5
+local SPEC_BASS_COLOR   = Color3.fromRGB(255, 50, 180)
+local SPEC_TREBLE_COLOR = Color3.fromRGB(50, 200, 255)
+
 ---------------------------------------------------------------------------
 -- Controller
 ---------------------------------------------------------------------------
@@ -538,6 +578,10 @@ local LakelandRaceController = Knit.CreateController({
 	_bombChainStartT = 0,
 
 	_machineLoadEmitter = nil,
+	_boostSfxEmitter = nil,
+
+	_specBars = {},
+	_specBands = {},
 
 	LaneChanged = Signal.new(),
 	RaceProgress = Signal.new(),
@@ -987,45 +1031,28 @@ function LakelandRaceController:_initPools()
 		self._pools.boostChev[i] = chev
 	end
 
-	-- Runway lights (fixed small set)
-	self._rwLights = {}
-	local centerSpline = self._splines[2].spline
-	for i = 0, RW_COUNT - 1 do
-		local rwT = (i * RW_SPACING_STUDS) / TRACK_LENGTH
-		local cDir = centerSpline:CalculateDerivativeAt(rwT)
-		if cDir.Magnitude < 0.001 then cDir = Vector3.new(0, 0, -1) end
+	-- Spectrum visualizer bars (fixed alongside the player)
+	self._specBars = {}
+	self._specBands = {}
+	for i = 1, SPEC_BAND_COUNT do
+		self._specBands[i] = 0
 
-		local pair = { t = rwT, entries = {} }
+		local entry = {}
 		for _, sign in ipairs({ -1, 1 }) do
 			local bar = Instance.new("Part")
-			bar.Size = Vector3.new(RW_BAR_WIDTH, RW_BAR_HEIGHT, RW_BAR_DEPTH)
+			bar.Size = Vector3.new(SPEC_BAR_WIDTH, SPEC_MIN_HEIGHT, SPEC_BAR_DEPTH)
 			bar.Anchored = true
 			bar.CanCollide = false
-			bar.Color = RW_OFF_COLOR
 			bar.Material = Enum.Material.Neon
-			bar.Transparency = 1
+			bar.Color = Color3.fromRGB(50, 200, 255)
+			bar.Transparency = 0
 			bar.Parent = folder
 
-			local glow = Instance.new("PointLight")
-			glow.Color = RW_ON_COLOR
-			glow.Brightness = 0
-			glow.Range = 30
-			glow.Parent = bar
-
-			local pad = Instance.new("Part")
-			pad.Size = Vector3.new(3, 0.15, 3)
-			pad.Anchored = true
-			pad.CanCollide = false
-			pad.Color = RW_OFF_COLOR
-			pad.Material = Enum.Material.Neon
-			pad.Transparency = 1
-			pad.Parent = folder
-
-			table.insert(pair.entries, { bar = bar, light = glow, pad = pad, sign = sign })
+			local key = sign == -1 and "left" or "right"
+			entry[key] = bar
 		end
-		table.insert(self._rwLights, pair)
+		self._specBars[i] = entry
 	end
-
 
 	-- Static ambient lights around the stationary machine
 	self._machineLights = {}
@@ -1072,6 +1099,12 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	local beat = self._beatIntensity and self._beatIntensity:get() or 0
 	local cubeBeatScale = 1 + beat * 0.25
 
+	local hue = (time() * 0.08) % 1
+	local beatColor = Color3.fromHSV(hue, 0.7, 1)
+	local function beatAccent(zoneAccent)
+		return zoneAccent:Lerp(beatColor, beat * 0.85)
+	end
+
 	local function toWorld(splinePos)
 		return FIXED_MACHINE_POS + (splinePos - centerRef)
 	end
@@ -1113,7 +1146,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local road = self._pools.road[ri]
 			road.Size = Vector3.new(ROAD_W + 2, 0.25, segLen + 0.5)
 			road.CFrame = CFrame.lookAt(wM - Vector3.new(0, 0.15, 0), wM - Vector3.new(0, 0.15, 0) + dir.Unit)
-			road.Transparency = 0.05
+			road.Transparency = 0
 			ri = ri + 1
 		end
 		t = t + ROAD_T_STEP
@@ -1139,7 +1172,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				local line = self._pools.lane[li]
 				line.Size = Vector3.new(0.35, 0.1, segLen + 0.25)
 				line.CFrame = CFrame.lookAt(wM + Vector3.new(0, 0.01, 0), wM + Vector3.new(0, 0.01, 0) + dir.Unit)
-				local accent = zone.accent
+				local accent = beatAccent(zone.accent)
 				local hardColor = Color3.fromRGB(255, 80, 80)
 				if tier == "hard" then
 					line.Color = accent:Lerp(hardColor, 0.55 * hardBlend)
@@ -1167,7 +1200,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		local wP = toWorld(pos)
 		local info = self._pools.light[tli]
 		info.part.Position = wP + Vector3.new(0, 6, 0)
-		local accent = zone.accent
+		local accent = beatAccent(zone.accent)
 		local hardColor = Color3.fromRGB(255, 80, 80)
 		local color = accent
 		local brightness = 0.6
@@ -1213,7 +1246,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local right = fwd:Cross(Vector3.new(0, 1, 0)).Unit
 			local up = Vector3.new(0, 1, 0)
 
-			local accent = zone.accent
+			local accent = beatAccent(zone.accent)
 			local hardColor = Color3.fromRGB(255, 80, 80)
 			local color = accent
 			if tier == "hard" then
@@ -1272,7 +1305,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local side = (sli % 2 == 0) and 1 or -1
 			local center = wP + right * (SIDE_LASER_OFFSET * side) + up * SIDE_LASER_HEIGHT
 
-			local accent = zone.accent
+			local accent = beatAccent(zone.accent)
 			local color = accent
 			if tier == "hard" then
 				color = accent:Lerp(Color3.fromRGB(255, 80, 80), 0.6 * hardBlend)
@@ -1367,6 +1400,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	end
 
 	-- Hazards
+	local playerT = self._t
 	local hi = 1
 	for _, hazard in ipairs(HAZARDS) do
 		if hi > HAZARD_POOL then break end
@@ -1381,6 +1415,10 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local pos = spline:CalculatePositionAt(hazard.t)
 			local wP = toWorld(pos)
 			showCubeAssembly(self._pools.hazard[hi], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha, cubeBeatScale)
+			if not hazard._flybyPlayed and hazard.t <= playerT then
+				hazard._flybyPlayed = true
+				playRandomFlybyAt(wP + Vector3.new(0, 2.5, 0), self._currentSpeed / MAX_SPEED)
+			end
 			hi = hi + 1
 		end
 	end
@@ -1401,6 +1439,10 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local pos = spline:CalculatePositionAt(coin.t)
 			local wP = toWorld(pos)
 			showCubeAssembly(self._pools.coin[ci], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha, cubeBeatScale)
+			if not coin._flybyPlayed and coin.t <= playerT then
+				coin._flybyPlayed = true
+				playRandomFlybyAt(wP + Vector3.new(0, 2.5, 0), self._currentSpeed / MAX_SPEED)
+			end
 			ci = ci + 1
 		end
 	end
@@ -1421,6 +1463,10 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local pos = spline:CalculatePositionAt(bomb.t)
 			local wP = toWorld(pos)
 			showCubeAssembly(self._pools.bomb[bi], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha, cubeBeatScale)
+			if not bomb._flybyPlayed and bomb.t <= playerT then
+				bomb._flybyPlayed = true
+				playRandomFlybyAt(wP + Vector3.new(0, 2.5, 0), self._currentSpeed / MAX_SPEED)
+			end
 			bi = bi + 1
 		end
 	end
@@ -1544,40 +1590,62 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		if pl then pl.Brightness = 0 end
 	end
 
-	-- Runway lights (reposition + chase animation)
-	self._rwElapsed = self._rwElapsed + dt * RW_CHASE_SPEED
-	local rwHead = self._rwElapsed % RW_COUNT
+	-- Spectrum visualizer bars (follow spline, Y-scaled per band + chase effect)
+	local specTime = time()
+	local specLoud = beat
+	local halfSpan = (SPEC_BAND_COUNT - 1) * SPEC_BAR_SPACING * 0.5
+	local specTCenter = self._t
 
-	for idx, pair in ipairs(self._rwLights) do
-		local rwT = pair.t
-		local inWindow = rwT >= tMin and rwT <= tMax
-		local cPos = centerSpline:CalculatePositionAt(rwT)
-		local cDir = centerSpline:CalculateDerivativeAt(rwT)
-		if cDir.Magnitude < 0.001 then cDir = Vector3.new(0, 0, -1) end
-		local wP = toWorld(cPos)
-		local cf = CFrame.lookAt(wP, wP + cDir.Unit)
+	local chaseSpeed = RW_CHASE_SPEED * (0.5 + specLoud * 1.5)
+	self._rwElapsed = self._rwElapsed + dt * chaseSpeed
+	local chaseHead = self._rwElapsed % SPEC_BAND_COUNT
 
-		local behind = (rwHead - (idx - 1)) % RW_COUNT
-		local intensity
-		if behind < 1 then intensity = 1
-		elseif behind < 1 + RW_FADE_TAIL then intensity = math.max(RW_DIM_FLOOR, 1 - (behind - 1) / RW_FADE_TAIL)
-		else intensity = RW_DIM_FLOOR end
+	for i = 1, SPEC_BAND_COUNT do
+		local frac = (i - 1) / (SPEC_BAND_COUNT - 1)
+		local curve = frac * frac
+		local freq = 1.2 + curve * 14
+		local phase = i * 1.1
+		local target = specLoud * (0.55 + 0.45 * math.sin(specTime * freq + phase))
+		target = math.clamp(target, 0, 1)
 
-		local color = RW_OFF_COLOR:Lerp(RW_ON_COLOR, intensity)
-		local bright = inWindow and (intensity * 5) or 0
+		local smoothRate = 3 + curve * 22
+		local prev = self._specBands[i] or 0
+		local smoothed = prev + (target - prev) * math.min(dt * smoothRate, 1)
+		self._specBands[i] = smoothed
 
-		for _, entry in ipairs(pair.entries) do
-			local sidePos = wP + cf.RightVector * entry.sign * RW_SIDE_OFFSET
-			entry.bar.CFrame = CFrame.lookAt(
-				sidePos + Vector3.new(0, RW_BAR_HEIGHT * 0.5, 0),
-				sidePos + Vector3.new(0, RW_BAR_HEIGHT * 0.5, 0) + cDir.Unit
-			)
-			entry.bar.Color = color
-			entry.bar.Transparency = inWindow and 0 or 1
-			entry.light.Brightness = bright
-			entry.pad.CFrame = CFrame.new(sidePos + Vector3.new(0, 0.08, 0))
-			entry.pad.Color = color
-			entry.pad.Transparency = inWindow and 0 or 1
+		local behind = (chaseHead - (i - 1)) % SPEC_BAND_COUNT
+		local chaseIntensity
+		if behind < 1 then chaseIntensity = 1
+		elseif behind < 1 + RW_FADE_TAIL then chaseIntensity = math.max(RW_DIM_FLOOR, 1 - (behind - 1) / RW_FADE_TAIL)
+		else chaseIntensity = RW_DIM_FLOOR end
+
+		local h = SPEC_MIN_HEIGHT + smoothed * (SPEC_MAX_HEIGHT - SPEC_MIN_HEIGHT)
+
+		local chaseColor = beatColor:Lerp(Color3.new(1, 1, 1), chaseIntensity * 0.5)
+
+		local zOff = (i - 1) * SPEC_BAR_SPACING - halfSpan
+		local specT = math.clamp(specTCenter + zOff / TRACK_LENGTH, 0, 1)
+		local sPos = centerSpline:CalculatePositionAt(specT)
+		local sDir = centerSpline:CalculateDerivativeAt(specT)
+		if sDir.Magnitude < 0.001 then sDir = Vector3.new(0, 0, -1) end
+		local wP = toWorld(sPos)
+		local fwd = sDir.Unit
+		local right = fwd:Cross(Vector3.new(0, 1, 0)).Unit
+
+		local entry = self._specBars[i]
+		if entry then
+			for _, side in ipairs({ { key = "left", sign = -1 }, { key = "right", sign = 1 } }) do
+				local bar = entry[side.key]
+				if bar then
+					local sidePos = wP + right * side.sign * SPEC_SIDE_OFFSET
+					bar.Size = Vector3.new(SPEC_BAR_WIDTH, h, SPEC_BAR_DEPTH)
+					bar.Color = chaseColor
+					bar.CFrame = CFrame.lookAt(
+						sidePos + Vector3.new(0, h * 0.5, 0),
+						sidePos + Vector3.new(0, h * 0.5, 0) + fwd
+					)
+				end
+			end
 		end
 	end
 
@@ -1607,7 +1675,7 @@ function LakelandRaceController:PositionAtStart()
 	self._health = MAX_HEALTH
 	self._totalDistance = 0
 
-	for _, hazard in ipairs(HAZARDS) do hazard._hit = false end
+	for _, hazard in ipairs(HAZARDS) do hazard._hit = false; hazard._flybyPlayed = false end
 	self._laneEntryT = 0
 	self._lastEffectiveLane = 2
 	self._countdownDrive = true
@@ -1616,8 +1684,8 @@ function LakelandRaceController:PositionAtStart()
 	self._boostScore = 0
 	self._currentBoostTally = 0
 
-	for _, coin in ipairs(COINS) do coin.collected = false end
-	for _, bomb in ipairs(BOMBS) do bomb.collected = false end
+	for _, coin in ipairs(COINS) do coin.collected = false; coin._flybyPlayed = false end
+	for _, bomb in ipairs(BOMBS) do bomb.collected = false; bomb._flybyPlayed = false end
 	self._bombCount = 0
 	self._hitFreezeTimer = 0
 	self._bombChainActive = false
@@ -1777,7 +1845,7 @@ end
 function LakelandRaceController:_checkCoinCollection()
 	local lane = self:_getEffectiveLane()
 	for _, coin in ipairs(COINS) do
-		if not coin.collected and coin.lane == lane and self._t >= coin.t and self._t <= coin.t + COIN_SIZE then
+		if not coin.collected and coin.lane == lane and coin.t >= self._laneEntryT and self._t >= coin.t and self._t <= coin.t + COIN_SIZE then
 			coin.collected = true
 			self._coinScore = self._coinScore + COIN_VALUE
 			self._coinsCollected = self._coinsCollected + 1
@@ -1794,7 +1862,7 @@ end
 function LakelandRaceController:_checkBombCollection()
 	local lane = self:_getEffectiveLane()
 	for _, bomb in ipairs(BOMBS) do
-		if not bomb.collected and bomb.lane == lane and self._t >= bomb.t and self._t <= bomb.t + BOMB_SIZE then
+		if not bomb.collected and bomb.lane == lane and bomb.t >= self._laneEntryT and self._t >= bomb.t and self._t <= bomb.t + BOMB_SIZE then
 			bomb.collected = true
 			self._bombCount = self._bombCount + 1
 			self.BombCollected:Fire(self._bombCount)
@@ -1933,7 +2001,46 @@ function LakelandRaceController:_updateMovement(dt)
 		local inBoost = self:_isInBoostZone()
 		if inBoost ~= self._boosting then
 			self._boosting = inBoost
-			if inBoost then self._currentBoostTally = 0 end
+			if inBoost then
+				self._currentBoostTally = 0
+				local boostSfx = SFX_BoostPad and SFX_BoostPad:FindFirstChild("BoostPad")
+				if boostSfx then
+					if self._boostSfxEmitter then
+						self._boostSfxEmitter:Destroy()
+						self._boostSfxEmitter = nil
+					end
+					local sf = math.clamp(self._currentSpeed / MAX_SPEED, 0, 1)
+					local emitter = Instance.new("Part")
+					emitter.Size = Vector3.new(0.1, 0.1, 0.1)
+					emitter.Transparency = 1
+					emitter.Anchored = true
+					emitter.CanCollide = false
+					emitter.CanQuery = false
+					emitter.CFrame = CFrame.new(self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS)
+					emitter.Parent = Workspace
+					local targetVol = 0.3 + sf * 0.7
+					local clone = boostSfx:Clone()
+					clone.RollOffMode = Enum.RollOffMode.InverseTapered
+					clone.RollOffMinDistance = 20
+					clone.RollOffMaxDistance = 200
+					clone.Volume = 0
+					clone.PlaybackSpeed = 0.75 + sf * 0.5
+					clone.Parent = emitter
+					clone:Play()
+					TweenService:Create(clone, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = targetVol }):Play()
+					self._boostSfxEmitter = emitter
+				end
+			else
+				if self._boostSfxEmitter then
+					local em = self._boostSfxEmitter
+					self._boostSfxEmitter = nil
+					local snd = em:FindFirstChildOfClass("Sound")
+					if snd then
+						TweenService:Create(snd, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = 0 }):Play()
+					end
+					Debris:AddItem(em, 0.5)
+				end
+			end
 			self.BoostChanged:Fire(inBoost, math.floor(self._currentBoostTally))
 		end
 		if inBoost then

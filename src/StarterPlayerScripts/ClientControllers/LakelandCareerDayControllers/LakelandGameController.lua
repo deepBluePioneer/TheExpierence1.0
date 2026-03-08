@@ -29,6 +29,7 @@ local LakelandEndGameUI = require(ControllersFolder.LakelandEndGameUI)
 local LakelandScoreBarUI = require(ControllersFolder.LakelandScoreBarUI)
 local LakelandBombUI = require(ControllersFolder.LakelandBombUI)
 local LakelandWipeTransition = require(ControllersFolder.LakelandWipeTransition)
+local LakelandBGMToastUI = require(ControllersFolder.LakelandBGMToastUI)
 
 local RACE_DURATION = 120
 local END_SCREEN_DURATION = 5
@@ -57,6 +58,15 @@ local GAME_TRACK_IDS = {
 	"rbxassetid://5410082879",  -- Noisestorm - Escape
 	"rbxassetid://5410084802",  -- Pixel Terror - Chroma
 	"rbxassetid://5410085763",  -- Tokyo Machine - PLAY
+}
+
+local TRACK_NAMES = {
+	["rbxassetid://7028518546"] = "Protostar — New Horizons",
+	["rbxassetid://7023887630"] = "Hyper Potions & Nokae — Expedition",
+	["rbxassetid://5409360995"] = "Dion Timmer — Shiawase",
+	["rbxassetid://5410082879"] = "Noisestorm — Escape",
+	["rbxassetid://5410084802"] = "Pixel Terror — Chroma",
+	["rbxassetid://5410085763"] = "Tokyo Machine — PLAY",
 }
 
 local LakelandGameController = Knit.CreateController({
@@ -200,6 +210,11 @@ function LakelandGameController:_createUI()
 	self._wipe = LakelandWipeTransition.new(playerGui)
 	self._trove:Add(function()
 		self._wipe.destroy()
+	end)
+
+	self._bgmToast = LakelandBGMToastUI.new(playerGui)
+	self._trove:Add(function()
+		self._bgmToast.destroy()
 	end)
 
 	self._trove:Add(function()
@@ -611,7 +626,7 @@ function LakelandGameController:_nextGameTrack()
 	return self._gameTrackOrder[self._gameTrackIndex]
 end
 
-function LakelandGameController:_playBGM(soundId, looping)
+function LakelandGameController:_playBGM(soundId, looping, showToast)
 	if self._bgmEndedConn then
 		self._bgmEndedConn:Disconnect()
 		self._bgmEndedConn = nil
@@ -643,6 +658,11 @@ function LakelandGameController:_playBGM(soundId, looping)
 	fadeIn:Play()
 	self._bgmFadeTween = fadeIn
 
+	if showToast and self._bgmToast then
+		local name = TRACK_NAMES[soundId] or "Unknown Track"
+		self._bgmToast.show(name)
+	end
+
 	if not looping then
 		self._bgmEndedConn = sound.Ended:Once(function()
 			if self._bgmCurrent == sound then
@@ -658,7 +678,7 @@ end
 
 function LakelandGameController:_playNextGameTrack()
 	local id = self:_nextGameTrack()
-	self:_playBGM(id, false)
+	self:_playBGM(id, false, true)
 end
 
 function LakelandGameController:_stopBGM()
