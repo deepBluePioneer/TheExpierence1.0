@@ -92,7 +92,7 @@ end
 
 local LakelandScoreBarUI = {}
 
-function LakelandScoreBarUI.new(playerGui, gameState, topScores, playerName)
+function LakelandScoreBarUI.new(playerGui, gameState, topScores, playerName, beatIntensity)
 	local trove = Trove.new()
 
 	local currentScore = Value(0)
@@ -175,8 +175,14 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores, playerName)
 
 					New "UIStroke" {
 						Color = BORDER_CYAN,
-						Thickness = 1.5,
-						Transparency = 0.35,
+						Thickness = Computed(function()
+							local b = beatIntensity and beatIntensity:get() or 0
+							return 1.5 + b * 3
+						end),
+						Transparency = Computed(function()
+							local b = beatIntensity and beatIntensity:get() or 0
+							return 0.35 - b * 0.3
+						end),
 					},
 
 					New "UIPadding" {
@@ -208,7 +214,10 @@ function LakelandScoreBarUI.new(playerGui, gameState, topScores, playerName)
 							return UDim2.fromScale(0.1, math.clamp(playerFrac:get(), 0, 1))
 						end),
 						BackgroundColor3 = PLAYER_CYAN,
-						BackgroundTransparency = 0.4,
+						BackgroundTransparency = Computed(function()
+							local b = beatIntensity and beatIntensity:get() or 0
+							return 0.4 - b * 0.4
+						end),
 						BorderSizePixel = 0,
 
 						[Children] = {

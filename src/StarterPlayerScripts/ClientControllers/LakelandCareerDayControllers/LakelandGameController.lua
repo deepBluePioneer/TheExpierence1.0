@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 local StarterPlayer = game:GetService("StarterPlayer")
@@ -82,6 +83,8 @@ local LakelandGameController = Knit.CreateController({
 	_gameTrackOrder = {},
 	_gameTrackIndex = 0,
 	_bgmEndedConn = nil,
+	_beatIntensity = nil,
+	_beatConn = nil,
 })
 
 local MAX_LEADERBOARD_ENTRIES = 10
@@ -93,6 +96,7 @@ function LakelandGameController:KnitInit()
 	self._previousNames = Value({})
 	self._currentPlayerName = ""
 	self._playerNameValue = Value("")
+	self._beatIntensity = Value(0)
 end
 
 function LakelandGameController:KnitStart()
@@ -112,6 +116,15 @@ function LakelandGameController:KnitStart()
 
 	self:_startIntroCutscene()
 	self:_playMenuMusic()
+
+	self._beatConn = RunService.Heartbeat:Connect(function(dt)
+		local raw = (self._bgmCurrent and self._bgmCurrent.PlaybackLoudness or 0) / 400
+		raw = math.clamp(raw, 0, 1)
+		local current = self._beatIntensity:get()
+		local smoothed = current + (raw - current) * math.min(dt * 12, 1)
+		self._beatIntensity:set(smoothed)
+	end)
+	self._trove:Add(self._beatConn)
 
 	print("[LakelandGameController] Ready - showing menu")
 end
@@ -152,19 +165,19 @@ function LakelandGameController:_createUI()
 		self._countdown.destroy()
 	end)
 
-	self._raceTimer = LakelandRaceTimerUI.new(playerGui, self._gameState, RACE_DURATION, function()
+	self._raceTimer = LakelandRaceTimerUI.new(playerGui, self._gameState, RACE_DURATION, self._beatIntensity, function()
 		self:_onGameEnd("TIME UP")
 	end)
 	self._trove:Add(function()
 		self._raceTimer.destroy()
 	end)
 
-	self._healthBar = LakelandHealthBarUI.new(playerGui, self._gameState)
+	self._healthBar = LakelandHealthBarUI.new(playerGui, self._gameState, self._beatIntensity)
 	self._trove:Add(function()
 		self._healthBar.destroy()
 	end)
 
-	self._distanceUI = LakelandDistanceUI.new(playerGui, self._gameState, self._playerNameValue)
+	self._distanceUI = LakelandDistanceUI.new(playerGui, self._gameState, self._playerNameValue, self._beatIntensity)
 	self._trove:Add(function()
 		self._distanceUI.destroy()
 	end)
@@ -174,12 +187,12 @@ function LakelandGameController:_createUI()
 		self._endGameUI.destroy()
 	end)
 
-	self._scoreBar = LakelandScoreBarUI.new(playerGui, self._gameState, self._topScores, self._playerNameValue)
+	self._scoreBar = LakelandScoreBarUI.new(playerGui, self._gameState, self._topScores, self._playerNameValue, self._beatIntensity)
 	self._trove:Add(function()
 		self._scoreBar.destroy()
 	end)
 
-	self._bombUI = LakelandBombUI.new(playerGui, self._gameState)
+	self._bombUI = LakelandBombUI.new(playerGui, self._gameState, self._beatIntensity)
 	self._trove:Add(function()
 		self._bombUI.destroy()
 	end)
@@ -679,6 +692,10 @@ end
 
 function LakelandGameController:GetStateValue()
 	return self._gameState
+end
+
+function LakelandGameController:GetBeatIntensity()
+	return self._beatIntensity
 end
 
 return LakelandGameController

@@ -23,7 +23,7 @@ local BOOST_CYAN = Color3.fromRGB(50, 200, 255)
 
 local LakelandDistanceUI = {}
 
-function LakelandDistanceUI.new(playerGui, gameState, playerName)
+function LakelandDistanceUI.new(playerGui, gameState, playerName, beatIntensity)
 	local trove = Trove.new()
 
 	local score = Value(0)
@@ -78,7 +78,11 @@ function LakelandDistanceUI.new(playerGui, gameState, playerName)
 				Position = Computed(function()
 					return UDim2.fromScale(0.5, slideY:get())
 				end),
-				Size = UDim2.fromScale(0.18, 0.13),
+				Size = Computed(function()
+					local b = beatIntensity and beatIntensity:get() or 0
+					local s = 1 + b * 0.06
+					return UDim2.fromScale(0.18 * s, 0.13 * s)
+				end),
 				BackgroundColor3 = BG_PANEL,
 				BackgroundTransparency = 0.12,
 				Visible = visible,
@@ -90,8 +94,14 @@ function LakelandDistanceUI.new(playerGui, gameState, playerName)
 
 					New "UIStroke" {
 						Color = BORDER_CYAN,
-						Thickness = 2,
-						Transparency = 0.15,
+						Thickness = Computed(function()
+							local b = beatIntensity and beatIntensity:get() or 0
+							return 2 + b * 3
+						end),
+						Transparency = Computed(function()
+							local b = beatIntensity and beatIntensity:get() or 0
+							return 0.15 - b * 0.15
+						end),
 					},
 
 					New "UIGradient" {

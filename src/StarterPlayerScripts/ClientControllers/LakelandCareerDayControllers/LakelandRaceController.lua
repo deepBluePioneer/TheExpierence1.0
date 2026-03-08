@@ -34,10 +34,11 @@ local function playSoundAt(sound, worldPos, volume)
 	clone.RollOffMode = Enum.RollOffMode.InverseTapered
 	clone.RollOffMinDistance = 20
 	clone.RollOffMaxDistance = 200
+	clone.PlaybackSpeed = 0.85 + math.random() * 0.3
 	if volume then clone.Volume = volume end
 	clone.Parent = emitter
 	clone:Play()
-	Debris:AddItem(emitter, clone.TimeLength + 0.5)
+	Debris:AddItem(emitter, (clone.TimeLength / clone.PlaybackSpeed) + 0.5)
 end
 
 local function playRandomImpactAt(worldPos, volume)
@@ -589,6 +590,7 @@ function LakelandRaceController:KnitStart()
 	self._cameraController = Knit.GetController("LakelandCameraController")
 
 	local gameController = Knit.GetController("LakelandGameController")
+	self._beatIntensity = gameController:GetBeatIntensity()
 	gameController.GameStateChanged:Connect(function(newState)
 		if newState == "COUNTDOWN" then
 			self._obstaclesVisible = false
@@ -874,6 +876,8 @@ function LakelandRaceController:_initPools()
 			edge:SetAttribute("LocalOffset", e[1])
 		end
 
+		model:SetAttribute("BaseSize", size)
+		model:SetAttribute("CoreSize", size * 0.45)
 		model.Parent = folder
 		return model
 	end
@@ -1064,6 +1068,9 @@ function LakelandRaceController:_updateWorldScroll(dt)
 
 	local tMin = math.max(0, self._t - WINDOW_BEHIND)
 	local tMax = math.min(1, self._t + WINDOW_AHEAD)
+
+	local beat = self._beatIntensity and self._beatIntensity:get() or 0
+	local cubeBeatScale = 1 + beat * 0.25
 
 	local function toWorld(splinePos)
 		return FIXED_MACHINE_POS + (splinePos - centerRef)
@@ -1304,9 +1311,16 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		end
 	end
 
-	local function showCubeAssembly(model, cf, show, alpha)
+	local function showCubeAssembly(model, cf, show, alpha, beatScale)
 		alpha = alpha or 1
+		beatScale = beatScale or 1
 		local shell = model.PrimaryPart
+		local baseSize = model:GetAttribute("BaseSize") or 4
+		local coreSize = model:GetAttribute("CoreSize") or (baseSize * 0.45)
+		local s = baseSize * beatScale
+		local cs = coreSize * beatScale
+
+		shell.Size = Vector3.new(s, s, s)
 		shell.CFrame = cf
 		shell.Transparency = show and (1 - 0.75 * alpha) or 1
 
@@ -1316,18 +1330,22 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			if hl.Enabled then hl.FillTransparency = 1 - 0.7 * alpha end
 		end
 		local light = shell:FindFirstChildOfClass("PointLight")
-		if light then light.Enabled = show and alpha > 0.1 end
+		if light then
+			light.Enabled = show and alpha > 0.1
+			if light.Enabled then light.Brightness = 0.8 + (beatScale - 1) * 8 end
+		end
 
 		for _, child in ipairs(model:GetChildren()) do
 			if child == shell or not child:IsA("BasePart") then continue end
 			if child.Name == "Core" then
 				local spin = (time() * 2.5) % (math.pi * 2)
+				child.Size = Vector3.new(cs, cs, cs)
 				child.CFrame = cf * CFrame.Angles(spin, spin * 0.7, 0)
 				child.Transparency = show and (1 - alpha) or 1
 			else
 				local localOff = child:GetAttribute("LocalOffset")
 				if localOff then
-					child.CFrame = cf * CFrame.new(localOff)
+					child.CFrame = cf * CFrame.new(localOff * beatScale)
 				end
 				child.Transparency = show and (1 - alpha) or 1
 			end
@@ -1362,7 +1380,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local spline = self._splines[hazard.lane].spline
 			local pos = spline:CalculatePositionAt(hazard.t)
 			local wP = toWorld(pos)
-			showCubeAssembly(self._pools.hazard[hi], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha)
+			showCubeAssembly(self._pools.hazard[hi], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha, cubeBeatScale)
 			hi = hi + 1
 		end
 	end
@@ -1382,7 +1400,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local spline = self._splines[coin.lane].spline
 			local pos = spline:CalculatePositionAt(coin.t)
 			local wP = toWorld(pos)
-			showCubeAssembly(self._pools.coin[ci], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha)
+			showCubeAssembly(self._pools.coin[ci], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha, cubeBeatScale)
 			ci = ci + 1
 		end
 	end
@@ -1402,7 +1420,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local spline = self._splines[bomb.lane].spline
 			local pos = spline:CalculatePositionAt(bomb.t)
 			local wP = toWorld(pos)
-			showCubeAssembly(self._pools.bomb[bi], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha)
+			showCubeAssembly(self._pools.bomb[bi], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha, cubeBeatScale)
 			bi = bi + 1
 		end
 	end
@@ -1890,8 +1908,16 @@ function LakelandRaceController:_updateMovement(dt)
 	local machine = Workspace:FindFirstChild("ActiveMachine")
 	if not machine or not machine.PrimaryPart then return end
 
+	if self._bombChainActive then
+		self:_updateBombChain(dt)
+	end
+
 	if self._hitFreezeTimer > 0 then
 		self._hitFreezeTimer = self._hitFreezeTimer - dt
+		return
+	end
+
+	if self._bombChainActive then
 		return
 	end
 
@@ -1940,7 +1966,6 @@ function LakelandRaceController:_updateMovement(dt)
 
 		self:_checkCoinCollection()
 		self:_checkBombCollection()
-		self:_updateBombChain(dt)
 		self.SpeedChanged:Fire(self._currentSpeed)
 	end
 

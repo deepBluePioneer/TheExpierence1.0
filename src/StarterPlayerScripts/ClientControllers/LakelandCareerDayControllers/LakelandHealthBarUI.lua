@@ -26,7 +26,7 @@ local SHIELD_EMPTY = Color3.fromRGB(25, 35, 55)
 
 local LakelandHealthBarUI = {}
 
-function LakelandHealthBarUI.new(playerGui, gameState)
+function LakelandHealthBarUI.new(playerGui, gameState, beatIntensity)
 	local trove = Trove.new()
 
 	local currentHealth = Value(NUM_HEARTS * HEALTH_PER_HEART)
@@ -86,7 +86,11 @@ function LakelandHealthBarUI.new(playerGui, gameState)
 				Position = Computed(function()
 					return UDim2.fromScale(0.44, slideY:get())
 				end),
-				Size = UDim2.fromScale(0.18, 0.05),
+				Size = Computed(function()
+					local b = beatIntensity and beatIntensity:get() or 0
+					local s = 1 + b * 0.06
+					return UDim2.fromScale(0.18 * s, 0.05 * s)
+				end),
 				BackgroundColor3 = BG_PANEL,
 				BackgroundTransparency = 0.15,
 				Visible = visible,
@@ -102,8 +106,14 @@ function LakelandHealthBarUI.new(playerGui, gameState)
 							if h <= HEALTH_PER_HEART then return Color3.fromRGB(255, 50, 50) end
 							return BORDER_CYAN
 						end),
-						Thickness = 2,
-						Transparency = 0.2,
+						Thickness = Computed(function()
+							local b = beatIntensity and beatIntensity:get() or 0
+							return 2 + b * 3
+						end),
+						Transparency = Computed(function()
+							local b = beatIntensity and beatIntensity:get() or 0
+							return 0.2 - b * 0.2
+						end),
 					},
 
 					New "UIGradient" {

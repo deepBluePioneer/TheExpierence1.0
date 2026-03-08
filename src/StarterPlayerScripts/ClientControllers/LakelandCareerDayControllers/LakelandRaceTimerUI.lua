@@ -21,7 +21,7 @@ local DANGER_RED = Color3.fromRGB(255, 50, 50)
 
 local LakelandRaceTimerUI = {}
 
-function LakelandRaceTimerUI.new(playerGui, gameState, raceDuration, onTimeUp)
+function LakelandRaceTimerUI.new(playerGui, gameState, raceDuration, beatIntensity, onTimeUp)
 	local trove = Trove.new()
 	local safeDuration = math.max(1, tonumber(raceDuration) or 120)
 	local timeRemaining = Value(safeDuration)
@@ -88,8 +88,14 @@ function LakelandRaceTimerUI.new(playerGui, gameState, raceDuration, onTimeUp)
 
 					New "UIStroke" {
 						Color = borderColor,
-						Thickness = 2,
-						Transparency = 0.2,
+						Thickness = Computed(function()
+							local b = beatIntensity and beatIntensity:get() or 0
+							return 2 + b * 3
+						end),
+						Transparency = Computed(function()
+							local b = beatIntensity and beatIntensity:get() or 0
+							return 0.2 - b * 0.2
+						end),
 					},
 
 					New "UIGradient" {

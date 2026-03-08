@@ -21,7 +21,7 @@ local TIP_CYAN = Color3.fromRGB(0, 200, 255)
 
 local LakelandBombUI = {}
 
-function LakelandBombUI.new(playerGui, gameState)
+function LakelandBombUI.new(playerGui, gameState, beatIntensity)
 	local trove = Trove.new()
 
 	local bombCount = Value(0)
@@ -75,8 +75,14 @@ function LakelandBombUI.new(playerGui, gameState)
 
 					New "UIStroke" {
 						Color = BORDER_GREEN,
-						Thickness = 2,
-						Transparency = 0.2,
+						Thickness = Computed(function()
+							local b = beatIntensity and beatIntensity:get() or 0
+							return 2 + b * 3
+						end),
+						Transparency = Computed(function()
+							local b = beatIntensity and beatIntensity:get() or 0
+							return 0.2 - b * 0.2
+						end),
 					},
 
 					New "UIGradient" {
