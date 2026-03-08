@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
+local TweenService = game:GetService("TweenService")
 local StarterPlayer = game:GetService("StarterPlayer")
 
 local Packages = ReplicatedStorage.Packages
@@ -41,6 +42,22 @@ local STATES = {
 	GAME_OVER = "GAME_OVER",
 }
 
+---------------------------------------------------------------------------
+-- Background Music
+---------------------------------------------------------------------------
+local BGM_FADE_TIME = 1.5
+local BGM_VOLUME = 0.35
+
+local MENU_TRACK_ID = "rbxassetid://7028518546"  -- Protostar - New Horizons
+
+local GAME_TRACK_IDS = {
+	"rbxassetid://7023887630",  -- Hyper Potions & Nokae - Expedition
+	"rbxassetid://5409360995",  -- Dion Timmer - Shiawase
+	"rbxassetid://5410082879",  -- Noisestorm - Escape
+	"rbxassetid://5410084802",  -- Pixel Terror - Chroma
+	"rbxassetid://5410085763",  -- Tokyo Machine - PLAY
+}
+
 local LakelandGameController = Knit.CreateController({
 	Name = "LakelandGameController",
 
@@ -59,6 +76,12 @@ local LakelandGameController = Knit.CreateController({
 	_healthConn = nil,
 	_introCutscene = nil,
 	_gameEnding = false,
+
+	_bgmCurrent = nil,
+	_bgmFadeTween = nil,
+	_gameTrackOrder = {},
+	_gameTrackIndex = 0,
+	_bgmEndedConn = nil,
 })
 
 local MAX_LEADERBOARD_ENTRIES = 10
@@ -88,6 +111,7 @@ function LakelandGameController:KnitStart()
 	end
 
 	self:_startIntroCutscene()
+	self:_playMenuMusic()
 
 	print("[LakelandGameController] Ready - showing menu")
 end
@@ -168,6 +192,10 @@ function LakelandGameController:_createUI()
 	self._trove:Add(function()
 		self:_stopIntroCutscene()
 	end)
+
+	self._trove:Add(function()
+		self:_stopBGM()
+	end)
 end
 
 function LakelandGameController:_startIntroCutscene()
@@ -237,6 +265,8 @@ function LakelandGameController:_onNameConfirmed(name)
 			self._healthBar.reset()
 			self._scoreBar.reset()
 			self._bombUI.reset()
+			self:_shuffleGameTracks()
+			self:_playNextGameTrack()
 			self:_setState(STATES.COUNTDOWN)
 			self._countdown.start()
 		end)
@@ -365,6 +395,7 @@ function LakelandGameController:_onGameEnd(endReason)
 				self:_cleanup()
 			end)
 			self._gameEnding = false
+			self:_playMenuMusic()
 			self:_setState(STATES.MENU)
 			self:_startIntroCutscene()
 		end)
@@ -537,6 +568,105 @@ end
 function LakelandGameController:SubmitScore(score)
 	self._dataService:SubmitScore(self._currentPlayerName, score):expect()
 	self:_refreshLeaderboard()
+end
+
+----------------------------------------------------------------
+-- Background Music
+----------------------------------------------------------------
+
+function LakelandGameController:_shuffleGameTracks()
+	self._gameTrackOrder = {}
+	for i, id in ipairs(GAME_TRACK_IDS) do
+		self._gameTrackOrder[i] = id
+	end
+	for i = #self._gameTrackOrder, 2, -1 do
+		local j = math.random(1, i)
+		self._gameTrackOrder[i], self._gameTrackOrder[j] = self._gameTrackOrder[j], self._gameTrackOrder[i]
+	end
+	self._gameTrackIndex = 0
+end
+
+function LakelandGameController:_nextGameTrack()
+	if #self._gameTrackOrder == 0 then
+		self:_shuffleGameTracks()
+	end
+	self._gameTrackIndex = self._gameTrackIndex + 1
+	if self._gameTrackIndex > #self._gameTrackOrder then
+		self:_shuffleGameTracks()
+		self._gameTrackIndex = 1
+	end
+	return self._gameTrackOrder[self._gameTrackIndex]
+end
+
+function LakelandGameController:_playBGM(soundId, looping)
+	if self._bgmEndedConn then
+		self._bgmEndedConn:Disconnect()
+		self._bgmEndedConn = nil
+	end
+	if self._bgmFadeTween then
+		self._bgmFadeTween:Cancel()
+		self._bgmFadeTween = nil
+	end
+
+	local old = self._bgmCurrent
+	if old then
+		local fadeOut = TweenService:Create(old, TweenInfo.new(BGM_FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = 0 })
+		fadeOut:Play()
+		fadeOut.Completed:Once(function()
+			old:Stop()
+			old:Destroy()
+		end)
+	end
+
+	local sound = Instance.new("Sound")
+	sound.SoundId = soundId
+	sound.Volume = 0
+	sound.Looped = looping or false
+	sound.Parent = SoundService
+	self._bgmCurrent = sound
+	sound:Play()
+
+	local fadeIn = TweenService:Create(sound, TweenInfo.new(BGM_FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Volume = BGM_VOLUME })
+	fadeIn:Play()
+	self._bgmFadeTween = fadeIn
+
+	if not looping then
+		self._bgmEndedConn = sound.Ended:Once(function()
+			if self._bgmCurrent == sound then
+				self:_playNextGameTrack()
+			end
+		end)
+	end
+end
+
+function LakelandGameController:_playMenuMusic()
+	self:_playBGM(MENU_TRACK_ID, true)
+end
+
+function LakelandGameController:_playNextGameTrack()
+	local id = self:_nextGameTrack()
+	self:_playBGM(id, false)
+end
+
+function LakelandGameController:_stopBGM()
+	if self._bgmEndedConn then
+		self._bgmEndedConn:Disconnect()
+		self._bgmEndedConn = nil
+	end
+	if self._bgmFadeTween then
+		self._bgmFadeTween:Cancel()
+		self._bgmFadeTween = nil
+	end
+	if self._bgmCurrent then
+		local snd = self._bgmCurrent
+		local fadeOut = TweenService:Create(snd, TweenInfo.new(BGM_FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = 0 })
+		fadeOut:Play()
+		fadeOut.Completed:Once(function()
+			snd:Stop()
+			snd:Destroy()
+		end)
+		self._bgmCurrent = nil
+	end
 end
 
 ----------------------------------------------------------------

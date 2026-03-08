@@ -20,19 +20,33 @@ local SFX_Impacts = SoundService:FindFirstChild("Impacts")
 local SFX_RandomImpact = SoundService:FindFirstChild("RandonOnImpact")
 local SFX_Countdown = SoundService:FindFirstChild("DuringCountDown")
 
-local function playSound(sound)
-	if sound and sound:IsA("Sound") then
-		sound:Play()
-	end
+local function playSoundAt(sound, worldPos, volume)
+	if not sound or not sound:IsA("Sound") then return end
+	local emitter = Instance.new("Part")
+	emitter.Size = Vector3.new(0.1, 0.1, 0.1)
+	emitter.Transparency = 1
+	emitter.Anchored = true
+	emitter.CanCollide = false
+	emitter.CanQuery = false
+	emitter.CFrame = CFrame.new(worldPos)
+	emitter.Parent = Workspace
+	local clone = sound:Clone()
+	clone.RollOffMode = Enum.RollOffMode.InverseTapered
+	clone.RollOffMinDistance = 20
+	clone.RollOffMaxDistance = 200
+	if volume then clone.Volume = volume end
+	clone.Parent = emitter
+	clone:Play()
+	Debris:AddItem(emitter, clone.TimeLength + 0.5)
 end
 
-local function playRandomImpact()
+local function playRandomImpactAt(worldPos, volume)
 	if not SFX_RandomImpact then return end
 	local children = SFX_RandomImpact:GetChildren()
 	if #children == 0 then return end
 	local pick = children[math.random(1, #children)]
 	if pick:IsA("Sound") then
-		pick:Play()
+		playSoundAt(pick, worldPos, volume)
 	end
 end
 
@@ -522,6 +536,8 @@ local LakelandRaceController = Knit.CreateController({
 	_bombChainLane = 2,
 	_bombChainStartT = 0,
 
+	_machineLoadEmitter = nil,
+
 	LaneChanged = Signal.new(),
 	RaceProgress = Signal.new(),
 	BoostChanged = Signal.new(),
@@ -579,20 +595,37 @@ function LakelandRaceController:KnitStart()
 			self:PositionAtStart()
 			if SFX_Countdown then
 				local ml = SFX_Countdown:FindFirstChild("MachineLoad")
-				if ml then ml:Play() end
+				if ml then
+					if self._machineLoadEmitter then
+						self._machineLoadEmitter:Destroy()
+						self._machineLoadEmitter = nil
+					end
+					local emitter = Instance.new("Part")
+					emitter.Size = Vector3.new(0.1, 0.1, 0.1)
+					emitter.Transparency = 1
+					emitter.Anchored = true
+					emitter.CanCollide = false
+					emitter.CanQuery = false
+					emitter.CFrame = CFrame.new(FIXED_MACHINE_POS)
+					emitter.Parent = Workspace
+					local clone = ml:Clone()
+					clone.Parent = emitter
+					clone:Play()
+					self._machineLoadEmitter = emitter
+				end
 			end
 		elseif newState == "PLAYING" then
 			self._obstaclesVisible = true
 			self:StartRace()
-			if SFX_Countdown then
-				local ml = SFX_Countdown:FindFirstChild("MachineLoad")
-				if ml and ml.IsPlaying then ml:Stop() end
+			if self._machineLoadEmitter then
+				self._machineLoadEmitter:Destroy()
+				self._machineLoadEmitter = nil
 			end
 		elseif newState == "GAME_OVER" or newState == "MENU" then
 			self:StopRace()
-			if SFX_Countdown then
-				local ml = SFX_Countdown:FindFirstChild("MachineLoad")
-				if ml and ml.IsPlaying then ml:Stop() end
+			if self._machineLoadEmitter then
+				self._machineLoadEmitter:Destroy()
+				self._machineLoadEmitter = nil
 			end
 		end
 	end)
@@ -1732,7 +1765,7 @@ function LakelandRaceController:_checkCoinCollection()
 			self._coinsCollected = self._coinsCollected + 1
 			self.CoinCollected:Fire(self._coinScore, self._coinsCollected)
 			self:_spawnBurst(Color3.fromRGB(50, 140, 255), Color3.fromRGB(100, 180, 255))
-			playRandomImpact()
+			playRandomImpactAt(self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS)
 			if self._cameraController then
 				self._cameraController:ShakeCamera(1.2, 0.15, 0, 0, 0.15, Vector3.new(0.6, 0.6, 0.1), Vector3.new(0.03, 0.03, 0.02))
 			end
@@ -1748,7 +1781,7 @@ function LakelandRaceController:_checkBombCollection()
 			self._bombCount = self._bombCount + 1
 			self.BombCollected:Fire(self._bombCount)
 			self:_spawnBurst(Color3.fromRGB(50, 220, 70), Color3.fromRGB(100, 255, 120))
-			if SFX_Impacts then playSound(SFX_Impacts:FindFirstChild("FirePickup")) end
+			if SFX_Impacts then playSoundAt(SFX_Impacts:FindFirstChild("FirePickup"), self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS) end
 			if self._cameraController then
 				self._cameraController:ShakeCamera(1.5, 0.12, 0, 0, 0.15, Vector3.new(0.7, 0.7, 0.1), Vector3.new(0.03, 0.03, 0.02))
 			end
@@ -1806,6 +1839,7 @@ function LakelandRaceController:_updateBombChain(dt)
 				and math.abs(hazard.t - chainT) < 0.002 then
 				hazard._hit = true
 				self:_spawnBurst(Color3.fromRGB(255, 160, 30), Color3.fromRGB(255, 200, 80))
+				playRandomImpactAt(wP, 2)
 				self._hitFreezeTimer = math.max(self._hitFreezeTimer, BOMB_HIT_FREEZE)
 				if self._cameraController then
 					self._cameraController:ShakeCamera(2.5, 0.08, 0, 0.04, 0.2, Vector3.new(1.2, 1.2, 0.2), Vector3.new(0.06, 0.06, 0.03))
@@ -1822,7 +1856,7 @@ function LakelandRaceController:_updateBombChain(dt)
 				self._coinsCollected = self._coinsCollected + 1
 				self.CoinCollected:Fire(self._coinScore, self._coinsCollected)
 				self:_spawnBurst(Color3.fromRGB(50, 140, 255), Color3.fromRGB(100, 180, 255))
-				playRandomImpact()
+				playRandomImpactAt(wP, 2)
 				if self._cameraController then
 					self._cameraController:ShakeCamera(1.2, 0.15, 0, 0, 0.15, Vector3.new(0.6, 0.6, 0.1), Vector3.new(0.03, 0.03, 0.02))
 				end
@@ -1836,6 +1870,7 @@ function LakelandRaceController:_updateBombChain(dt)
 				self._bombCount = self._bombCount + 1
 				self.BombCollected:Fire(self._bombCount)
 				self:_spawnBurst(Color3.fromRGB(50, 220, 70), Color3.fromRGB(100, 255, 120))
+				if SFX_Impacts then playSoundAt(SFX_Impacts:FindFirstChild("FirePickup"), wP, 2) end
 				if self._cameraController then
 					self._cameraController:ShakeCamera(1.5, 0.12, 0, 0, 0.15, Vector3.new(0.7, 0.7, 0.1), Vector3.new(0.03, 0.03, 0.02))
 				end
@@ -1889,7 +1924,9 @@ function LakelandRaceController:_updateMovement(dt)
 			self.HazardHit:Fire(self._health)
 			self:_spawnBurst(Color3.fromRGB(255, 50, 50), Color3.fromRGB(255, 100, 100))
 			if self._health <= 0 then
-				if SFX_Impacts then playSound(SFX_Impacts:FindFirstChild("OnImpactHazardFinal")) end
+				if SFX_Impacts then playSoundAt(SFX_Impacts:FindFirstChild("OnImpactHazardFinal"), self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS) end
+			else
+				playRandomImpactAt(self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS)
 			end
 			if self._cameraController then
 				self._cameraController:ShakeCamera(3, 0.1, 0, 0.05, 0.3, Vector3.new(1.5, 1.5, 0.3), Vector3.new(0.08, 0.08, 0.04))
