@@ -48,25 +48,17 @@ local STATES = {
 -- Background Music
 ---------------------------------------------------------------------------
 local BGM_FADE_TIME = 1.5
-local BGM_VOLUME = 0.35
+local BGM_VOLUME = 0.25
 
 local MENU_TRACK_ID = "rbxassetid://7028518546"  -- Protostar - New Horizons
 
 local GAME_TRACK_IDS = {
-	"rbxassetid://7023887630",  -- Hyper Potions & Nokae - Expedition
 	"rbxassetid://5409360995",  -- Dion Timmer - Shiawase
-	"rbxassetid://5410082879",  -- Noisestorm - Escape
-	"rbxassetid://5410084802",  -- Pixel Terror - Chroma
-	"rbxassetid://5410085763",  -- Tokyo Machine - PLAY
 }
 
 local TRACK_NAMES = {
 	["rbxassetid://7028518546"] = "Protostar — New Horizons",
-	["rbxassetid://7023887630"] = "Hyper Potions & Nokae — Expedition",
 	["rbxassetid://5409360995"] = "Dion Timmer — Shiawase",
-	["rbxassetid://5410082879"] = "Noisestorm — Escape",
-	["rbxassetid://5410084802"] = "Pixel Terror — Chroma",
-	["rbxassetid://5410085763"] = "Tokyo Machine — PLAY",
 }
 
 local LakelandGameController = Knit.CreateController({
@@ -156,7 +148,7 @@ end
 function LakelandGameController:_createUI()
 	local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-	self._menuCleanup = LakelandMenuUI.new(playerGui, self._gameState, self._topScores, function()
+	self._menuCleanup = LakelandMenuUI.new(playerGui, self._gameState, self._topScores, self._beatIntensity, function()
 		self:_onPlayPressed()
 	end)
 	self._trove:Add(self._menuCleanup)
