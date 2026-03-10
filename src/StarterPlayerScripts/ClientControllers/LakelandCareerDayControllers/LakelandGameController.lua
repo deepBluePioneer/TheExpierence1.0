@@ -1,4 +1,5 @@
 local Players = game:GetService("Players")
+local Lighting = game:GetService("Lighting")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
@@ -336,6 +337,25 @@ function LakelandGameController:_onGameEnd(endReason)
 
 	self._raceController:StopRace()
 
+	if self._bgmCurrent then
+		if self._bgmFadeTween then
+			self._bgmFadeTween:Cancel()
+			self._bgmFadeTween = nil
+		end
+		if self._bgmEndedConn then
+			self._bgmEndedConn:Disconnect()
+			self._bgmEndedConn = nil
+		end
+		local snd = self._bgmCurrent
+		local fadeOut = TweenService:Create(snd, TweenInfo.new(2.0, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = 0 })
+		fadeOut:Play()
+		fadeOut.Completed:Once(function()
+			snd:Stop()
+			snd:Destroy()
+		end)
+		self._bgmCurrent = nil
+	end
+
 	local function computeRank(sc)
 		local entries = self._topScores:get()
 		for i, entry in ipairs(entries) do
@@ -356,6 +376,20 @@ function LakelandGameController:_onGameEnd(endReason)
 			local finalSound = impactsFolder and impactsFolder:FindFirstChild("OnImpactHazardFinal")
 			local soundLen = (finalSound and finalSound:IsA("Sound")) and finalSound.TimeLength or 1.5
 			local waitDuration = math.max(soundLen - 2.0, 0.3)
+
+			local cc = Instance.new("ColorCorrectionEffect")
+			cc.Name = "DeathDesaturate"
+			cc.Saturation = 0
+			cc.Brightness = 0
+			cc.Contrast = 0
+			cc.Parent = Lighting
+			self._deathCC = cc
+			TweenService:Create(cc, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				Saturation = -1,
+				Brightness = -0.1,
+				Contrast = 0.15,
+			}):Play()
+
 			if cam then
 				cam:DeathZoom(waitDuration)
 			end
@@ -366,6 +400,10 @@ function LakelandGameController:_onGameEnd(endReason)
 		end
 
 		self._wipe.wipe(function()
+			if self._deathCC then
+				self._deathCC:Destroy()
+				self._deathCC = nil
+			end
 			self:_setState(STATES.GAME_OVER)
 
 			self._endGameUI.show({

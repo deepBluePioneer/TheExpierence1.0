@@ -23,7 +23,7 @@ local SFX_Flyby = SoundService:FindFirstChild("flyby")
 
 local SFX_BoostPad = SoundService:FindFirstChild("BoostPad")
 
-local function playSoundAt(sound, worldPos, volume)
+local function playSoundAt(sound, worldPos, volume, pitch)
 	if not sound or not sound:IsA("Sound") then return end
 	local emitter = Instance.new("Part")
 	emitter.Size = Vector3.new(0.1, 0.1, 0.1)
@@ -37,20 +37,20 @@ local function playSoundAt(sound, worldPos, volume)
 	clone.RollOffMode = Enum.RollOffMode.InverseTapered
 	clone.RollOffMinDistance = 20
 	clone.RollOffMaxDistance = 200
-	clone.PlaybackSpeed = 0.85 + math.random() * 0.3
+	clone.PlaybackSpeed = pitch or (0.85 + math.random() * 0.3)
 	if volume then clone.Volume = volume end
 	clone.Parent = emitter
 	clone:Play()
 	Debris:AddItem(emitter, (clone.TimeLength / clone.PlaybackSpeed) + 0.5)
 end
 
-local function playRandomImpactAt(worldPos, volume)
+local function playRandomImpactAt(worldPos, volume, pitch)
 	if not SFX_RandomImpact then return end
 	local children = SFX_RandomImpact:GetChildren()
 	if #children == 0 then return end
 	local pick = children[math.random(1, #children)]
 	if pick:IsA("Sound") then
-		playSoundAt(pick, worldPos, volume)
+		playSoundAt(pick, worldPos, volume, pitch)
 	end
 end
 
@@ -523,6 +523,14 @@ local SPEC_GLOW_BRIGHT  = 2.5
 local SPEC_BASS_COLOR   = Color3.fromRGB(255, 50, 180)
 local SPEC_TREBLE_COLOR = Color3.fromRGB(50, 200, 255)
 
+local COMBO_WINDOW = 2.0
+
+local GLOW_PILLAR_POOL   = 20
+local GLOW_PILLAR_SIZE   = Vector3.new(0.15, 20, 0.15)
+local GLOW_HAZARD_COLOR  = Color3.fromRGB(255, 50, 50)
+local GLOW_COIN_COLOR    = Color3.fromRGB(50, 140, 255)
+local GLOW_BOMB_COLOR    = Color3.fromRGB(50, 220, 70)
+
 ---------------------------------------------------------------------------
 -- Controller
 ---------------------------------------------------------------------------
@@ -582,6 +590,9 @@ local LakelandRaceController = Knit.CreateController({
 
 	_specBars = {},
 	_specBands = {},
+
+	_comboCount = 0,
+	_comboTimer = 0,
 
 	LaneChanged = Signal.new(),
 	RaceProgress = Signal.new(),
@@ -1054,6 +1065,19 @@ function LakelandRaceController:_initPools()
 		self._specBars[i] = entry
 	end
 
+	self._glowPillars = {}
+	for i = 1, GLOW_PILLAR_POOL do
+		local p = Instance.new("Part")
+		p.Name = "GlowPillar_" .. i
+		p.Size = GLOW_PILLAR_SIZE
+		p.Anchored = true
+		p.CanCollide = false
+		p.Material = Enum.Material.Neon
+		p.Transparency = 1
+		p.Parent = folder
+		self._glowPillars[i] = p
+	end
+
 	-- Static ambient lights around the stationary machine
 	self._machineLights = {}
 	local lightConfigs = {
@@ -1472,6 +1496,42 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	end
 	for i = bi, BOMB_PICKUP_POOL do hideCubeAssembly(self._pools.bomb[i]) end
 
+	-- Anticipation glow pillars above cubes ahead of player
+	local gi = 1
+	if self._obstaclesVisible then
+		local function placeGlow(blockT, lane, color)
+			if gi > GLOW_PILLAR_POOL then return end
+			if blockT <= self._t then return end
+			local spline = self._splines[lane].spline
+			local pos = spline:CalculatePositionAt(blockT)
+			local wP = toWorld(pos)
+			local dist01 = math.clamp((blockT - self._t) / WINDOW_AHEAD, 0, 1)
+			local pillar = self._glowPillars[gi]
+			pillar.CFrame = CFrame.new(wP + Vector3.new(0, GLOW_PILLAR_SIZE.Y * 0.5 + 2.5, 0))
+			pillar.Color = color
+			pillar.Transparency = 0.5 + dist01 * 0.4
+			gi = gi + 1
+		end
+		for _, hazard in ipairs(HAZARDS) do
+			if not hazard._hit and hazard.t >= tMin and hazard.t <= tMax then
+				placeGlow(hazard.t, hazard.lane, GLOW_HAZARD_COLOR)
+			end
+		end
+		for _, coin in ipairs(COINS) do
+			if not coin.collected and coin.t >= tMin and coin.t <= tMax then
+				placeGlow(coin.t, coin.lane, GLOW_COIN_COLOR)
+			end
+		end
+		for _, bomb in ipairs(BOMBS) do
+			if not bomb.collected and bomb.t >= tMin and bomb.t <= tMax then
+				placeGlow(bomb.t, bomb.lane, GLOW_BOMB_COLOR)
+			end
+		end
+	end
+	for i = gi, GLOW_PILLAR_POOL do
+		self._glowPillars[i].Transparency = 1
+	end
+
 	-- Bomb indicators orbiting the player's machine (evenly spaced)
 	local showCount = math.min(self._bombCount, BOMB_IND_MAX)
 	for i = 1, BOMB_IND_MAX do
@@ -1693,6 +1753,8 @@ function LakelandRaceController:PositionAtStart()
 	self._bombChainCount = 0
 	self._lastDifficultyTier = nil
 	self._difficultyTransitionProgress = 0
+	self._comboCount = 0
+	self._comboTimer = 0
 
 	task.spawn(function()
 		local machine = Workspace:WaitForChild("ActiveMachine", 5)
@@ -1741,6 +1803,16 @@ function LakelandRaceController:StopRace()
 	self._currentBoostTally = 0
 	self._boostScore = 0
 	self._inputTrove:Clean()
+
+	if self._boostSfxEmitter then
+		local em = self._boostSfxEmitter
+		self._boostSfxEmitter = nil
+		local snd = em:FindFirstChildOfClass("Sound")
+		if snd then
+			TweenService:Create(snd, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = 0 }):Play()
+		end
+		Debris:AddItem(em, 0.7)
+	end
 
 	if self._renderConn then
 		RunService:UnbindFromRenderStep("LakelandMachineUpdate")
@@ -1847,11 +1919,16 @@ function LakelandRaceController:_checkCoinCollection()
 	for _, coin in ipairs(COINS) do
 		if not coin.collected and coin.lane == lane and coin.t >= self._laneEntryT and self._t >= coin.t and self._t <= coin.t + COIN_SIZE then
 			coin.collected = true
-			self._coinScore = self._coinScore + COIN_VALUE
+			self._comboCount = self._comboCount + 1
+			self._comboTimer = COMBO_WINDOW
+			local multiplier = math.max(self._comboCount, 1)
+			local earned = COIN_VALUE * multiplier
+			self._coinScore = self._coinScore + earned
 			self._coinsCollected = self._coinsCollected + 1
-			self.CoinCollected:Fire(self._coinScore, self._coinsCollected)
+			self.CoinCollected:Fire(self._coinScore, self._coinsCollected, self._comboCount, earned)
 			self:_spawnBurst(Color3.fromRGB(50, 140, 255), Color3.fromRGB(100, 180, 255))
-			playRandomImpactAt(self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS)
+			local comboPitch = 0.85 + math.min(self._comboCount, 10) * 0.08
+			playRandomImpactAt(self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS, nil, comboPitch)
 			if self._cameraController then
 				self._cameraController:ShakeCamera(1.2, 0.15, 0, 0, 0.15, Vector3.new(0.6, 0.6, 0.1), Vector3.new(0.03, 0.03, 0.02))
 			end
@@ -1989,6 +2066,14 @@ function LakelandRaceController:_updateMovement(dt)
 		return
 	end
 
+	if self._comboTimer > 0 then
+		self._comboTimer = self._comboTimer - dt
+		if self._comboTimer <= 0 then
+			self._comboCount = 0
+			self._comboTimer = 0
+		end
+	end
+
 	if not self._countdownDrive then
 		if self._launching then
 			self._currentSpeed = self._currentSpeed + LAUNCH_ACCEL * dt
@@ -2053,6 +2138,8 @@ function LakelandRaceController:_updateMovement(dt)
 		if hitHazard and not hitHazard._hit then
 			hitHazard._hit = true
 			self._health = math.max(self._health - HAZARD_DAMAGE, 0)
+			self._comboCount = 0
+			self._comboTimer = 0
 			self.HealthChanged:Fire(self._health)
 			self.HazardHit:Fire(self._health)
 			self:_spawnBurst(Color3.fromRGB(255, 50, 50), Color3.fromRGB(255, 100, 100))
@@ -2231,5 +2318,6 @@ function LakelandRaceController:GetTrackLength() return TRACK_LENGTH end
 function LakelandRaceController:GetCoinScore() return self._coinScore + math.floor(self._boostScore) end
 function LakelandRaceController:GetCoinsCollected() return self._coinsCollected end
 function LakelandRaceController:GetCurrentScore() return math.floor(self._totalDistance * 10) + self._coinScore + math.floor(self._boostScore) end
+function LakelandRaceController:GetComboCount() return self._comboCount end
 
 return LakelandRaceController

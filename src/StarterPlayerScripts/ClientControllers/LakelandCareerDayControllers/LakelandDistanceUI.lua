@@ -20,6 +20,7 @@ local TEXT_DIM = Color3.fromRGB(70, 100, 140)
 local SCORE_GOLD = Color3.fromRGB(255, 220, 60)
 local PLAYER_CYAN = Color3.fromRGB(0, 210, 255)
 local BOOST_CYAN = Color3.fromRGB(50, 200, 255)
+local COMBO_HOT = Color3.fromRGB(255, 50, 150)
 
 local LakelandDistanceUI = {}
 
@@ -39,6 +40,16 @@ function LakelandDistanceUI.new(playerGui, gameState, playerName, beatIntensity)
 	local animatedBoostPulse = Spring(boostPulse, 20, 0.6)
 	local boostText = Computed(function()
 		return "BOOST +" .. tostring(boostTally:get())
+	end)
+
+	local comboCount = Value(0)
+	local comboAlpha = Value(0)
+	local animatedComboAlpha = Spring(comboAlpha, 14, 0.8)
+	local comboPulse = Value(1)
+	local animatedComboPulse = Spring(comboPulse, 22, 0.55)
+	local comboText = Computed(function()
+		local c = comboCount:get()
+		return c >= 2 and ("x" .. tostring(c)) or ""
 	end)
 
 	local visible = Computed(function()
@@ -180,6 +191,37 @@ function LakelandDistanceUI.new(playerGui, gameState, playerName, beatIntensity)
 				Visible = visible,
 			},
 
+			New "TextLabel" {
+				Name = "ComboLabel",
+				AnchorPoint = Vector2.new(0.5, 0),
+				Position = UDim2.fromScale(0.5, 0.20),
+				Size = Computed(function()
+					local s = animatedComboPulse:get()
+					return UDim2.fromScale(0.12 * s, 0.05 * s)
+				end),
+				BackgroundTransparency = 1,
+				Text = comboText,
+				TextColor3 = COMBO_HOT,
+				Font = Enum.Font.GothamBlack,
+				TextScaled = true,
+				TextTransparency = Computed(function()
+					return 1 - animatedComboAlpha:get()
+				end),
+				Visible = Computed(function()
+					return visible:get() and animatedComboAlpha:get() > 0.01
+				end),
+
+				[Children] = {
+					New "UIStroke" {
+						Color = Color3.fromRGB(255, 255, 255),
+						Thickness = 1,
+						Transparency = Computed(function()
+							return 1 - animatedComboAlpha:get() * 0.3
+						end),
+					},
+				},
+			},
+
 			New "Frame" {
 				Name = "BoostMultiplier",
 				AnchorPoint = Vector2.new(0.5, 0.5),
@@ -243,14 +285,27 @@ function LakelandDistanceUI.new(playerGui, gameState, playerName, beatIntensity)
 			if raceController:IsBoosting() then
 				boostTally:set(raceController:GetBoostTally())
 			end
+			if raceController:GetComboCount() == 0 and comboAlpha:get() > 0 then
+				comboAlpha:set(0)
+			end
 		end))
 
-		trove:Add(raceController.CoinCollected:Connect(function(totalCoinScore, totalCoins)
-			coinPickupText:set("+50")
+		trove:Add(raceController.CoinCollected:Connect(function(totalCoinScore, totalCoins, combo, earned)
+			earned = earned or 50
+			coinPickupText:set("+" .. tostring(earned))
 			coinPickupAlpha:set(1)
 			task.delay(0.6, function()
 				coinPickupAlpha:set(0)
 			end)
+			combo = combo or 0
+			if combo >= 2 then
+				comboCount:set(combo)
+				comboAlpha:set(1)
+				comboPulse:set(1.4)
+				task.defer(function()
+					comboPulse:set(1)
+				end)
+			end
 		end))
 
 		trove:Add(raceController.BoostChanged:Connect(function(isBoosting, finalTally)
