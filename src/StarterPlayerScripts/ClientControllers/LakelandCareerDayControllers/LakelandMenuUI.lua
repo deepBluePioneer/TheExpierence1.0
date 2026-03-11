@@ -55,9 +55,6 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, beatIntensity, onPl
 	local titleScale = Computed(function()
 		return 1 + b:get() * 0.04
 	end)
-	local lineWidth = Computed(function()
-		return 0.35 + b:get() * 0.08
-	end)
 	local strokePulse = Computed(function()
 		return 2 + b:get() * 3
 	end)
@@ -95,7 +92,7 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, beatIntensity, onPl
 					Font = Enum.Font.GothamBlack,
 					TextScaled = true,
 					TextXAlignment = Enum.TextXAlignment.Right,
-					[Children] = { New "UITextSizeConstraint" { MaxTextSize = 18 } },
+					[Children] = { New "UITextSizeConstraint" { MaxTextSize = 22 } },
 				},
 
 				New "TextLabel" {
@@ -109,7 +106,7 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, beatIntensity, onPl
 					TextScaled = true,
 					TextXAlignment = Enum.TextXAlignment.Left,
 					TextTruncate = Enum.TextTruncate.AtEnd,
-					[Children] = { New "UITextSizeConstraint" { MaxTextSize = 16 } },
+					[Children] = { New "UITextSizeConstraint" { MaxTextSize = 20 } },
 				},
 
 				New "TextLabel" {
@@ -122,7 +119,7 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, beatIntensity, onPl
 					Font = Enum.Font.GothamBlack,
 					TextScaled = true,
 					TextXAlignment = Enum.TextXAlignment.Right,
-					[Children] = { New "UITextSizeConstraint" { MaxTextSize = 16 } },
+					[Children] = { New "UITextSizeConstraint" { MaxTextSize = 20 } },
 				},
 			},
 		}
@@ -155,30 +152,62 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, beatIntensity, onPl
 				Visible = visible,
 
 				[Children] = {
+					-- TOP 3 LEADERBOARD at the very top
+					New "Frame" {
+						Name = "Top3Strip",
+						AnchorPoint = Vector2.new(0.5, 0),
+						Position = UDim2.fromScale(0.5, 0.02),
+						Size = UDim2.fromScale(0.88, 0.08),
+						BackgroundColor3 = PANEL_BG,
+						BackgroundTransparency = 0.15,
+
+						[Children] = {
+							New "UICorner" { CornerRadius = UDim.new(0, 10) },
+							New "UIStroke" {
+								Color = ACCENT_CYAN,
+								Thickness = Computed(function()
+									return 1.5 + b:get() * 2
+								end),
+								Transparency = Computed(function()
+									return 0.4 - b:get() * 0.3
+								end),
+							},
+							New "UIListLayout" {
+								FillDirection = Enum.FillDirection.Horizontal,
+								HorizontalAlignment = Enum.HorizontalAlignment.Center,
+								VerticalAlignment = Enum.VerticalAlignment.Center,
+								Padding = UDim.new(0.02, 0),
+							},
+
+							top3Frames,
+						},
+					},
+
+					-- TITLE
 					New "Frame" {
 						Name = "TitleBlock",
 						AnchorPoint = Vector2.new(0.5, 0),
-						Position = UDim2.fromScale(0.5, 0.04),
+						Position = UDim2.fromScale(0.5, 0.12),
 						Size = Computed(function()
 							local s = titleScale:get()
-							return UDim2.fromScale(0.9 * s, 0.18 * s)
+							return UDim2.fromScale(0.9 * s, 0.20 * s)
 						end),
 						BackgroundTransparency = 1,
 
 						[Children] = {
 							New "TextLabel" {
 								Name = "Title",
-								AnchorPoint = Vector2.new(0.5, 0),
-								Position = UDim2.fromScale(0.5, 0),
-								Size = UDim2.fromScale(1, 0.7),
+								AnchorPoint = Vector2.new(0.5, 0.5),
+								Position = UDim2.fromScale(0.5, 0.45),
+								Size = UDim2.fromScale(1, 0.8),
 								BackgroundTransparency = 1,
-								Text = "HYPERDRIVE",
+								Text = "PULSE RIDER",
 								TextColor3 = TEXT_WHITE,
 								Font = Enum.Font.GothamBlack,
 								TextScaled = true,
 
 								[Children] = {
-									New "UITextSizeConstraint" { MaxTextSize = 140 },
+									New "UITextSizeConstraint" { MaxTextSize = 160 },
 									New "UIStroke" {
 										Color = ACCENT_HOT,
 										Thickness = strokePulse,
@@ -189,31 +218,27 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, beatIntensity, onPl
 
 							New "Frame" {
 								Name = "AccentLine",
-								AnchorPoint = Vector2.new(0.5, 0),
-								Position = UDim2.fromScale(0.5, 0.74),
-								Size = Computed(function()
-									return UDim2.fromScale(lineWidth:get(), 0.02)
-								end),
+								AnchorPoint = Vector2.new(0.5, 1),
+								Position = UDim2.fromScale(0.5, 0.95),
+								Size = UDim2.fromScale(0.5, 0.025),
 								BackgroundColor3 = ACCENT_HOT,
 								BorderSizePixel = 0,
-
-								[Children] = {
-									New "UICorner" { CornerRadius = UDim.new(0.5, 0) },
-								},
+								[Children] = { New "UICorner" { CornerRadius = UDim.new(0.5, 0) } },
 							},
 						},
 					},
 
+					-- HOW TO PLAY
 					New "Frame" {
 						Name = "HowToPlay",
 						AnchorPoint = Vector2.new(0.5, 0),
-						Position = UDim2.fromScale(0.5, 0.25),
-						Size = UDim2.fromScale(0.6, 0.30),
+						Position = UDim2.fromScale(0.5, 0.34),
+						Size = UDim2.fromScale(0.65, 0.30),
 						BackgroundColor3 = PANEL_BG,
-						BackgroundTransparency = 0.15,
+						BackgroundTransparency = 0.12,
 
 						[Children] = {
-							New "UICorner" { CornerRadius = UDim.new(0, 12) },
+							New "UICorner" { CornerRadius = UDim.new(0, 14) },
 							New "UIStroke" {
 								Color = ACCENT_HOT,
 								Thickness = strokePulse,
@@ -224,110 +249,110 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, beatIntensity, onPl
 							New "UIPadding" {
 								PaddingLeft = UDim.new(0.04, 0),
 								PaddingRight = UDim.new(0.04, 0),
-								PaddingTop = UDim.new(0.04, 0),
-								PaddingBottom = UDim.new(0.04, 0),
+								PaddingTop = UDim.new(0.03, 0),
+								PaddingBottom = UDim.new(0.03, 0),
 							},
 
 							New "TextLabel" {
 								Name = "Header",
 								AnchorPoint = Vector2.new(0.5, 0),
 								Position = UDim2.fromScale(0.5, 0),
-								Size = UDim2.fromScale(1, 0.15),
+								Size = UDim2.fromScale(1, 0.16),
 								BackgroundTransparency = 1,
 								Text = "HOW TO PLAY",
 								TextColor3 = ACCENT_HOT,
 								Font = Enum.Font.GothamBlack,
 								TextScaled = true,
-								[Children] = { New "UITextSizeConstraint" { MaxTextSize = 26 } },
+								[Children] = { New "UITextSizeConstraint" { MaxTextSize = 32 } },
 							},
 
 							New "Frame" {
 								Name = "ControlsSection",
 								AnchorPoint = Vector2.new(0.5, 0),
 								Position = UDim2.fromScale(0.5, 0.20),
-								Size = UDim2.fromScale(0.9, 0.40),
+								Size = UDim2.fromScale(0.92, 0.42),
 								BackgroundTransparency = 1,
 
 								[Children] = {
 									New "UIListLayout" {
 										FillDirection = Enum.FillDirection.Vertical,
 										HorizontalAlignment = Enum.HorizontalAlignment.Center,
-										Padding = UDim.new(0.08, 0),
+										Padding = UDim.new(0.06, 0),
 									},
 
-									New "Frame" {
-										Name = "Row1",
-										LayoutOrder = 1,
-										Size = UDim2.fromScale(1, 0.40),
-										BackgroundTransparency = 1,
-										[Children] = {
-											New "TextLabel" {
-												AnchorPoint = Vector2.new(0, 0.5),
-												Position = UDim2.fromScale(0.05, 0.5),
-												Size = UDim2.fromScale(0.35, 1),
-												BackgroundTransparency = 1,
-												Text = "A / D  or  < >",
-												TextColor3 = KEY_COLOR,
-												Font = Enum.Font.GothamBlack,
-												TextScaled = true,
-												TextXAlignment = Enum.TextXAlignment.Left,
-												[Children] = { New "UITextSizeConstraint" { MaxTextSize = 22 } },
-											},
-											New "TextLabel" {
-												AnchorPoint = Vector2.new(1, 0.5),
-												Position = UDim2.fromScale(0.95, 0.5),
-												Size = UDim2.fromScale(0.45, 1),
-												BackgroundTransparency = 1,
-												Text = "SWITCH LANES",
-												TextColor3 = TEXT_WHITE,
-												Font = Enum.Font.GothamBold,
-												TextScaled = true,
-												TextXAlignment = Enum.TextXAlignment.Right,
-												[Children] = { New "UITextSizeConstraint" { MaxTextSize = 22 } },
-											},
+								New "Frame" {
+									Name = "Row1",
+									LayoutOrder = 1,
+									Size = UDim2.fromScale(1, 0.44),
+									BackgroundTransparency = 1,
+									[Children] = {
+										New "TextLabel" {
+											AnchorPoint = Vector2.new(1, 0.5),
+											Position = UDim2.fromScale(0.48, 0.5),
+											Size = UDim2.fromScale(0.40, 1),
+											BackgroundTransparency = 1,
+											Text = "A / D  or  < >",
+											TextColor3 = KEY_COLOR,
+											Font = Enum.Font.GothamBlack,
+											TextScaled = true,
+											TextXAlignment = Enum.TextXAlignment.Right,
+											[Children] = { New "UITextSizeConstraint" { MaxTextSize = 28 } },
+										},
+										New "TextLabel" {
+											AnchorPoint = Vector2.new(0, 0.5),
+											Position = UDim2.fromScale(0.52, 0.5),
+											Size = UDim2.fromScale(0.45, 1),
+											BackgroundTransparency = 1,
+											Text = "SWITCH LANES",
+											TextColor3 = TEXT_WHITE,
+											Font = Enum.Font.GothamBold,
+											TextScaled = true,
+											TextXAlignment = Enum.TextXAlignment.Left,
+											[Children] = { New "UITextSizeConstraint" { MaxTextSize = 28 } },
 										},
 									},
+								},
 
-									New "Frame" {
-										Name = "Row2",
-										LayoutOrder = 2,
-										Size = UDim2.fromScale(1, 0.40),
-										BackgroundTransparency = 1,
-										[Children] = {
-											New "TextLabel" {
-												AnchorPoint = Vector2.new(0, 0.5),
-												Position = UDim2.fromScale(0.05, 0.5),
-												Size = UDim2.fromScale(0.35, 1),
-												BackgroundTransparency = 1,
-												Text = "SPACE",
-												TextColor3 = KEY_COLOR,
-												Font = Enum.Font.GothamBlack,
-												TextScaled = true,
-												TextXAlignment = Enum.TextXAlignment.Left,
-												[Children] = { New "UITextSizeConstraint" { MaxTextSize = 22 } },
-											},
-											New "TextLabel" {
-												AnchorPoint = Vector2.new(1, 0.5),
-												Position = UDim2.fromScale(0.95, 0.5),
-												Size = UDim2.fromScale(0.45, 1),
-												BackgroundTransparency = 1,
-												Text = "DEPLOY BOMB",
-												TextColor3 = TEXT_WHITE,
-												Font = Enum.Font.GothamBold,
-												TextScaled = true,
-												TextXAlignment = Enum.TextXAlignment.Right,
-												[Children] = { New "UITextSizeConstraint" { MaxTextSize = 22 } },
-											},
+								New "Frame" {
+									Name = "Row2",
+									LayoutOrder = 2,
+									Size = UDim2.fromScale(1, 0.44),
+									BackgroundTransparency = 1,
+									[Children] = {
+										New "TextLabel" {
+											AnchorPoint = Vector2.new(1, 0.5),
+											Position = UDim2.fromScale(0.48, 0.5),
+											Size = UDim2.fromScale(0.40, 1),
+											BackgroundTransparency = 1,
+											Text = "SPACE",
+											TextColor3 = KEY_COLOR,
+											Font = Enum.Font.GothamBlack,
+											TextScaled = true,
+											TextXAlignment = Enum.TextXAlignment.Right,
+											[Children] = { New "UITextSizeConstraint" { MaxTextSize = 28 } },
+										},
+										New "TextLabel" {
+											AnchorPoint = Vector2.new(0, 0.5),
+											Position = UDim2.fromScale(0.52, 0.5),
+											Size = UDim2.fromScale(0.45, 1),
+											BackgroundTransparency = 1,
+											Text = "DEPLOY BOMB",
+											TextColor3 = TEXT_WHITE,
+											Font = Enum.Font.GothamBold,
+											TextScaled = true,
+											TextXAlignment = Enum.TextXAlignment.Left,
+											[Children] = { New "UITextSizeConstraint" { MaxTextSize = 28 } },
 										},
 									},
+								},
 								},
 							},
 
 							New "Frame" {
 								Name = "Divider",
 								AnchorPoint = Vector2.new(0.5, 0),
-								Position = UDim2.fromScale(0.5, 0.62),
-								Size = UDim2.fromScale(0.85, 0.005),
+								Position = UDim2.fromScale(0.5, 0.65),
+								Size = UDim2.fromScale(0.88, 0.005),
 								BackgroundColor3 = Color3.fromRGB(40, 50, 75),
 								BorderSizePixel = 0,
 								[Children] = { New "UICorner" { CornerRadius = UDim.new(0.5, 0) } },
@@ -337,7 +362,7 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, beatIntensity, onPl
 								Name = "LegendSection",
 								AnchorPoint = Vector2.new(0.5, 1),
 								Position = UDim2.fromScale(0.5, 1),
-								Size = UDim2.fromScale(0.9, 0.30),
+								Size = UDim2.fromScale(0.92, 0.28),
 								BackgroundTransparency = 1,
 
 								[Children] = {
@@ -345,13 +370,13 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, beatIntensity, onPl
 										FillDirection = Enum.FillDirection.Horizontal,
 										HorizontalAlignment = Enum.HorizontalAlignment.Center,
 										VerticalAlignment = Enum.VerticalAlignment.Center,
-										Padding = UDim.new(0.06, 0),
+										Padding = UDim.new(0.05, 0),
 									},
 
 									New "Frame" {
 										Name = "LegRed",
 										LayoutOrder = 1,
-										Size = UDim2.fromScale(0.28, 0.8),
+										Size = UDim2.fromScale(0.28, 0.85),
 										BackgroundTransparency = 1,
 										[Children] = {
 											New "UIListLayout" {
@@ -361,20 +386,20 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, beatIntensity, onPl
 											},
 											New "Frame" {
 												LayoutOrder = 1,
-												Size = UDim2.fromScale(0.18, 0.6),
+												Size = UDim2.fromScale(0.20, 0.65),
 												BackgroundColor3 = CUBE_RED,
 												[Children] = { New "UICorner" { CornerRadius = UDim.new(0.2, 0) }, New "UIAspectRatioConstraint" { AspectRatio = 1 } },
 											},
 											New "TextLabel" {
 												LayoutOrder = 2,
-												Size = UDim2.fromScale(0.7, 1),
+												Size = UDim2.fromScale(0.68, 1),
 												BackgroundTransparency = 1,
 												Text = "AVOID",
 												TextColor3 = TEXT_WHITE,
 												Font = Enum.Font.GothamBold,
 												TextScaled = true,
 												TextXAlignment = Enum.TextXAlignment.Left,
-												[Children] = { New "UITextSizeConstraint" { MaxTextSize = 18 } },
+												[Children] = { New "UITextSizeConstraint" { MaxTextSize = 24 } },
 											},
 										},
 									},
@@ -382,7 +407,7 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, beatIntensity, onPl
 									New "Frame" {
 										Name = "LegBlue",
 										LayoutOrder = 2,
-										Size = UDim2.fromScale(0.28, 0.8),
+										Size = UDim2.fromScale(0.28, 0.85),
 										BackgroundTransparency = 1,
 										[Children] = {
 											New "UIListLayout" {
@@ -392,20 +417,20 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, beatIntensity, onPl
 											},
 											New "Frame" {
 												LayoutOrder = 1,
-												Size = UDim2.fromScale(0.18, 0.6),
+												Size = UDim2.fromScale(0.20, 0.65),
 												BackgroundColor3 = CUBE_BLUE,
 												[Children] = { New "UICorner" { CornerRadius = UDim.new(0.2, 0) }, New "UIAspectRatioConstraint" { AspectRatio = 1 } },
 											},
 											New "TextLabel" {
 												LayoutOrder = 2,
-												Size = UDim2.fromScale(0.7, 1),
+												Size = UDim2.fromScale(0.68, 1),
 												BackgroundTransparency = 1,
 												Text = "COLLECT",
 												TextColor3 = TEXT_WHITE,
 												Font = Enum.Font.GothamBold,
 												TextScaled = true,
 												TextXAlignment = Enum.TextXAlignment.Left,
-												[Children] = { New "UITextSizeConstraint" { MaxTextSize = 18 } },
+												[Children] = { New "UITextSizeConstraint" { MaxTextSize = 24 } },
 											},
 										},
 									},
@@ -413,7 +438,7 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, beatIntensity, onPl
 									New "Frame" {
 										Name = "LegGreen",
 										LayoutOrder = 3,
-										Size = UDim2.fromScale(0.28, 0.8),
+										Size = UDim2.fromScale(0.28, 0.85),
 										BackgroundTransparency = 1,
 										[Children] = {
 											New "UIListLayout" {
@@ -423,20 +448,20 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, beatIntensity, onPl
 											},
 											New "Frame" {
 												LayoutOrder = 1,
-												Size = UDim2.fromScale(0.18, 0.6),
+												Size = UDim2.fromScale(0.20, 0.65),
 												BackgroundColor3 = CUBE_GREEN,
 												[Children] = { New "UICorner" { CornerRadius = UDim.new(0.2, 0) }, New "UIAspectRatioConstraint" { AspectRatio = 1 } },
 											},
 											New "TextLabel" {
 												LayoutOrder = 2,
-												Size = UDim2.fromScale(0.7, 1),
+												Size = UDim2.fromScale(0.68, 1),
 												BackgroundTransparency = 1,
 												Text = "BOMB",
 												TextColor3 = TEXT_WHITE,
 												Font = Enum.Font.GothamBold,
 												TextScaled = true,
 												TextXAlignment = Enum.TextXAlignment.Left,
-												[Children] = { New "UITextSizeConstraint" { MaxTextSize = 18 } },
+												[Children] = { New "UITextSizeConstraint" { MaxTextSize = 24 } },
 											},
 										},
 									},
@@ -445,11 +470,12 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, beatIntensity, onPl
 						},
 					},
 
+					-- LAUNCH BUTTON
 					New "Frame" {
 						Name = "LaunchGroup",
 						AnchorPoint = Vector2.new(0.5, 0),
-						Position = UDim2.fromScale(0.5, 0.58),
-						Size = UDim2.fromScale(0.55, 0.10),
+						Position = UDim2.fromScale(0.5, 0.67),
+						Size = UDim2.fromScale(0.55, 0.14),
 						BackgroundTransparency = 1,
 
 						[Children] = {
@@ -460,7 +486,7 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, beatIntensity, onPl
 								Size = Computed(function()
 									local s = buttonScale:get()
 									local bp = 1 + b:get() * 0.02
-									return UDim2.fromScale(0.65 * s * bp, 0.85 * s * bp)
+									return UDim2.fromScale(0.70 * s * bp, 0.85 * s * bp)
 								end),
 								BackgroundColor3 = ACCENT_HOT,
 								Text = "LAUNCH",
@@ -499,37 +525,9 @@ function LakelandMenuUI.new(playerGui, gameState, topScores, beatIntensity, onPl
 										),
 										Rotation = 90,
 									},
-									New "UITextSizeConstraint" { MaxTextSize = 52 },
+									New "UITextSizeConstraint" { MaxTextSize = 60 },
 								},
 							},
-						},
-					},
-
-					New "Frame" {
-						Name = "Top3Strip",
-						AnchorPoint = Vector2.new(0.5, 1),
-						Position = UDim2.fromScale(0.5, 0.97),
-						Size = UDim2.fromScale(0.85, 0.065),
-						BackgroundColor3 = PANEL_BG,
-						BackgroundTransparency = 0.2,
-
-						[Children] = {
-							New "UICorner" { CornerRadius = UDim.new(0, 8) },
-							New "UIStroke" {
-								Color = ACCENT_HOT,
-								Thickness = 1.5,
-								Transparency = Computed(function()
-									return 0.5 - b:get() * 0.3
-								end),
-							},
-							New "UIListLayout" {
-								FillDirection = Enum.FillDirection.Horizontal,
-								HorizontalAlignment = Enum.HorizontalAlignment.Center,
-								VerticalAlignment = Enum.VerticalAlignment.Center,
-								Padding = UDim.new(0.02, 0),
-							},
-
-							top3Frames,
 						},
 					},
 				},

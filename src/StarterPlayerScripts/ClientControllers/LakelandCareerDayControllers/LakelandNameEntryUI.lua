@@ -12,15 +12,17 @@ local OnChange = Fusion.OnChange
 local Spring = Fusion.Spring
 local ForPairs = Fusion.ForPairs
 
-local BG_PANEL = Color3.fromRGB(10, 16, 30)
-local BORDER_CYAN = Color3.fromRGB(0, 140, 200)
-local ACCENT_CYAN = Color3.fromRGB(0, 200, 255)
-local TEXT_PRIMARY = Color3.fromRGB(220, 235, 255)
-local TEXT_DIM = Color3.fromRGB(60, 90, 130)
-local DIVIDER_COLOR = Color3.fromRGB(0, 70, 110)
-local LAUNCH_GREEN = Color3.fromRGB(0, 220, 110)
-local LAUNCH_GREEN_GLOW = Color3.fromRGB(0, 255, 140)
-local INPUT_BG = Color3.fromRGB(12, 20, 36)
+local ACCENT_HOT = Color3.fromRGB(255, 30, 100)
+local ACCENT_CYAN = Color3.fromRGB(0, 220, 255)
+local PANEL_BG = Color3.fromRGB(8, 12, 24)
+local TEXT_WHITE = Color3.fromRGB(255, 255, 255)
+local TEXT_DIM = Color3.fromRGB(80, 100, 140)
+local DIVIDER_COLOR = Color3.fromRGB(30, 50, 80)
+local INPUT_BG = Color3.fromRGB(14, 22, 40)
+local BUTTON_BG = Color3.fromRGB(12, 18, 34)
+local BUTTON_SELECTED = Color3.fromRGB(15, 40, 75)
+local CONFIRM_HOT = ACCENT_HOT
+local CONFIRM_DIM = Color3.fromRGB(25, 30, 50)
 
 local LakelandNameEntryUI = {}
 
@@ -42,8 +44,8 @@ function LakelandNameEntryUI.new(playerGui, gameState, previousNames, onNameConf
 	end)
 
 	local confirmColor = Computed(function()
-		if canConfirm:get() then return LAUNCH_GREEN end
-		return Color3.fromRGB(20, 30, 45)
+		if canConfirm:get() then return CONFIRM_HOT end
+		return CONFIRM_DIM
 	end)
 
 	local function getActiveName()
@@ -70,14 +72,12 @@ function LakelandNameEntryUI.new(playerGui, gameState, previousNames, onNameConf
 		return index, New "TextButton" {
 			Name = "NameBtn_" .. name,
 			LayoutOrder = index,
-			Size = UDim2.new(1, 0, 0, isFirst and 50 or 42),
+			Size = UDim2.new(1, 0, 0, 56),
 			BackgroundColor3 = Computed(function()
-				if isSelected:get() then
-					return Color3.fromRGB(0, 45, 85)
-				end
-				return Color3.fromRGB(10, 18, 32)
+				if isSelected:get() then return BUTTON_SELECTED end
+				return BUTTON_BG
 			end),
-			BackgroundTransparency = 0.02,
+			BackgroundTransparency = 0,
 			Text = "",
 			AutoButtonColor = false,
 
@@ -87,47 +87,60 @@ function LakelandNameEntryUI.new(playerGui, gameState, previousNames, onNameConf
 			end,
 
 			[Children] = {
-				New "UICorner" {
-					CornerRadius = UDim.new(0, 8),
-				},
+				New "UICorner" { CornerRadius = UDim.new(0, 12) },
 
 				New "UIStroke" {
 					Color = Computed(function()
 						if isSelected:get() then return ACCENT_CYAN end
-						return Color3.fromRGB(20, 35, 55)
+						return Color3.fromRGB(30, 45, 70)
 					end),
 					Thickness = Computed(function()
-						return isSelected:get() and 2 or 0
+						return isSelected:get() and 2.5 or 1
 					end),
 				},
 
 				New "TextLabel" {
 					Name = "NameText",
 					AnchorPoint = Vector2.new(0, 0.5),
-					Position = UDim2.new(0.04, 0, 0.5, 0),
-					Size = UDim2.fromScale(0.72, 0.55),
+					Position = UDim2.new(0.05, 0, 0.5, 0),
+					Size = UDim2.fromScale(0.62, 0.55),
 					BackgroundTransparency = 1,
 					Text = name,
 					TextColor3 = Computed(function()
 						if isSelected:get() then return ACCENT_CYAN end
-						return TEXT_PRIMARY
+						return TEXT_WHITE
 					end),
-					Font = isFirst and Enum.Font.GothamBlack or Enum.Font.GothamBold,
+					Font = Enum.Font.GothamBlack,
 					TextScaled = true,
 					TextXAlignment = Enum.TextXAlignment.Left,
+					[Children] = { New "UITextSizeConstraint" { MaxTextSize = 24 } },
 				},
 
-				New "TextLabel" {
-					Name = "Badge",
+				New "Frame" {
+					Name = "BadgePill",
 					AnchorPoint = Vector2.new(1, 0.5),
-					Position = UDim2.new(0.96, 0, 0.5, 0),
-					Size = UDim2.fromScale(0.18, 0.45),
-					BackgroundTransparency = 1,
-					Text = isFirst and "LAST PILOT" or ("PILOT #" .. index),
-					TextColor3 = isFirst and ACCENT_CYAN or TEXT_DIM,
-					Font = Enum.Font.GothamBold,
-					TextScaled = true,
-					TextXAlignment = Enum.TextXAlignment.Right,
+					Position = UDim2.new(0.95, 0, 0.5, 0),
+					Size = UDim2.fromScale(0.28, 0.50),
+					BackgroundColor3 = Computed(function()
+						if isFirst then return Color3.fromRGB(0, 50, 90) end
+						return Color3.fromRGB(20, 28, 50)
+					end),
+					BackgroundTransparency = 0.2,
+
+					[Children] = {
+						New "UICorner" { CornerRadius = UDim.new(0.4, 0) },
+						New "TextLabel" {
+							AnchorPoint = Vector2.new(0.5, 0.5),
+							Position = UDim2.fromScale(0.5, 0.5),
+							Size = UDim2.fromScale(0.9, 0.75),
+							BackgroundTransparency = 1,
+							Text = isFirst and "LAST PLAYED" or "PREVIOUS",
+							TextColor3 = isFirst and ACCENT_CYAN or TEXT_DIM,
+							Font = Enum.Font.GothamBold,
+							TextScaled = true,
+							[Children] = { New "UITextSizeConstraint" { MaxTextSize = 14 } },
+						},
+					},
 				},
 			},
 		}
@@ -157,251 +170,243 @@ function LakelandNameEntryUI.new(playerGui, gameState, previousNames, onNameConf
 						Name = "Panel",
 						AnchorPoint = Vector2.new(0.5, 0.5),
 						Position = UDim2.fromScale(0.5, 0.5),
-						Size = UDim2.fromScale(0.44, 0.78),
-						BackgroundColor3 = BG_PANEL,
-						BackgroundTransparency = 0.02,
+						Size = UDim2.fromScale(0.48, 0.80),
+						BackgroundColor3 = PANEL_BG,
+						BackgroundTransparency = 0,
 
 						[Children] = {
-							New "UICorner" {
-								CornerRadius = UDim.new(0.02, 0),
-							},
+							New "UICorner" { CornerRadius = UDim.new(0, 18) },
 
 							New "UIStroke" {
-								Color = BORDER_CYAN,
+								Color = ACCENT_HOT,
 								Thickness = 2.5,
-								Transparency = 0.15,
+								Transparency = 0.2,
 							},
 
-							New "UIGradient" {
-								Color = ColorSequence.new(
-									Color3.fromRGB(255, 255, 255),
-									Color3.fromRGB(155, 170, 195)
-								),
-								Rotation = 90,
+							New "UIPadding" {
+								PaddingLeft = UDim.new(0.05, 0),
+								PaddingRight = UDim.new(0.05, 0),
+								PaddingTop = UDim.new(0.03, 0),
+								PaddingBottom = UDim.new(0.03, 0),
 							},
 
-							New "Frame" {
-								Name = "HeaderBar",
-								AnchorPoint = Vector2.new(0.5, 0),
-								Position = UDim2.fromScale(0.5, 0),
-								Size = UDim2.fromScale(1, 0.10),
-								BackgroundColor3 = Color3.fromRGB(5, 10, 22),
-								BackgroundTransparency = 0.1,
+							New "UIListLayout" {
+								SortOrder = Enum.SortOrder.LayoutOrder,
+								FillDirection = Enum.FillDirection.Vertical,
+								HorizontalAlignment = Enum.HorizontalAlignment.Center,
+								Padding = UDim.new(0.015, 0),
+							},
 
+							-- Header
+							New "TextLabel" {
+								Name = "Header",
+								LayoutOrder = 1,
+								Size = UDim2.fromScale(1, 0.09),
+								BackgroundTransparency = 1,
+								Text = "ENTER YOUR NAME",
+								TextColor3 = TEXT_WHITE,
+								Font = Enum.Font.GothamBlack,
+								TextScaled = true,
 								[Children] = {
-									New "UICorner" {
-										CornerRadius = UDim.new(0.02, 0),
-									},
-
-									New "Frame" {
-										Name = "CyanLine",
-										AnchorPoint = Vector2.new(0, 1),
-										Position = UDim2.fromScale(0, 1),
-										Size = UDim2.new(1, 0, 0, 2),
-										BackgroundColor3 = BORDER_CYAN,
-										BackgroundTransparency = 0.3,
-										BorderSizePixel = 0,
-									},
-
-									New "TextLabel" {
-										Name = "Header",
-										AnchorPoint = Vector2.new(0.5, 0.5),
-										Position = UDim2.fromScale(0.5, 0.45),
-										Size = UDim2.fromScale(0.85, 0.55),
-										BackgroundTransparency = 1,
-										Text = "PILOT IDENTIFICATION",
-										TextColor3 = ACCENT_CYAN,
-										Font = Enum.Font.GothamBlack,
-										TextScaled = true,
+									New "UITextSizeConstraint" { MaxTextSize = 42 },
+									New "UIStroke" {
+										Color = ACCENT_HOT,
+										Thickness = 1.5,
+										Transparency = 0.4,
 									},
 								},
 							},
 
+							-- Accent line
 							New "Frame" {
-								Name = "Content",
-								AnchorPoint = Vector2.new(0.5, 0),
-								Position = UDim2.fromScale(0.5, 0.11),
-								Size = UDim2.fromScale(0.88, 0.86),
+								Name = "AccentLine",
+								LayoutOrder = 2,
+								Size = UDim2.fromScale(0.5, 0.005),
+								BackgroundColor3 = ACCENT_HOT,
+								BorderSizePixel = 0,
+								[Children] = { New "UICorner" { CornerRadius = UDim.new(0.5, 0) } },
+							},
+
+							-- Subtitle
+							New "TextLabel" {
+								Name = "SubHeader",
+								LayoutOrder = 3,
+								Size = UDim2.fromScale(0.95, 0.05),
 								BackgroundTransparency = 1,
+								Text = "Type a new name or pick a previous one below",
+								TextColor3 = TEXT_DIM,
+								Font = Enum.Font.GothamBold,
+								TextScaled = true,
+								[Children] = { New "UITextSizeConstraint" { MaxTextSize = 20 } },
+							},
+
+							-- Text input
+							New "Frame" {
+								Name = "InputWrap",
+								LayoutOrder = 4,
+								Size = UDim2.fromScale(1, 0.09),
+								BackgroundColor3 = INPUT_BG,
+								BackgroundTransparency = 0,
+
+								[Children] = {
+									New "UICorner" { CornerRadius = UDim.new(0, 12) },
+
+									New "UIStroke" {
+										Color = Computed(function()
+											if #typedName:get() > 0 then return ACCENT_CYAN end
+											return Color3.fromRGB(30, 45, 70)
+										end),
+										Thickness = 2,
+										Transparency = 0.1,
+									},
+
+									New "TextBox" {
+										Name = "NameInput",
+										AnchorPoint = Vector2.new(0.5, 0.5),
+										Position = UDim2.fromScale(0.5, 0.5),
+										Size = UDim2.fromScale(0.9, 0.65),
+										BackgroundTransparency = 1,
+										Text = "",
+										PlaceholderText = "Type your name...",
+										PlaceholderColor3 = TEXT_DIM,
+										TextColor3 = TEXT_WHITE,
+										Font = Enum.Font.GothamBold,
+										TextScaled = true,
+										ClearTextOnFocus = false,
+
+										[OnChange "Text"] = function(newText)
+											local cleaned = string.sub(newText, 1, 20)
+											typedName:set(cleaned)
+											if #cleaned > 0 then
+												selectedName:set("")
+											end
+										end,
+
+										[Children] = { New "UITextSizeConstraint" { MaxTextSize = 28 } },
+									},
+								},
+							},
+
+							-- OR divider
+							New "Frame" {
+								Name = "DividerRow",
+								LayoutOrder = 5,
+								Size = UDim2.fromScale(1, 0.04),
+								BackgroundTransparency = 1,
+								Visible = hasPreviousNames,
+
+								[Children] = {
+									New "Frame" {
+										AnchorPoint = Vector2.new(0, 0.5),
+										Position = UDim2.new(0, 0, 0.5, 0),
+										Size = UDim2.fromScale(0.38, 0.04),
+										BackgroundColor3 = DIVIDER_COLOR,
+										BorderSizePixel = 0,
+									},
+
+									New "TextLabel" {
+										AnchorPoint = Vector2.new(0.5, 0.5),
+										Position = UDim2.fromScale(0.5, 0.5),
+										Size = UDim2.fromScale(0.24, 0.8),
+										BackgroundTransparency = 1,
+										Text = "OR SELECT",
+										TextColor3 = TEXT_DIM,
+										Font = Enum.Font.GothamBold,
+										TextScaled = true,
+										[Children] = { New "UITextSizeConstraint" { MaxTextSize = 16 } },
+									},
+
+									New "Frame" {
+										AnchorPoint = Vector2.new(1, 0.5),
+										Position = UDim2.new(1, 0, 0.5, 0),
+										Size = UDim2.fromScale(0.38, 0.04),
+										BackgroundColor3 = DIVIDER_COLOR,
+										BorderSizePixel = 0,
+									},
+								},
+							},
+
+							-- Previous names list
+							New "ScrollingFrame" {
+								Name = "PreviousNamesList",
+								LayoutOrder = 6,
+								Size = UDim2.fromScale(1, 0.45),
+								BackgroundTransparency = 1,
+								ScrollBarThickness = 5,
+								ScrollBarImageColor3 = ACCENT_HOT,
+								CanvasSize = UDim2.fromScale(0, 0),
+								AutomaticCanvasSize = Enum.AutomaticSize.Y,
+								Visible = hasPreviousNames,
 
 								[Children] = {
 									New "UIListLayout" {
 										SortOrder = Enum.SortOrder.LayoutOrder,
-										FillDirection = Enum.FillDirection.Vertical,
-										HorizontalAlignment = Enum.HorizontalAlignment.Center,
-										Padding = UDim.new(0.015, 0),
+										Padding = UDim.new(0, 8),
 									},
 
-									New "TextLabel" {
-										Name = "SubHeader",
-										LayoutOrder = 1,
-										Size = UDim2.fromScale(0.9, 0.04),
-										BackgroundTransparency = 1,
-										Text = "Enter your callsign or select a previous pilot",
-										TextColor3 = TEXT_DIM,
-										Font = Enum.Font.Gotham,
-										TextScaled = true,
-									},
+									nameButtons,
+								},
+							},
 
-									New "Frame" {
-										Name = "InputWrap",
-										LayoutOrder = 2,
-										Size = UDim2.fromScale(1, 0.10),
-										BackgroundColor3 = INPUT_BG,
-										BackgroundTransparency = 0.02,
+							-- Spacer
+							New "Frame" {
+								Name = "Spacer",
+								LayoutOrder = 7,
+								Size = UDim2.fromScale(1, 0.01),
+								BackgroundTransparency = 1,
+							},
 
-										[Children] = {
-											New "UICorner" {
-												CornerRadius = UDim.new(0.18, 0),
-											},
+							-- Confirm button
+							New "TextButton" {
+								Name = "ConfirmButton",
+								LayoutOrder = 8,
+								Size = Computed(function()
+									local s = animatedConfirmScale:get()
+									return UDim2.fromScale(0.65 * s, 0.10 * s)
+								end),
+								BackgroundColor3 = confirmColor,
+								Text = "LAUNCH",
+								TextColor3 = Computed(function()
+									if canConfirm:get() then return TEXT_WHITE end
+									return Color3.fromRGB(50, 60, 80)
+								end),
+								Font = Enum.Font.GothamBlack,
+								TextScaled = true,
+								AutoButtonColor = false,
 
-											New "UIStroke" {
-												Color = Computed(function()
-													if #typedName:get() > 0 then return ACCENT_CYAN end
-													return Color3.fromRGB(20, 35, 55)
-												end),
-												Thickness = 2,
-												Transparency = 0.15,
-											},
+								[OnEvent "Activated"] = onConfirm,
 
-											New "TextBox" {
-												Name = "NameInput",
-												AnchorPoint = Vector2.new(0.5, 0.5),
-												Position = UDim2.fromScale(0.5, 0.5),
-												Size = UDim2.fromScale(0.9, 0.65),
-												BackgroundTransparency = 1,
-												Text = "",
-												PlaceholderText = "Enter callsign...",
-												PlaceholderColor3 = TEXT_DIM,
-												TextColor3 = TEXT_PRIMARY,
-												Font = Enum.Font.GothamBold,
-												TextScaled = true,
-												ClearTextOnFocus = false,
+								[OnEvent "MouseEnter"] = function()
+									if canConfirm:get() then
+										confirmScale:set(1.06)
+									end
+								end,
 
-												[OnChange "Text"] = function(newText)
-													local cleaned = string.sub(newText, 1, 20)
-													typedName:set(cleaned)
-													if #cleaned > 0 then
-														selectedName:set("")
-													end
-												end,
-											},
-										},
-									},
+								[OnEvent "MouseLeave"] = function()
+									confirmScale:set(1)
+								end,
 
-									New "Frame" {
-										Name = "DividerRow",
-										LayoutOrder = 3,
-										Size = UDim2.fromScale(1, 0.04),
-										BackgroundTransparency = 1,
+								[Children] = {
+									New "UICorner" { CornerRadius = UDim.new(0.3, 0) },
 
-										[Children] = {
-											New "Frame" {
-												AnchorPoint = Vector2.new(0, 0.5),
-												Position = UDim2.new(0, 0, 0.5, 0),
-												Size = UDim2.fromScale(0.4, 0.05),
-												BackgroundColor3 = DIVIDER_COLOR,
-												BackgroundTransparency = 0.2,
-												BorderSizePixel = 0,
-											},
-
-											New "TextLabel" {
-												AnchorPoint = Vector2.new(0.5, 0.5),
-												Position = UDim2.fromScale(0.5, 0.5),
-												Size = UDim2.fromScale(0.2, 0.7),
-												BackgroundTransparency = 1,
-												Text = "OR",
-												TextColor3 = TEXT_DIM,
-												Font = Enum.Font.GothamBold,
-												TextScaled = true,
-											},
-
-											New "Frame" {
-												AnchorPoint = Vector2.new(1, 0.5),
-												Position = UDim2.new(1, 0, 0.5, 0),
-												Size = UDim2.fromScale(0.4, 0.05),
-												BackgroundColor3 = DIVIDER_COLOR,
-												BackgroundTransparency = 0.2,
-												BorderSizePixel = 0,
-											},
-										},
-										Visible = hasPreviousNames,
-									},
-
-									New "ScrollingFrame" {
-										Name = "PreviousNamesList",
-										LayoutOrder = 4,
-										Size = UDim2.fromScale(1, 0.52),
-										BackgroundTransparency = 1,
-										ScrollBarThickness = 4,
-										ScrollBarImageColor3 = BORDER_CYAN,
-										CanvasSize = UDim2.fromScale(0, 0),
-										AutomaticCanvasSize = Enum.AutomaticSize.Y,
-										Visible = hasPreviousNames,
-
-										[Children] = {
-											New "UIListLayout" {
-												SortOrder = Enum.SortOrder.LayoutOrder,
-												Padding = UDim.new(0, 6),
-											},
-
-											nameButtons,
-										},
-									},
-
-									New "Frame" {
-										Name = "Spacer",
-										LayoutOrder = 5,
-										Size = UDim2.fromScale(1, 0.01),
-										BackgroundTransparency = 1,
-									},
-
-									New "TextButton" {
-										Name = "ConfirmButton",
-										LayoutOrder = 6,
-										Size = Computed(function()
-											local s = animatedConfirmScale:get()
-											return UDim2.fromScale(0.6 * s, 0.10 * s)
+									New "UIStroke" {
+										Color = Computed(function()
+											if canConfirm:get() then return Color3.fromRGB(255, 80, 140) end
+											return Color3.fromRGB(30, 40, 60)
 										end),
-										BackgroundColor3 = confirmColor,
-										Text = "LAUNCH",
-										TextColor3 = Computed(function()
-											if canConfirm:get() then
-												return Color3.fromRGB(255, 255, 255)
-											end
-											return Color3.fromRGB(40, 55, 75)
-										end),
-										Font = Enum.Font.GothamBlack,
-										TextScaled = true,
-										AutoButtonColor = false,
-
-										[OnEvent "Activated"] = onConfirm,
-
-										[OnEvent "MouseEnter"] = function()
-											if canConfirm:get() then
-												confirmScale:set(1.06)
-											end
-										end,
-
-										[OnEvent "MouseLeave"] = function()
-											confirmScale:set(1)
-										end,
-
-										[Children] = {
-											New "UICorner" {
-												CornerRadius = UDim.new(0.25, 0),
-											},
-
-											New "UIStroke" {
-												Color = Computed(function()
-													if canConfirm:get() then return LAUNCH_GREEN_GLOW end
-													return Color3.fromRGB(20, 35, 50)
-												end),
-												Thickness = 2.5,
-												Transparency = 0.1,
-											},
-										},
+										Thickness = 2.5,
+										Transparency = 0.1,
 									},
+
+									New "UIGradient" {
+										Color = ColorSequence.new(
+											Color3.fromRGB(255, 255, 255),
+											Color3.fromRGB(200, 180, 190)
+										),
+										Rotation = 90,
+									},
+
+									New "UITextSizeConstraint" { MaxTextSize = 44 },
 								},
 							},
 						},
