@@ -38,7 +38,7 @@ local function playSoundAt(sound, worldPos, volume, pitch)
 	clone.RollOffMinDistance = 20
 	clone.RollOffMaxDistance = 200
 	clone.PlaybackSpeed = pitch or (0.85 + math.random() * 0.3)
-	if volume then clone.Volume = volume end
+	if volume then clone.Volume = volume * sound.Volume end
 	clone.Parent = emitter
 	clone:Play()
 	Debris:AddItem(emitter, (clone.TimeLength / clone.PlaybackSpeed) + 0.5)
@@ -72,7 +72,7 @@ local function playRandomFlybyAt(worldPos, speedFrac)
 	clone.RollOffMode = Enum.RollOffMode.InverseTapered
 	clone.RollOffMinDistance = 20
 	clone.RollOffMaxDistance = 200
-	clone.Volume = 0.2 + sf * 0.8
+	clone.Volume = (0.2 + sf * 0.8) * pick.Volume
 	clone.PlaybackSpeed = 0.7 + sf * 0.6
 	clone.Parent = emitter
 	clone:Play()
@@ -538,6 +538,21 @@ local GLOW_HAZARD_COLOR  = Color3.fromRGB(255, 50, 50)
 local GLOW_COIN_COLOR    = Color3.fromRGB(50, 140, 255)
 local GLOW_BOMB_COLOR    = Color3.fromRGB(50, 220, 70)
 
+local AMBIENT_PARTICLE_POOL  = 400
+local AMBIENT_PARTICLE_T_STEP = 0.0001
+local AMBIENT_SPREAD_X       = ROAD_HALF_W + 12
+local AMBIENT_MIN_Y          = 1
+local AMBIENT_MAX_Y          = 18
+local AMBIENT_SIZE_MIN       = 0.05
+local AMBIENT_SIZE_MAX       = 0.25
+local AMBIENT_GLOW_RANGE     = 12
+local AMBIENT_DRIFT_SPEED    = 1.8
+local AMBIENT_BEAT_BURST     = 8
+local AMBIENT_SYNC_BURST     = 12
+local AMBIENT_SYNC_DECAY     = 2.5
+local AMBIENT_SYNC_THRESHOLD = 0.55
+local AMBIENT_SYNC_CHANCE    = 0.4
+
 ---------------------------------------------------------------------------
 -- Controller
 ---------------------------------------------------------------------------
@@ -598,6 +613,7 @@ local LakelandRaceController = Knit.CreateController({
 	_specBars = {},
 	_specBands = {},
 	_menuRenderConn = nil,
+	_demoMode = false,
 
 	_comboCount = 0,
 	_comboTimer = 0,
@@ -606,6 +622,10 @@ local LakelandRaceController = Knit.CreateController({
 	_shockwaveTime = 0,
 	_shockwaveOriginT = 0,
 	_lastShockwaveThreshold = 0,
+
+	_syncBurstDir = Vector3.zero,
+	_syncBurstStrength = 0,
+	_lastBeatBelow = true,
 
 	LaneChanged = Signal.new(),
 	RaceProgress = Signal.new(),
@@ -701,6 +721,11 @@ function LakelandRaceController:KnitStart()
 				self._machineLoadEmitter:Destroy()
 				self._machineLoadEmitter = nil
 			end
+		elseif newState == "DEMO" then
+			self:_stopMenuRenderLoop()
+			self._obstaclesVisible = true
+			self:PositionAtStart()
+			self:StartDemoRace()
 		elseif newState == "MENU" then
 			self:StopRace()
 			if self._machineLoadEmitter then
@@ -1100,6 +1125,24 @@ function LakelandRaceController:_initPools()
 		p.Transparency = 1
 		p.Parent = folder
 		self._glowPillars[i] = p
+	end
+
+	self._ambientParticles = {}
+	for i = 1, AMBIENT_PARTICLE_POOL do
+		local p = Instance.new("Part")
+		p.Name = "AmbientParticle_" .. i
+		p.Shape = Enum.PartType.Ball
+		p.Anchored = true
+		p.CanCollide = false
+		p.Material = Enum.Material.Neon
+		p.Transparency = 1
+		p.Parent = folder
+		local gl = Instance.new("PointLight")
+		gl.Brightness = 0
+		gl.Range = AMBIENT_GLOW_RANGE
+		gl.Shadows = false
+		gl.Parent = p
+		self._ambientParticles[i] = p
 	end
 
 	-- Static ambient lights around the stationary machine
@@ -1792,6 +1835,96 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		end
 	end
 
+	-- Synchronized particle burst: on strong beats, randomly pick a cardinal direction
+	if beat >= AMBIENT_SYNC_THRESHOLD and self._lastBeatBelow then
+		if math.random() < AMBIENT_SYNC_CHANCE then
+			local dirs = {
+				Vector3.new(1, 0, 0),
+				Vector3.new(-1, 0, 0),
+				Vector3.new(0, 1, 0),
+				Vector3.new(0, -1, 0),
+			}
+			self._syncBurstDir = dirs[math.random(#dirs)]
+			self._syncBurstStrength = 1
+		end
+	end
+	self._lastBeatBelow = beat < AMBIENT_SYNC_THRESHOLD
+	self._syncBurstStrength = math.max(0, self._syncBurstStrength - dt * AMBIENT_SYNC_DECAY)
+	local syncOffset = self._syncBurstDir * (self._syncBurstStrength * AMBIENT_SYNC_BURST)
+
+	-- Ambient particles drifting toward the player
+	local api = 1
+	local apt = math.floor(tMin / AMBIENT_PARTICLE_T_STEP) * AMBIENT_PARTICLE_T_STEP
+	local apNow = time()
+	while apt < tMax and api <= AMBIENT_PARTICLE_POOL do
+		local seed = apt * 7919
+		local hash1 = (math.sin(seed) * 43758.5453) % 1
+		local hash2 = (math.sin(seed * 1.37 + 1.7) * 23421.631) % 1
+		local hash3 = (math.sin(seed * 2.91 + 3.1) * 12345.789) % 1
+		if hash1 < 0 then hash1 = hash1 + 1 end
+		if hash2 < 0 then hash2 = hash2 + 1 end
+		if hash3 < 0 then hash3 = hash3 + 1 end
+
+		local lateralOffset = (hash1 - 0.5) * 2 * AMBIENT_SPREAD_X
+		local heightOffset = AMBIENT_MIN_Y + hash2 * (AMBIENT_MAX_Y - AMBIENT_MIN_Y)
+		local size = AMBIENT_SIZE_MIN + hash3 * (AMBIENT_SIZE_MAX - AMBIENT_SIZE_MIN)
+
+		local driftX = math.sin(apNow * AMBIENT_DRIFT_SPEED + seed) * 1.5
+		local driftY = math.cos(apNow * AMBIENT_DRIFT_SPEED * 0.7 + seed * 1.3) * 0.8
+
+		local hash4 = (math.sin(seed * 3.73 + 5.9) * 67890.123) % 1
+		local hash5 = (math.sin(seed * 4.19 + 7.3) * 54321.987) % 1
+		local hash6 = (math.sin(seed * 5.61 + 2.1) * 98765.432) % 1
+		if hash4 < 0 then hash4 = hash4 + 1 end
+		if hash5 < 0 then hash5 = hash5 + 1 end
+		if hash6 < 0 then hash6 = hash6 + 1 end
+		local burstDirX = (hash4 - 0.5) * 2
+		local burstDirY = (hash5 - 0.5) * 2
+		local burstDirZ = (hash6 - 0.5) * 2
+		local burstMag = beat * beat * AMBIENT_BEAT_BURST
+		local burstX = burstDirX * burstMag
+		local burstY = burstDirY * burstMag
+		local burstZ = burstDirZ * burstMag
+
+		local sPos = centerSpline:CalculatePositionAt(apt) + waveVec(apt)
+		local wP = toWorld(sPos)
+		local sDir = centerSpline:CalculateDerivativeAt(apt)
+		if sDir.Magnitude < 0.001 then sDir = Vector3.new(0, 0, -1) end
+		local apFwd = sDir.Unit
+		local apRight = apFwd:Cross(Vector3.new(0, 1, 0))
+		if apRight.Magnitude > 0.001 then apRight = apRight.Unit else apRight = Vector3.new(1, 0, 0) end
+
+		local particlePos = wP + apRight * (lateralOffset + driftX + burstX) + Vector3.new(0, heightOffset + driftY + burstY, 0) + apFwd * burstZ + syncOffset
+
+		local distFrac = math.clamp((apt - tMin) / (tMax - tMin), 0, 1)
+		local fadeAlpha = 1
+		if distFrac > 0.7 then
+			fadeAlpha = 1 - (distFrac - 0.7) / 0.3
+		elseif distFrac < 0.1 then
+			fadeAlpha = distFrac / 0.1
+		end
+		local brightness = (0.3 + beat * 0.7) * fadeAlpha
+
+		local particle = self._ambientParticles[api]
+		particle.Size = Vector3.new(size, size, size)
+		particle.CFrame = CFrame.new(particlePos)
+		particle.Color = Color3.new(1, 1, 1)
+		local beatOpacity = 0.15 + beat * beat * 0.85
+		particle.Transparency = 1 - fadeAlpha * beatOpacity
+		local gl = particle:FindFirstChildOfClass("PointLight")
+		if gl then
+			gl.Color = Color3.new(1, 1, 1)
+			gl.Brightness = brightness
+		end
+		api = api + 1
+		apt = apt + AMBIENT_PARTICLE_T_STEP
+	end
+	for i = api, AMBIENT_PARTICLE_POOL do
+		self._ambientParticles[i].Transparency = 1
+		local gl = self._ambientParticles[i]:FindFirstChildOfClass("PointLight")
+		if gl then gl.Brightness = 0 end
+	end
+
 end
 
 ---------------------------------------------------------------------------
@@ -1878,8 +2011,45 @@ function LakelandRaceController:StartRace()
 	print("[LakelandRaceController] LAUNCH on lane " .. self._currentLane)
 end
 
+function LakelandRaceController:StartDemoRace()
+	if self._running then return end
+	self._running = true
+	self._demoMode = true
+	self._countdownDrive = false
+	self._launching = true
+	self._currentSpeed = 0
+	self._laneEntryT = self._t
+	if not self._renderConn then self:_startRenderLoop() end
+
+	task.spawn(function()
+		while self._demoMode and self._running do
+			local delay = 0.8 + math.random() * 1.2
+			task.wait(delay)
+			if not self._demoMode or not self._running then break end
+
+			local current = self._targetLane
+			local dir
+			if current == 1 then
+				dir = 1
+			elseif current == LANE_COUNT then
+				dir = -1
+			else
+				dir = math.random() > 0.5 and 1 or -1
+			end
+			self:SwitchLane(dir)
+
+			if math.random() > 0.7 and self._bombCount > 0 then
+				self:_deployBomb()
+			end
+		end
+	end)
+
+	print("[LakelandRaceController] DEMO LAUNCH on lane " .. self._currentLane)
+end
+
 function LakelandRaceController:StopRace()
 	self._running = false
+	self._demoMode = false
 	self._countdownDrive = false
 	self._launching = false
 	self._shockwaveActive = false
@@ -2227,16 +2397,16 @@ function LakelandRaceController:_updateMovement(dt)
 					emitter.CanQuery = false
 					emitter.CFrame = CFrame.new(self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS)
 					emitter.Parent = Workspace
-					local targetVol = 0.3 + sf * 0.7
-					local clone = boostSfx:Clone()
-					clone.RollOffMode = Enum.RollOffMode.InverseTapered
-					clone.RollOffMinDistance = 20
-					clone.RollOffMaxDistance = 200
-					clone.Volume = 0
-					clone.PlaybackSpeed = 0.75 + sf * 0.5
-					clone.Parent = emitter
-					clone:Play()
-					TweenService:Create(clone, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = targetVol }):Play()
+				local targetVol = (0.3 + sf * 0.7) * boostSfx.Volume
+				local clone = boostSfx:Clone()
+				clone.RollOffMode = Enum.RollOffMode.InverseTapered
+				clone.RollOffMinDistance = 20
+				clone.RollOffMaxDistance = 200
+				clone.Volume = 0
+				clone.PlaybackSpeed = 0.75 + sf * 0.5
+				clone.Parent = emitter
+				clone:Play()
+				TweenService:Create(clone, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = targetVol }):Play()
 					self._boostSfxEmitter = emitter
 				end
 			else
@@ -2261,18 +2431,20 @@ function LakelandRaceController:_updateMovement(dt)
 		local hitHazard = self:_getHitHazard()
 		if hitHazard and not hitHazard._hit then
 			hitHazard._hit = true
-			self._health = math.max(self._health - HAZARD_DAMAGE, 0)
-			self._comboCount = 0
-			self._comboTimer = 0
-			self._lastShockwaveThreshold = 0
-			if self._shockwaveActive then
-				self._shockwaveActive = false
-				self._shockwaveTime = 0
+			if not self._demoMode then
+				self._health = math.max(self._health - HAZARD_DAMAGE, 0)
+				self._comboCount = 0
+				self._comboTimer = 0
+				self._lastShockwaveThreshold = 0
+				if self._shockwaveActive then
+					self._shockwaveActive = false
+					self._shockwaveTime = 0
+				end
+				self.HealthChanged:Fire(self._health)
+				self.HazardHit:Fire(self._health)
 			end
-			self.HealthChanged:Fire(self._health)
-			self.HazardHit:Fire(self._health)
 			self:_spawnBurst(Color3.fromRGB(255, 50, 50), Color3.fromRGB(255, 100, 100))
-			if self._health <= 0 then
+			if self._health <= 0 and not self._demoMode then
 				if SFX_Impacts then playSoundAt(SFX_Impacts:FindFirstChild("OnImpactHazardFinal"), self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS) end
 			else
 				playRandomImpactAt(self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS)

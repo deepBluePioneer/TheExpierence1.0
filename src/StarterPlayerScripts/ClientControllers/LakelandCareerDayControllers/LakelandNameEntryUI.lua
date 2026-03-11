@@ -29,6 +29,7 @@ local LakelandNameEntryUI = {}
 function LakelandNameEntryUI.new(playerGui, gameState, previousNames, onNameConfirmed)
 	local typedName = Value("")
 	local selectedName = Value("")
+	local nameInputBox = nil
 
 	local confirmScale = Value(1)
 	local animatedConfirmScale = Spring(confirmScale, 30, 0.7)
@@ -260,27 +261,27 @@ function LakelandNameEntryUI.new(playerGui, gameState, previousNames, onNameConf
 										Transparency = 0.1,
 									},
 
-									New "TextBox" {
-										Name = "NameInput",
-										AnchorPoint = Vector2.new(0.5, 0.5),
-										Position = UDim2.fromScale(0.5, 0.5),
-										Size = UDim2.fromScale(0.9, 0.65),
-										BackgroundTransparency = 1,
-										Text = "",
-										PlaceholderText = "Type your name...",
-										PlaceholderColor3 = TEXT_DIM,
-										TextColor3 = TEXT_WHITE,
-										Font = Enum.Font.GothamBold,
-										TextScaled = true,
-										ClearTextOnFocus = false,
+								New "TextBox" {
+									Name = "NameInput",
+									AnchorPoint = Vector2.new(0.5, 0.5),
+									Position = UDim2.fromScale(0.5, 0.5),
+									Size = UDim2.fromScale(0.9, 0.65),
+									BackgroundTransparency = 1,
+									Text = "",
+									PlaceholderText = "Type your name...",
+									PlaceholderColor3 = TEXT_DIM,
+									TextColor3 = TEXT_WHITE,
+									Font = Enum.Font.GothamBold,
+									TextScaled = true,
+									ClearTextOnFocus = false,
 
-										[OnChange "Text"] = function(newText)
-											local cleaned = string.sub(newText, 1, 20)
-											typedName:set(cleaned)
-											if #cleaned > 0 then
-												selectedName:set("")
-											end
-										end,
+									[OnChange "Text"] = function(newText)
+										local cleaned = string.sub(newText, 1, 20)
+										typedName:set(cleaned)
+										if #cleaned > 0 then
+											selectedName:set("")
+										end
+									end,
 
 										[Children] = { New "UITextSizeConstraint" { MaxTextSize = 28 } },
 									},
@@ -416,9 +417,14 @@ function LakelandNameEntryUI.new(playerGui, gameState, previousNames, onNameConf
 		},
 	}
 
+	nameInputBox = screenGui:FindFirstChild("NameInput", true)
+
 	local function reset()
 		typedName:set("")
 		selectedName:set("")
+		if nameInputBox then
+			nameInputBox.Text = ""
+		end
 	end
 
 	local function destroy()

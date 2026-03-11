@@ -5,6 +5,7 @@ local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 local StarterPlayer = game:GetService("StarterPlayer")
+local UserInputService = game:GetService("UserInputService")
 
 local Packages = ReplicatedStorage.Packages
 local Knit = require(Packages.Knit)
@@ -31,9 +32,11 @@ local LakelandScoreBarUI = require(ControllersFolder.LakelandScoreBarUI)
 local LakelandBombUI = require(ControllersFolder.LakelandBombUI)
 local LakelandWipeTransition = require(ControllersFolder.LakelandWipeTransition)
 local LakelandBGMToastUI = require(ControllersFolder.LakelandBGMToastUI)
+local LakelandDemoOverlayUI = require(ControllersFolder.LakelandDemoOverlayUI)
 
 local RACE_DURATION = 120
 local END_SCREEN_DURATION = 5
+local IDLE_TIMEOUT = 15
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -43,6 +46,7 @@ local STATES = {
 	COUNTDOWN = "COUNTDOWN",
 	PLAYING = "PLAYING",
 	GAME_OVER = "GAME_OVER",
+	DEMO = "DEMO",
 }
 
 ---------------------------------------------------------------------------
@@ -53,14 +57,24 @@ local BGM_VOLUME = 0.25
 
 local MENU_TRACK_ID = "rbxassetid://7028518546"  -- Protostar - New Horizons
 
-local GAME_TRACK_IDS = {
-	"rbxassetid://5409360995",  -- Dion Timmer - Shiawase
-}
-
+local MUSIC_GROUP = SoundService:FindFirstChild("music")
+local GAME_TRACK_IDS = {}
 local TRACK_NAMES = {
 	["rbxassetid://7028518546"] = "Protostar — New Horizons",
-	["rbxassetid://5409360995"] = "Dion Timmer — Shiawase",
 }
+
+if MUSIC_GROUP then
+	for _, child in ipairs(MUSIC_GROUP:GetChildren()) do
+		if child:IsA("Sound") and child.SoundId ~= "" then
+			table.insert(GAME_TRACK_IDS, child.SoundId)
+			TRACK_NAMES[child.SoundId] = child.Name
+		end
+	end
+end
+if #GAME_TRACK_IDS == 0 then
+	table.insert(GAME_TRACK_IDS, "rbxassetid://5409360995")
+	TRACK_NAMES["rbxassetid://5409360995"] = "Dion Timmer — Shiawase"
+end
 
 local LakelandGameController = Knit.CreateController({
 	Name = "LakelandGameController",
@@ -88,6 +102,13 @@ local LakelandGameController = Knit.CreateController({
 	_bgmEndedConn = nil,
 	_beatIntensity = nil,
 	_beatConn = nil,
+
+	_demoOverlay = nil,
+	_idleInputConn = nil,
+	_idleTickConn = nil,
+	_idleTimer = 0,
+	_demoInputConn = nil,
+	_demoEnding = false,
 })
 
 local MAX_LEADERBOARD_ENTRIES = 10
@@ -128,6 +149,8 @@ function LakelandGameController:KnitStart()
 		self._beatIntensity:set(smoothed)
 	end)
 	self._trove:Add(self._beatConn)
+
+	self:_startIdleWatch()
 
 	print("[LakelandGameController] Ready - showing menu")
 end
@@ -210,12 +233,21 @@ function LakelandGameController:_createUI()
 		self._bgmToast.destroy()
 	end)
 
+	self._demoOverlay = LakelandDemoOverlayUI.new(playerGui)
+	self._trove:Add(function()
+		self._demoOverlay.destroy()
+	end)
+
 	self._trove:Add(function()
 		self:_stopIntroCutscene()
 	end)
 
 	self._trove:Add(function()
 		self:_stopBGM()
+	end)
+
+	self._trove:Add(function()
+		self:_stopIdleWatch()
 	end)
 end
 
@@ -299,6 +331,145 @@ function LakelandGameController:_stopIntroCutscene()
 	end)
 end
 
+---------------------------------------------------------------------------
+-- Idle detection & demo mode
+---------------------------------------------------------------------------
+function LakelandGameController:_startIdleWatch()
+	self:_stopIdleWatch()
+	self._idleTimer = 0
+
+	self._idleInputConn = UserInputService.InputBegan:Connect(function()
+		self._idleTimer = 0
+	end)
+
+	self._idleTickConn = RunService.Heartbeat:Connect(function(dt)
+		local state = self._gameState:get()
+		if state ~= STATES.MENU and state ~= STATES.NAME_ENTRY then
+			return
+		end
+		self._idleTimer = self._idleTimer + dt
+		if self._idleTimer >= IDLE_TIMEOUT then
+			self._idleTimer = 0
+			if state == STATES.NAME_ENTRY then
+				self:_idleReturnToMenu()
+			else
+				self:_startDemoMode()
+			end
+		end
+	end)
+end
+
+function LakelandGameController:_stopIdleWatch()
+	if self._idleInputConn then
+		self._idleInputConn:Disconnect()
+		self._idleInputConn = nil
+	end
+	if self._idleTickConn then
+		self._idleTickConn:Disconnect()
+		self._idleTickConn = nil
+	end
+	self._idleTimer = 0
+end
+
+function LakelandGameController:_idleReturnToMenu()
+	if self._wipe.isWiping() then return end
+	if self._gameState:get() ~= STATES.NAME_ENTRY then return end
+
+	task.spawn(function()
+		self._wipe.wipe(function()
+			self:_setState(STATES.MENU)
+		end)
+	end)
+end
+
+function LakelandGameController:_startDemoMode()
+	local state = self._gameState:get()
+	if state ~= STATES.MENU and state ~= STATES.NAME_ENTRY then return end
+	if self._wipe.isWiping() then return end
+	if self._demoEnding then return end
+
+	self:_stopIdleWatch()
+
+	task.spawn(function()
+		self._wipe.wipe(function()
+			self:_stopIntroCutscene()
+
+			self:_spawnMachine()
+			self:_loadCharacter()
+			self:_seatPlayer()
+
+			self:_shuffleGameTracks()
+			self:_playNextGameTrack()
+
+			if self._bgmEndedConn then
+				self._bgmEndedConn:Disconnect()
+				self._bgmEndedConn = nil
+			end
+			if self._bgmCurrent then
+				self._bgmEndedConn = self._bgmCurrent.Ended:Once(function()
+					if self._gameState:get() == STATES.DEMO and not self._demoEnding then
+						self:_exitDemoMode()
+					end
+				end)
+			end
+
+			self:_setState(STATES.DEMO)
+			self._demoOverlay.show()
+
+			self._demoInputConn = UserInputService.InputBegan:Connect(function()
+				if self._gameState:get() == STATES.DEMO and not self._demoEnding then
+					self:_exitDemoMode()
+				end
+			end)
+		end)
+	end)
+end
+
+function LakelandGameController:_exitDemoMode()
+	if self._demoEnding then return end
+	if self._gameState:get() ~= STATES.DEMO then return end
+	self._demoEnding = true
+
+	self._demoOverlay.hide()
+
+	if self._demoInputConn then
+		self._demoInputConn:Disconnect()
+		self._demoInputConn = nil
+	end
+
+	if self._bgmCurrent then
+		if self._bgmFadeTween then
+			self._bgmFadeTween:Cancel()
+			self._bgmFadeTween = nil
+		end
+		if self._bgmEndedConn then
+			self._bgmEndedConn:Disconnect()
+			self._bgmEndedConn = nil
+		end
+		local snd = self._bgmCurrent
+		local fadeOut = TweenService:Create(snd, TweenInfo.new(1.0, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = 0 })
+		fadeOut:Play()
+		fadeOut.Completed:Once(function()
+			snd:Stop()
+			snd:Destroy()
+		end)
+		self._bgmCurrent = nil
+	end
+
+	task.spawn(function()
+		self._wipe.wipe(function()
+			pcall(function()
+				self:_cleanup()
+			end)
+			self._demoEnding = false
+			self:_playMenuMusic()
+			self:_setState(STATES.MENU)
+			self:_startIntroCutscene()
+			self:_startIdleWatch()
+		end)
+	end)
+end
+
 function LakelandGameController:_setState(newState)
 	local old = self._gameState:get()
 	if old == newState then return end
@@ -310,10 +481,12 @@ end
 
 function LakelandGameController:_onPlayPressed()
 	if self._wipe.isWiping() then return end
+	self:_stopIdleWatch()
 	task.spawn(function()
 		self._wipe.wipe(function()
 			self._nameEntry.reset()
 			self:_setState(STATES.NAME_ENTRY)
+			self:_startIdleWatch()
 		end)
 	end)
 end
@@ -508,6 +681,7 @@ function LakelandGameController:_onGameEnd(endReason)
 			self:_playMenuMusic()
 			self:_setState(STATES.MENU)
 			self:_startIntroCutscene()
+			self:_startIdleWatch()
 		end)
 		print("[LakelandGameController] " .. endReason .. " — returning to menu.")
 	end)
