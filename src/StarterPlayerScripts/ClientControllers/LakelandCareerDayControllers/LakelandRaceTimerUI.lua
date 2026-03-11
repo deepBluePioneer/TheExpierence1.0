@@ -62,20 +62,20 @@ function LakelandRaceTimerUI.new(playerGui, gameState, raceDuration, beatIntensi
 		Name = "LakelandRaceTimerUI",
 		ResetOnSpawn = false,
 		IgnoreGuiInset = true,
-		DisplayOrder = 50,
+		DisplayOrder = 56,
 		Enabled = visible,
 		Parent = playerGui,
 
 		[Children] = {
 			New "Frame" {
 				Name = "TimerContainer",
-				AnchorPoint = Vector2.new(0.5, 0),
+				AnchorPoint = Vector2.new(1, 0),
 				Position = Computed(function()
-					return UDim2.fromScale(0.5, slideY:get())
+					return UDim2.fromScale(0.98, slideY:get())
 				end),
 				Size = Computed(function()
 					local s = animatedPulse:get()
-					return UDim2.fromScale(0.11 * s, 0.055 * s)
+					return UDim2.fromScale(0.12 * s, 0.06 * s)
 				end),
 				BackgroundColor3 = BG_PANEL,
 				BackgroundTransparency = 0.15,
