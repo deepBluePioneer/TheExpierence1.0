@@ -525,6 +525,13 @@ local SPEC_TREBLE_COLOR = Color3.fromRGB(50, 200, 255)
 
 local COMBO_WINDOW = 2.0
 
+local SHOCKWAVE_AMPLITUDE    = 20
+local SHOCKWAVE_WAVELENGTH   = 80
+local SHOCKWAVE_SPEED        = 600
+local SHOCKWAVE_DURATION     = 1.2
+local SHOCKWAVE_DAMPEN_START = 0.7
+local SHOCKWAVE_COMBO_STEP   = 5
+
 local GLOW_PILLAR_POOL   = 20
 local GLOW_PILLAR_SIZE   = Vector3.new(0.15, 20, 0.15)
 local GLOW_HAZARD_COLOR  = Color3.fromRGB(255, 50, 50)
@@ -590,9 +597,15 @@ local LakelandRaceController = Knit.CreateController({
 
 	_specBars = {},
 	_specBands = {},
+	_menuRenderConn = nil,
 
 	_comboCount = 0,
 	_comboTimer = 0,
+
+	_shockwaveActive = false,
+	_shockwaveTime = 0,
+	_shockwaveOriginT = 0,
+	_lastShockwaveThreshold = 0,
 
 	LaneChanged = Signal.new(),
 	RaceProgress = Signal.new(),
@@ -646,8 +659,12 @@ function LakelandRaceController:KnitStart()
 
 	local gameController = Knit.GetController("LakelandGameController")
 	self._beatIntensity = gameController:GetBeatIntensity()
+
+	self:_startMenuRenderLoop()
+
 	gameController.GameStateChanged:Connect(function(newState)
 		if newState == "COUNTDOWN" then
+			self:_stopMenuRenderLoop()
 			self._obstaclesVisible = false
 			self:PositionAtStart()
 			if SFX_Countdown then
@@ -678,12 +695,19 @@ function LakelandRaceController:KnitStart()
 				self._machineLoadEmitter:Destroy()
 				self._machineLoadEmitter = nil
 			end
-		elseif newState == "GAME_OVER" or newState == "MENU" then
+		elseif newState == "GAME_OVER" then
 			self:StopRace()
 			if self._machineLoadEmitter then
 				self._machineLoadEmitter:Destroy()
 				self._machineLoadEmitter = nil
 			end
+		elseif newState == "MENU" then
+			self:StopRace()
+			if self._machineLoadEmitter then
+				self._machineLoadEmitter:Destroy()
+				self._machineLoadEmitter = nil
+			end
+			self:_startMenuRenderLoop()
 		end
 	end)
 end
@@ -1111,11 +1135,68 @@ function LakelandRaceController:_initPools()
 end
 
 ---------------------------------------------------------------------------
+-- Shockwave effect
+---------------------------------------------------------------------------
+function LakelandRaceController:_triggerShockwave()
+	self._shockwaveActive = true
+	self._shockwaveTime = 0
+	self._shockwaveOriginT = self._t
+end
+
+function LakelandRaceController:_updateShockwave(dt)
+	if not self._shockwaveActive then return end
+	self._shockwaveTime = self._shockwaveTime + dt
+	if self._shockwaveTime >= SHOCKWAVE_DURATION then
+		self._shockwaveActive = false
+		self._shockwaveTime = 0
+	end
+end
+
+function LakelandRaceController:_getShockwaveOffsetY(elementT)
+	if not self._shockwaveActive then return 0 end
+
+	local elapsed = self._shockwaveTime
+	local originT = self._shockwaveOriginT
+
+	local distFromOrigin = (elementT - originT) * TRACK_LENGTH
+	if distFromOrigin < 0 then return 0 end
+
+	local waveFrontDist = SHOCKWAVE_SPEED * elapsed
+	if distFromOrigin > waveFrontDist then return 0 end
+
+	local distAheadOfPlayer = (elementT - self._t) * TRACK_LENGTH
+	if distAheadOfPlayer < 0 then return 0 end
+
+	local damping = 1
+	if elapsed > SHOCKWAVE_DAMPEN_START then
+		local dampFrac = (elapsed - SHOCKWAVE_DAMPEN_START) / (SHOCKWAVE_DURATION - SHOCKWAVE_DAMPEN_START)
+		damping = math.max(0, 1 - dampFrac)
+	end
+
+	local distBehindFront = waveFrontDist - distFromOrigin
+	local envelopeWidth = SHOCKWAVE_WAVELENGTH * 3
+	local envelope = math.max(0, 1 - distBehindFront / envelopeWidth)
+	local frontEnvelope = math.min(distBehindFront / (SHOCKWAVE_WAVELENGTH * 0.5), 1)
+
+	local phase = (distAheadOfPlayer / SHOCKWAVE_WAVELENGTH) * math.pi * 2
+	return SHOCKWAVE_AMPLITUDE * math.sin(phase) * envelope * frontEnvelope * damping
+end
+
+---------------------------------------------------------------------------
 -- World scroll — repositions all pooled parts each frame
 ---------------------------------------------------------------------------
 function LakelandRaceController:_updateWorldScroll(dt)
 	local centerSpline = self._splines[2].spline
-	local centerRef = centerSpline:CalculatePositionAt(self._t)
+
+	local shockActive = self._shockwaveActive
+	local function waveVec(tVal)
+		if not shockActive then return Vector3.zero end
+		local y = self:_getShockwaveOffsetY(tVal)
+		if y == 0 then return Vector3.zero end
+		return Vector3.new(0, y, 0)
+	end
+
+	local centerRef = centerSpline:CalculatePositionAt(self._t) + waveVec(self._t)
 
 	local tMin = math.max(0, self._t - WINDOW_BEHIND)
 	local tMax = math.min(1, self._t + WINDOW_AHEAD)
@@ -1160,8 +1241,8 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	local t = math.floor(tMin / ROAD_T_STEP) * ROAD_T_STEP
 	while t < tMax and ri <= ROAD_POOL do
 		local t1 = math.min(t + ROAD_T_STEP, tMax)
-		local posA = centerSpline:CalculatePositionAt(t)
-		local posB = centerSpline:CalculatePositionAt(t1)
+		local posA = centerSpline:CalculatePositionAt(t) + waveVec(t)
+		local posB = centerSpline:CalculatePositionAt(t1) + waveVec(t1)
 		local mid = (posA + posB) / 2
 		local dir = posB - posA
 		local segLen = dir.Magnitude
@@ -1186,8 +1267,8 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local lt1 = math.min(lt + LANE_T_STEP, tMax)
 			local ltMid = (lt + lt1) / 2
 			local zone = getTrackZone(ltMid)
-			local posA = spline:CalculatePositionAt(lt)
-			local posB = spline:CalculatePositionAt(lt1)
+			local posA = spline:CalculatePositionAt(lt) + waveVec(lt)
+			local posB = spline:CalculatePositionAt(lt1) + waveVec(lt1)
 			local mid = (posA + posB) / 2
 			local dir = posB - posA
 			local segLen = dir.Magnitude
@@ -1220,7 +1301,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	local tlt = math.floor(tMin / LIGHT_T_STEP) * LIGHT_T_STEP
 	while tlt < tMax and tli <= LIGHT_POOL do
 		local zone = getTrackZone(tlt)
-		local pos = centerSpline:CalculatePositionAt(tlt)
+		local pos = centerSpline:CalculatePositionAt(tlt) + waveVec(tlt)
 		local wP = toWorld(pos)
 		local info = self._pools.light[tli]
 		info.part.Position = wP + Vector3.new(0, 6, 0)
@@ -1261,8 +1342,9 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	local tft = math.floor(tMin / TUNNEL_T_STEP) * TUNNEL_T_STEP
 	while tft < tMax and tfi <= TUNNEL_POOL do
 		local zone = getTrackZone(tft)
-		local posA = centerSpline:CalculatePositionAt(tft)
-		local posB = centerSpline:CalculatePositionAt(math.min(tft + TUNNEL_T_STEP * 0.1, 1))
+		local posA = centerSpline:CalculatePositionAt(tft) + waveVec(tft)
+		local tftB = math.min(tft + TUNNEL_T_STEP * 0.1, 1)
+		local posB = centerSpline:CalculatePositionAt(tftB) + waveVec(tftB)
 		local dir = posB - posA
 		if dir.Magnitude > 0.001 then
 			local wP = toWorld(posA)
@@ -1317,8 +1399,9 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	local now = time()
 	while slt < tMax and sli <= SIDE_LASER_POOL do
 		local zone = getTrackZone(slt)
-		local posA = centerSpline:CalculatePositionAt(slt)
-		local posB = centerSpline:CalculatePositionAt(math.min(slt + SIDE_LASER_T_STEP * 0.1, 1))
+		local posA = centerSpline:CalculatePositionAt(slt) + waveVec(slt)
+		local sltB = math.min(slt + SIDE_LASER_T_STEP * 0.1, 1)
+		local posB = centerSpline:CalculatePositionAt(sltB) + waveVec(sltB)
 		local dir = posB - posA
 		if dir.Magnitude > 0.001 then
 			local wP = toWorld(posA)
@@ -1436,10 +1519,10 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				alpha = alpha * alpha
 			end
 			local spline = self._splines[hazard.lane].spline
-			local pos = spline:CalculatePositionAt(hazard.t)
+			local pos = spline:CalculatePositionAt(hazard.t) + waveVec(hazard.t)
 			local wP = toWorld(pos)
 			showCubeAssembly(self._pools.hazard[hi], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha, cubeBeatScale)
-			if not hazard._flybyPlayed and hazard.t <= playerT then
+			if self._running and not hazard._flybyPlayed and hazard.t <= playerT then
 				hazard._flybyPlayed = true
 				playRandomFlybyAt(wP + Vector3.new(0, 2.5, 0), self._currentSpeed / MAX_SPEED)
 			end
@@ -1460,10 +1543,10 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				alpha = alpha * alpha
 			end
 			local spline = self._splines[coin.lane].spline
-			local pos = spline:CalculatePositionAt(coin.t)
+			local pos = spline:CalculatePositionAt(coin.t) + waveVec(coin.t)
 			local wP = toWorld(pos)
 			showCubeAssembly(self._pools.coin[ci], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha, cubeBeatScale)
-			if not coin._flybyPlayed and coin.t <= playerT then
+			if self._running and not coin._flybyPlayed and coin.t <= playerT then
 				coin._flybyPlayed = true
 				playRandomFlybyAt(wP + Vector3.new(0, 2.5, 0), self._currentSpeed / MAX_SPEED)
 			end
@@ -1484,10 +1567,10 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				alpha = alpha * alpha
 			end
 			local spline = self._splines[bomb.lane].spline
-			local pos = spline:CalculatePositionAt(bomb.t)
+			local pos = spline:CalculatePositionAt(bomb.t) + waveVec(bomb.t)
 			local wP = toWorld(pos)
 			showCubeAssembly(self._pools.bomb[bi], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha, cubeBeatScale)
-			if not bomb._flybyPlayed and bomb.t <= playerT then
+			if self._running and not bomb._flybyPlayed and bomb.t <= playerT then
 				bomb._flybyPlayed = true
 				playRandomFlybyAt(wP + Vector3.new(0, 2.5, 0), self._currentSpeed / MAX_SPEED)
 			end
@@ -1503,7 +1586,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			if gi > GLOW_PILLAR_POOL then return end
 			if blockT <= self._t then return end
 			local spline = self._splines[lane].spline
-			local pos = spline:CalculatePositionAt(blockT)
+			local pos = spline:CalculatePositionAt(blockT) + waveVec(blockT)
 			local wP = toWorld(pos)
 			local dist01 = math.clamp((blockT - self._t) / WINDOW_AHEAD, 0, 1)
 			local pillar = self._glowPillars[gi]
@@ -1595,8 +1678,8 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			if pi > BOOST_PAD_POOL then break end
 			local bt0 = bz.tStart + zoneLen * (s / BOOST_VIS_SEGS)
 			local bt1 = bz.tStart + zoneLen * ((s + 1) / BOOST_VIS_SEGS)
-			local posA = spline:CalculatePositionAt(bt0)
-			local posB = spline:CalculatePositionAt(bt1)
+			local posA = spline:CalculatePositionAt(bt0) + waveVec(bt0)
+			local posB = spline:CalculatePositionAt(bt1) + waveVec(bt1)
 			local mid = (posA + posB) / 2
 			local dir = posB - posA
 			local segLen = dir.Magnitude
@@ -1615,7 +1698,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			if chi > BOOST_CHEV_POOL then break end
 			local tFrac = (chevIdx + 0.5) / BOOST_CHEVRONS_PER_ZONE
 			local chevT = bz.tStart + zoneLen * tFrac
-			local chevPos = spline:CalculatePositionAt(chevT)
+			local chevPos = spline:CalculatePositionAt(chevT) + waveVec(chevT)
 			local chevDir = spline:CalculateDerivativeAt(chevT)
 			if chevDir.Magnitude < 0.001 then continue end
 			chevDir = chevDir.Unit
@@ -1685,7 +1768,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 
 		local zOff = (i - 1) * SPEC_BAR_SPACING - halfSpan
 		local specT = math.clamp(specTCenter + zOff / TRACK_LENGTH, 0, 1)
-		local sPos = centerSpline:CalculatePositionAt(specT)
+		local sPos = centerSpline:CalculatePositionAt(specT) + waveVec(specT)
 		local sDir = centerSpline:CalculateDerivativeAt(specT)
 		if sDir.Magnitude < 0.001 then sDir = Vector3.new(0, 0, -1) end
 		local wP = toWorld(sPos)
@@ -1755,6 +1838,10 @@ function LakelandRaceController:PositionAtStart()
 	self._difficultyTransitionProgress = 0
 	self._comboCount = 0
 	self._comboTimer = 0
+	self._shockwaveActive = false
+	self._shockwaveTime = 0
+	self._shockwaveOriginT = 0
+	self._lastShockwaveThreshold = 0
 
 	task.spawn(function()
 		local machine = Workspace:WaitForChild("ActiveMachine", 5)
@@ -1795,6 +1882,8 @@ function LakelandRaceController:StopRace()
 	self._running = false
 	self._countdownDrive = false
 	self._launching = false
+	self._shockwaveActive = false
+	self._shockwaveTime = 0
 
 	if self._boosting then
 		self._boosting = false
@@ -1862,6 +1951,28 @@ function LakelandRaceController:SwitchLane(direction)
 end
 
 ---------------------------------------------------------------------------
+-- Menu render loop (static decorative track during menu)
+---------------------------------------------------------------------------
+local MENU_TRACK_T = 0.15
+
+function LakelandRaceController:_startMenuRenderLoop()
+	self:_stopMenuRenderLoop()
+	self._t = MENU_TRACK_T
+	self._obstaclesVisible = false
+
+	self._menuRenderConn = RunService.RenderStepped:Connect(function(dt)
+		self:_updateWorldScroll(dt)
+	end)
+end
+
+function LakelandRaceController:_stopMenuRenderLoop()
+	if self._menuRenderConn then
+		self._menuRenderConn:Disconnect()
+		self._menuRenderConn = nil
+	end
+end
+
+---------------------------------------------------------------------------
 -- Render loop
 ---------------------------------------------------------------------------
 function LakelandRaceController:_startRenderLoop()
@@ -1871,6 +1982,7 @@ function LakelandRaceController:_startRenderLoop()
 	end
 
 	RunService:BindToRenderStep("LakelandMachineUpdate", Enum.RenderPriority.Camera.Value - 1, function(dt)
+		self:_updateShockwave(dt)
 		if self._running or self._countdownDrive then
 			self:_updateMovement(dt)
 		end
@@ -1929,6 +2041,12 @@ function LakelandRaceController:_checkCoinCollection()
 			self:_spawnBurst(Color3.fromRGB(50, 140, 255), Color3.fromRGB(100, 180, 255))
 			local comboPitch = 0.85 + math.min(self._comboCount, 10) * 0.08
 			playRandomImpactAt(self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS, nil, comboPitch)
+			-- Shockwave disabled for now
+			-- local newThreshold = math.floor(self._comboCount / SHOCKWAVE_COMBO_STEP)
+			-- if newThreshold > self._lastShockwaveThreshold and not self._shockwaveActive then
+			-- 	self._lastShockwaveThreshold = newThreshold
+			-- 	self:_triggerShockwave()
+			-- end
 			if self._cameraController then
 				self._cameraController:ShakeCamera(1.2, 0.15, 0, 0, 0.15, Vector3.new(0.6, 0.6, 0.1), Vector3.new(0.03, 0.03, 0.02))
 			end
@@ -1944,7 +2062,7 @@ function LakelandRaceController:_checkBombCollection()
 			self._bombCount = self._bombCount + 1
 			self.BombCollected:Fire(self._bombCount)
 			self:_spawnBurst(Color3.fromRGB(50, 220, 70), Color3.fromRGB(100, 255, 120))
-			if SFX_Impacts then playSoundAt(SFX_Impacts:FindFirstChild("FirePickup"), self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS) end
+			if SFX_Impacts then playSoundAt(SFX_Impacts:FindFirstChild("FirePickup"), self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS, 2.5) end
 			if self._cameraController then
 				self._cameraController:ShakeCamera(1.5, 0.12, 0, 0, 0.15, Vector3.new(0.7, 0.7, 0.1), Vector3.new(0.03, 0.03, 0.02))
 			end
@@ -1962,6 +2080,10 @@ function LakelandRaceController:_deployBomb()
 	self._bombChainLane = self:_getEffectiveLane()
 	self._bombChainStartT = self._t
 	self.BombDeployed:Fire()
+	local playerPos = self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS
+	if SFX_Impacts then
+		playSoundAt(SFX_Impacts:FindFirstChild("FirePickup"), playerPos, 2.5, 0.6)
+	end
 	if self._cameraController then
 		self._cameraController:ShakeCamera(2, 0.08, 0, 0.03, 0.25, Vector3.new(1, 1, 0.2), Vector3.new(0.05, 0.05, 0.03))
 	end
@@ -1973,6 +2095,7 @@ function LakelandRaceController:_updateBombChain(dt)
 
 	local centerSpline = self._splines[2].spline
 	local centerRef = centerSpline:CalculatePositionAt(self._t)
+	local playerPos = self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS
 
 	local interval = BOMB_CHAIN_SPEED / BOMB_CHAIN_LENGTH
 	while self._bombChainCount < BOMB_CHAIN_LENGTH and self._bombChainTimer >= interval do
@@ -2002,7 +2125,7 @@ function LakelandRaceController:_updateBombChain(dt)
 				and math.abs(hazard.t - chainT) < 0.002 then
 				hazard._hit = true
 				self:_spawnBurst(Color3.fromRGB(255, 160, 30), Color3.fromRGB(255, 200, 80))
-				playRandomImpactAt(wP, 2)
+				playRandomImpactAt(playerPos, 2)
 				self._hitFreezeTimer = math.max(self._hitFreezeTimer, BOMB_HIT_FREEZE)
 				if self._cameraController then
 					self._cameraController:ShakeCamera(2.5, 0.08, 0, 0.04, 0.2, Vector3.new(1.2, 1.2, 0.2), Vector3.new(0.06, 0.06, 0.03))
@@ -2019,7 +2142,7 @@ function LakelandRaceController:_updateBombChain(dt)
 				self._coinsCollected = self._coinsCollected + 1
 				self.CoinCollected:Fire(self._coinScore, self._coinsCollected)
 				self:_spawnBurst(Color3.fromRGB(50, 140, 255), Color3.fromRGB(100, 180, 255))
-				playRandomImpactAt(wP, 2)
+				playRandomImpactAt(playerPos, 2)
 				if self._cameraController then
 					self._cameraController:ShakeCamera(1.2, 0.15, 0, 0, 0.15, Vector3.new(0.6, 0.6, 0.1), Vector3.new(0.03, 0.03, 0.02))
 				end
@@ -2033,7 +2156,7 @@ function LakelandRaceController:_updateBombChain(dt)
 				self._bombCount = self._bombCount + 1
 				self.BombCollected:Fire(self._bombCount)
 				self:_spawnBurst(Color3.fromRGB(50, 220, 70), Color3.fromRGB(100, 255, 120))
-				if SFX_Impacts then playSoundAt(SFX_Impacts:FindFirstChild("FirePickup"), wP, 2) end
+				if SFX_Impacts then playSoundAt(SFX_Impacts:FindFirstChild("FirePickup"), playerPos, 2.5) end
 				if self._cameraController then
 					self._cameraController:ShakeCamera(1.5, 0.12, 0, 0, 0.15, Vector3.new(0.7, 0.7, 0.1), Vector3.new(0.03, 0.03, 0.02))
 				end
@@ -2071,6 +2194,7 @@ function LakelandRaceController:_updateMovement(dt)
 		if self._comboTimer <= 0 then
 			self._comboCount = 0
 			self._comboTimer = 0
+			self._lastShockwaveThreshold = 0
 		end
 	end
 
@@ -2140,6 +2264,11 @@ function LakelandRaceController:_updateMovement(dt)
 			self._health = math.max(self._health - HAZARD_DAMAGE, 0)
 			self._comboCount = 0
 			self._comboTimer = 0
+			self._lastShockwaveThreshold = 0
+			if self._shockwaveActive then
+				self._shockwaveActive = false
+				self._shockwaveTime = 0
+			end
 			self.HealthChanged:Fire(self._health)
 			self.HazardHit:Fire(self._health)
 			self:_spawnBurst(Color3.fromRGB(255, 50, 50), Color3.fromRGB(255, 100, 100))
@@ -2219,9 +2348,16 @@ function LakelandRaceController:_updateMovement(dt)
 	local targetRoll = math.clamp(curvatureBank + switchBank, -MAX_BANK_ANGLE, MAX_BANK_ANGLE)
 	self._currentRoll = self._currentRoll + (targetRoll - self._currentRoll) * math.min(BANK_SMOOTH_SPEED * dt, 1)
 
-	local lookTarget = machineWorldPos + centerDir
-	local baseCF = CFrame.lookAt(machineWorldPos, lookTarget)
-	local finalCF = baseCF * CFrame.Angles(0, 0, self._currentRoll)
+	local now = time()
+	local speedFrac01 = math.clamp(self._currentSpeed / MAX_SPEED, 0, 1)
+	local bobY = math.sin(now * 2.4) * (0.15 + speedFrac01 * 0.25)
+	local swayRoll = math.sin(now * 1.6 + 0.5) * math.rad(0.8 + speedFrac01 * 1.2)
+	local swayPitch = math.sin(now * 1.9 + 1.2) * math.rad(0.4 + speedFrac01 * 0.6)
+
+	local bobPos = machineWorldPos + Vector3.new(0, bobY, 0)
+	local lookTarget = bobPos + centerDir
+	local baseCF = CFrame.lookAt(bobPos, lookTarget)
+	local finalCF = baseCF * CFrame.Angles(swayPitch, 0, self._currentRoll + swayRoll)
 	machine:PivotTo(finalCF)
 	self._lastCFrame = finalCF
 
