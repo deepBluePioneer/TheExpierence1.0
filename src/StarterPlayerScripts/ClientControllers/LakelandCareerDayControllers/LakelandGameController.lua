@@ -33,6 +33,7 @@ local LakelandBombUI = require(ControllersFolder.LakelandBombUI)
 local LakelandWipeTransition = require(ControllersFolder.LakelandWipeTransition)
 local LakelandBGMToastUI = require(ControllersFolder.LakelandBGMToastUI)
 local LakelandDemoOverlayUI = require(ControllersFolder.LakelandDemoOverlayUI)
+local LakelandDangerVignetteUI = require(ControllersFolder.LakelandDangerVignetteUI)
 
 local RACE_DURATION = 120
 local END_SCREEN_DURATION = 5
@@ -236,6 +237,11 @@ function LakelandGameController:_createUI()
 	self._demoOverlay = LakelandDemoOverlayUI.new(playerGui)
 	self._trove:Add(function()
 		self._demoOverlay.destroy()
+	end)
+
+	self._dangerVignette = LakelandDangerVignetteUI.new(playerGui, self._gameState, self._beatIntensity)
+	self._trove:Add(function()
+		self._dangerVignette.destroy()
 	end)
 
 	self._trove:Add(function()
@@ -511,6 +517,7 @@ function LakelandGameController:_onNameConfirmed(name)
 			self._healthBar.reset()
 			self._scoreBar.reset()
 			self._bombUI.reset()
+			self._dangerVignette.reset()
 			self:_shuffleGameTracks()
 			self:_playNextGameTrack()
 			self:_setState(STATES.COUNTDOWN)
@@ -561,6 +568,7 @@ function LakelandGameController:_onGameEnd(endReason)
 	local finalDistance = self._raceController:GetDistance()
 
 	self._raceController:StopRace()
+	self._dangerVignette.reset()
 
 	if self._bgmCurrent then
 		if self._bgmFadeTween then

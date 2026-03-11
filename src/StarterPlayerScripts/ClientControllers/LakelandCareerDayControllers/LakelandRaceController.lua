@@ -1245,7 +1245,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	local tMax = math.min(1, self._t + WINDOW_AHEAD)
 
 	local beat = self._beatIntensity and self._beatIntensity:get() or 0
-	local cubeBeatScale = 1 + beat * 0.25
+	local cubeBeatScale = 1 + beat * 0.7
 
 	local hue = (time() * 0.08) % 1
 	local beatColor = Color3.fromHSV(hue, 0.7, 1)
@@ -1500,11 +1500,14 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		local shell = model.PrimaryPart
 		local baseSize = model:GetAttribute("BaseSize") or 4
 		local coreSize = model:GetAttribute("CoreSize") or (baseSize * 0.45)
-		local s = baseSize * beatScale
-		local cs = coreSize * beatScale
+		local sy = baseSize * beatScale
+		local sxz = baseSize
+		local csy = coreSize * beatScale
+		local csxz = coreSize
+		local yLift = (sy - baseSize) * 0.5
 
-		shell.Size = Vector3.new(s, s, s)
-		shell.CFrame = cf
+		shell.Size = Vector3.new(sxz, sy, sxz)
+		shell.CFrame = cf + Vector3.new(0, yLift, 0)
 		shell.Transparency = show and (1 - 0.75 * alpha) or 1
 
 		local hl = shell:FindFirstChildOfClass("Highlight")
@@ -1518,17 +1521,19 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			if light.Enabled then light.Brightness = 0.8 + (beatScale - 1) * 8 end
 		end
 
+		local liftedCf = cf + Vector3.new(0, yLift, 0)
 		for _, child in ipairs(model:GetChildren()) do
 			if child == shell or not child:IsA("BasePart") then continue end
 			if child.Name == "Core" then
 				local spin = (time() * 2.5) % (math.pi * 2)
-				child.Size = Vector3.new(cs, cs, cs)
-				child.CFrame = cf * CFrame.Angles(spin, spin * 0.7, 0)
+				child.Size = Vector3.new(csxz, csy, csxz)
+				child.CFrame = liftedCf * CFrame.Angles(spin, spin * 0.7, 0)
 				child.Transparency = show and (1 - alpha) or 1
 			else
 				local localOff = child:GetAttribute("LocalOffset")
 				if localOff then
-					child.CFrame = cf * CFrame.new(localOff * beatScale)
+					local scaledOff = Vector3.new(localOff.X, localOff.Y * beatScale, localOff.Z)
+					child.CFrame = liftedCf * CFrame.new(scaledOff)
 				end
 				child.Transparency = show and (1 - alpha) or 1
 			end
@@ -1686,6 +1691,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 
 	-- Bomb chain animation
 	local now = time()
+	local chainSpin = beat * beat * math.pi * 2
 	for i = 1, BOMB_CHAIN_POOL do
 		local entry = self._bombChainParts[i]
 		if entry.active then
@@ -1699,6 +1705,8 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				local pop = math.min(age / 0.08, 1)
 				local s = 3.5 * pop
 				entry.part.Size = Vector3.new(s, s, s)
+				local pos = entry.part.Position
+				entry.part.CFrame = CFrame.new(pos) * CFrame.Angles(chainSpin, chainSpin * 0.7, chainSpin * 0.4)
 				entry.part.Transparency = 1 - fade * 0.85
 				entry.part.PointLight.Brightness = 1.5 * fade
 			end
