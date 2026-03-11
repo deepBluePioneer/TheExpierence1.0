@@ -219,6 +219,22 @@ function LakelandGameController:_createUI()
 	end)
 end
 
+local INTRO_LOOP_DURATION = 20
+
+local function catmullRomCFrame(p0, p1, p2, p3, t)
+	local function cr(a, b, c, d, s)
+		return 0.5 * ((2 * b) + (-a + c) * s + (2 * a - 5 * b + 4 * c - d) * s * s + (-a + 3 * b - 3 * c + d) * s * s * s)
+	end
+	local pos = Vector3.new(
+		cr(p0.Position.X, p1.Position.X, p2.Position.X, p3.Position.X, t),
+		cr(p0.Position.Y, p1.Position.Y, p2.Position.Y, p3.Position.Y, t),
+		cr(p0.Position.Z, p1.Position.Z, p2.Position.Z, p3.Position.Z, t)
+	)
+	local look = p1.LookVector:Lerp(p2.LookVector, t).Unit
+	local up = p1.UpVector:Lerp(p2.UpVector, t).Unit
+	return CFrame.lookAt(pos, pos + look, up)
+end
+
 function LakelandGameController:_startIntroCutscene()
 	local folder = Workspace:FindFirstChild("IntroCutscene")
 	if not folder then
@@ -226,25 +242,61 @@ function LakelandGameController:_startIntroCutscene()
 		return
 	end
 
-	if self._introCutscene then
-		pcall(function() self._introCutscene:Cancel() end)
-		pcall(function() self._introCutscene:Destroy() end)
-		self._introCutscene = nil
+	self:_stopIntroCutscene()
+
+	local parts = folder:GetChildren()
+	table.sort(parts, function(a, b)
+		return tonumber(a.Name) < tonumber(b.Name)
+	end)
+
+	local points = {}
+	for _, p in ipairs(parts) do
+		table.insert(points, p.CFrame)
+	end
+	if #points < 2 then
+		warn("[LakelandGameController] IntroCutscene needs at least 2 points")
+		return
 	end
 
-	local cutscene = CutsceneService:Create(folder, 12, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
-	self._introCutscene = cutscene
+	local n = #points
+	local camera = Workspace.CurrentCamera
+	camera.CameraType = Enum.CameraType.Scriptable
 
-	cutscene.Next = cutscene
-	cutscene:Play()
+	local elapsed = 0
+	self._introCutsceneConn = RunService.RenderStepped:Connect(function(dt)
+		elapsed = elapsed + dt
+		local frac = (elapsed / INTRO_LOOP_DURATION) % 1
+
+		local scaled = frac * n
+		local idx = math.floor(scaled)
+		local localT = scaled - idx
+
+		local function wrap(i)
+			return ((i - 1) % n) + 1
+		end
+
+		local p0 = points[wrap(idx)]
+		local p1 = points[wrap(idx + 1)]
+		local p2 = points[wrap(idx + 2)]
+		local p3 = points[wrap(idx + 3)]
+
+		camera.CFrame = catmullRomCFrame(p0, p1, p2, p3, localT)
+	end)
 end
 
 function LakelandGameController:_stopIntroCutscene()
-	if not self._introCutscene then return end
+	if self._introCutsceneConn then
+		self._introCutsceneConn:Disconnect()
+		self._introCutsceneConn = nil
+	end
 
-	pcall(function() self._introCutscene:Cancel() end)
-	pcall(function() self._introCutscene:Destroy() end)
-	self._introCutscene = nil
+	pcall(function()
+		if self._introCutscene then
+			self._introCutscene:Cancel()
+			self._introCutscene:Destroy()
+			self._introCutscene = nil
+		end
+	end)
 end
 
 function LakelandGameController:_setState(newState)
