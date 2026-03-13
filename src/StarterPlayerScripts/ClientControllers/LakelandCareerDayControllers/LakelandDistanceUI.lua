@@ -294,7 +294,7 @@ function LakelandDistanceUI.new(playerGui, gameState, playerName, beatIntensity)
 			earned = earned or 50
 			coinPickupText:set("+" .. tostring(earned))
 			coinPickupAlpha:set(1)
-			task.delay(0.6, function()
+			task.delay(1.2, function()
 				coinPickupAlpha:set(0)
 			end)
 			combo = combo or 0

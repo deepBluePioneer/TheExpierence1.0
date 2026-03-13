@@ -390,6 +390,40 @@ do
 	end
 end
 
+---------------------------------------------------------------------------
+-- Portal cubes
+---------------------------------------------------------------------------
+local PORTAL_SIZE     = 0.0015
+local PORTAL_DURATION = 10
+local PORTAL_POOL     = 4
+local GLOW_PORTAL_COLOR = Color3.fromRGB(200, 0, 255)
+local PORTAL_RED = Color3.fromRGB(255, 30, 30)
+local PORTAL_HAZARD_BONUS = 100
+
+local PORTALS = {}
+do
+	local portalPositions = { 0.18, 0.40, 0.62, 0.84 }
+	local portalLanes     = { 2, 1, 3, 2 }
+	for i, tVal in ipairs(portalPositions) do
+		local lane = portalLanes[i]
+		local tRound = math.floor(tVal * 10000 + 0.5) / 10000
+		local overlaps = false
+		for _, h in ipairs(HAZARDS) do
+			if h.lane == lane and math.abs(h.t - tRound) < 0.004 then overlaps = true; break end
+		end
+		if not overlaps then
+			for _, b in ipairs(BOOST_ZONES) do
+				if b.lane == lane and tRound >= b.tStart and tRound <= b.tStart + BOOST_LENGTH then
+					overlaps = true; break
+				end
+			end
+		end
+		if not overlaps then
+			table.insert(PORTALS, { lane = lane, t = tRound, collected = false })
+		end
+	end
+end
+
 local TRACK_ZONES = {
 	{
 		from = 0.00, to = 0.16,
@@ -607,6 +641,13 @@ local LakelandRaceController = Knit.CreateController({
 	_bombChainLane = 2,
 	_bombChainStartT = 0,
 
+	_portalActive = false,
+	_portalTimer = 0,
+	_portalFade = 0,
+	_portalRefilling = false,
+	_portalRefillT = 1,
+	_portalEQ = nil,
+
 	_machineLoadEmitter = nil,
 	_boostSfxEmitter = nil,
 
@@ -678,6 +719,7 @@ function LakelandRaceController:KnitStart()
 	self._cameraController = Knit.GetController("LakelandCameraController")
 
 	local gameController = Knit.GetController("LakelandGameController")
+	self._gameController = gameController
 	self._beatIntensity = gameController:GetBeatIntensity()
 
 	self:_startMenuRenderLoop()
@@ -1025,6 +1067,19 @@ function LakelandRaceController:_initPools()
 		)
 	end
 
+	self._pools.portal = {}
+	for i = 1, PORTAL_POOL do
+		self._pools.portal[i] = buildCubeAssembly(
+			5.5,
+			Color3.fromRGB(80, 0, 160),
+			Color3.fromRGB(200, 50, 255),
+			Color3.fromRGB(180, 0, 255),
+			Color3.fromRGB(160, 30, 255),
+			Color3.fromRGB(220, 80, 255),
+			30
+		)
+	end
+
 	self._bombIndicators = {}
 	for i = 1, BOMB_IND_MAX do
 		local ind = Instance.new("Part")
@@ -1249,8 +1304,13 @@ function LakelandRaceController:_updateWorldScroll(dt)
 
 	local hue = (time() * 0.08) % 1
 	local beatColor = Color3.fromHSV(hue, 0.7, 1)
+	local portalBlend = self._portalFade
 	local function beatAccent(zoneAccent)
-		return zoneAccent:Lerp(beatColor, beat * 0.85)
+		local c = zoneAccent:Lerp(beatColor, beat * 0.85)
+		if portalBlend > 0 then
+			c = c:Lerp(PORTAL_RED, portalBlend)
+		end
+		return c
 	end
 
 	local function toWorld(splinePos)
@@ -1294,6 +1354,11 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local road = self._pools.road[ri]
 			road.Size = Vector3.new(ROAD_W + 2, 0.25, segLen + 0.5)
 			road.CFrame = CFrame.lookAt(wM - Vector3.new(0, 0.15, 0), wM - Vector3.new(0, 0.15, 0) + dir.Unit)
+			if portalBlend > 0 then
+				road.Color = Color3.fromRGB(5, 5, 10):Lerp(Color3.fromRGB(40, 2, 2), portalBlend)
+			else
+				road.Color = Color3.fromRGB(5, 5, 10)
+			end
 			road.Transparency = 0
 			ri = ri + 1
 		end
@@ -1627,6 +1692,32 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	end
 	for i = bi, BOMB_PICKUP_POOL do hideCubeAssembly(self._pools.bomb[i]) end
 
+	-- Portal pickups (hidden during portal mode)
+	local pi2 = 1
+	if not self._portalActive then
+		for _, portal in ipairs(PORTALS) do
+			if pi2 > PORTAL_POOL then break end
+			if not portal.collected and portal.t >= tMin and portal.t <= tMax then
+				local show = self._obstaclesVisible
+				local alpha = 1
+				if portal.t > fadeStart then
+					alpha = math.clamp(1 - (portal.t - fadeStart) / (tMax - fadeStart), 0, 1)
+					alpha = alpha * alpha
+				end
+				local spline = self._splines[portal.lane].spline
+				local pos = spline:CalculatePositionAt(portal.t) + waveVec(portal.t)
+				local wP = toWorld(pos)
+				showCubeAssembly(self._pools.portal[pi2], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha, cubeBeatScale)
+				if self._running and not portal._flybyPlayed and portal.t <= playerT then
+					portal._flybyPlayed = true
+					playRandomFlybyAt(wP + Vector3.new(0, 2.5, 0), self._currentSpeed / MAX_SPEED)
+				end
+				pi2 = pi2 + 1
+			end
+		end
+	end
+	for i = pi2, PORTAL_POOL do hideCubeAssembly(self._pools.portal[i]) end
+
 	-- Anticipation glow pillars above cubes ahead of player
 	local gi = 1
 	if self._obstaclesVisible then
@@ -1656,6 +1747,13 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		for _, bomb in ipairs(BOMBS) do
 			if not bomb.collected and bomb.t >= tMin and bomb.t <= tMax then
 				placeGlow(bomb.t, bomb.lane, GLOW_BOMB_COLOR)
+			end
+		end
+		if not self._portalActive then
+			for _, portal in ipairs(PORTALS) do
+				if not portal.collected and portal.t >= tMin and portal.t <= tMax then
+					placeGlow(portal.t, portal.lane, GLOW_PORTAL_COLOR)
+				end
 			end
 		end
 	end
@@ -1959,7 +2057,7 @@ function LakelandRaceController:PositionAtStart()
 	self._health = MAX_HEALTH
 	self._totalDistance = 0
 
-	for _, hazard in ipairs(HAZARDS) do hazard._hit = false; hazard._flybyPlayed = false end
+	for _, hazard in ipairs(HAZARDS) do hazard._hit = false; hazard._flybyPlayed = false; hazard._portalScored = false end
 	self._laneEntryT = 0
 	self._lastEffectiveLane = 2
 	self._countdownDrive = true
@@ -1983,6 +2081,13 @@ function LakelandRaceController:PositionAtStart()
 	self._shockwaveTime = 0
 	self._shockwaveOriginT = 0
 	self._lastShockwaveThreshold = 0
+
+	self._portalActive = false
+	self._portalTimer = 0
+	self._portalFade = 0
+	self._portalRefilling = false
+	self._portalRefillT = 1
+	for _, portal in ipairs(PORTALS) do portal.collected = false; portal._flybyPlayed = false end
 
 	task.spawn(function()
 		local machine = Workspace:WaitForChild("ActiveMachine", 5)
@@ -2062,6 +2167,12 @@ function LakelandRaceController:StopRace()
 	self._launching = false
 	self._shockwaveActive = false
 	self._shockwaveTime = 0
+	self._portalActive = false
+	self._portalTimer = 0
+	self._portalFade = 0
+	self._portalRefilling = false
+	self._portalRefillT = 1
+	if self._portalEQ then self._portalEQ:Destroy(); self._portalEQ = nil end
 
 	if self._boosting then
 		self._boosting = false
@@ -2249,6 +2360,109 @@ function LakelandRaceController:_checkBombCollection()
 	end
 end
 
+function LakelandRaceController:_checkPortalCollection()
+	if self._portalActive then return end
+	local lane = self:_getEffectiveLane()
+	for _, portal in ipairs(PORTALS) do
+		if not portal.collected and portal.lane == lane and portal.t >= self._laneEntryT and self._t >= portal.t and self._t <= portal.t + PORTAL_SIZE then
+			portal.collected = true
+			self:_activatePortal()
+			return
+		end
+	end
+end
+
+function LakelandRaceController:_activatePortal()
+	self._portalActive = true
+	self._portalTimer = 0
+	self._portalFade = 0
+
+	for _, hazard in ipairs(HAZARDS) do hazard._hit = false; hazard._flybyPlayed = false; hazard._portalScored = false end
+	for _, coin in ipairs(COINS) do coin.collected = true end
+	for _, bomb in ipairs(BOMBS) do bomb.collected = true end
+
+	self:_spawnBurst(Color3.fromRGB(200, 0, 255), Color3.fromRGB(255, 80, 255))
+	if SFX_Impacts then
+		playSoundAt(SFX_Impacts:FindFirstChild("FirePickup"), self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS, 3, 0.5)
+	end
+	if self._cameraController then
+		self._cameraController:ShakeCamera(4, 0.15, 0, 0.05, 0.4, Vector3.new(1.5, 1.5, 0.3), Vector3.new(0.08, 0.08, 0.04))
+		self._cameraController:ZoomPunch(6)
+	end
+
+	local bgm = self._gameController and self._gameController._bgmCurrent
+	if bgm then
+		if self._portalEQ then self._portalEQ:Destroy() end
+		local eq = Instance.new("EqualizerSoundEffect")
+		eq.Name = "PortalFilter"
+		eq.LowGain = 0
+		eq.MidGain = 0
+		eq.HighGain = 0
+		eq.Parent = bgm
+		self._portalEQ = eq
+		TweenService:Create(eq, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			HighGain = -40,
+			MidGain = -12,
+			LowGain = 6,
+		}):Play()
+	end
+end
+
+function LakelandRaceController:_deactivatePortal()
+	self._portalActive = false
+	self._portalTimer = 0
+	self._portalRefilling = true
+	self._portalRefillT = 1
+
+	self:_spawnBurst(Color3.fromRGB(50, 140, 255), Color3.fromRGB(100, 180, 255))
+	if self._cameraController then
+		self._cameraController:ShakeCamera(3, 0.12, 0, 0.04, 0.3, Vector3.new(1.2, 1.2, 0.2), Vector3.new(0.06, 0.06, 0.03))
+		self._cameraController:ZoomPunch(4)
+	end
+
+	if self._portalEQ then
+		local eq = self._portalEQ
+		self._portalEQ = nil
+		local fadeOut = TweenService:Create(eq, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			HighGain = 0,
+			MidGain = 0,
+			LowGain = 0,
+		})
+		fadeOut:Play()
+		fadeOut.Completed:Once(function()
+			eq:Destroy()
+		end)
+	end
+end
+
+function LakelandRaceController:_updatePortalRefill(dt)
+	if not self._portalRefilling then return end
+
+	local prevT = self._portalRefillT
+	self._portalRefillT = self._portalRefillT - dt * 0.15
+	local frontT = self._portalRefillT
+
+	for _, hazard in ipairs(HAZARDS) do
+		if hazard._hit and hazard.t <= prevT and hazard.t >= frontT then
+			hazard._hit = false; hazard._flybyPlayed = false; hazard._portalScored = false
+		end
+	end
+	for _, coin in ipairs(COINS) do
+		if coin.collected and coin.t <= prevT and coin.t >= frontT then
+			coin.collected = false; coin._flybyPlayed = false
+		end
+	end
+	for _, bomb in ipairs(BOMBS) do
+		if bomb.collected and bomb.t <= prevT and bomb.t >= frontT then
+			bomb.collected = false; bomb._flybyPlayed = false
+		end
+	end
+
+	if self._portalRefillT <= self._t + 0.003 then
+		self._portalRefilling = false
+	end
+end
+
 function LakelandRaceController:_deployBomb()
 	if self._bombCount <= 0 or self._bombChainActive then return end
 	self._bombCount = self._bombCount - 1
@@ -2357,6 +2571,18 @@ function LakelandRaceController:_updateMovement(dt)
 	if self._bombChainActive then
 		self:_updateBombChain(dt)
 	end
+
+	if self._portalActive then
+		self._portalTimer = self._portalTimer + dt
+		self._portalFade = math.min(self._portalFade + dt * 3, 1)
+		if self._portalTimer >= PORTAL_DURATION then
+			self:_deactivatePortal()
+		end
+	else
+		self._portalFade = math.max(self._portalFade - dt * 3, 0)
+	end
+
+	self:_updatePortalRefill(dt)
 
 	if self._hitFreezeTimer > 0 then
 		self._hitFreezeTimer = self._hitFreezeTimer - dt
@@ -2469,6 +2695,19 @@ function LakelandRaceController:_updateMovement(dt)
 
 		self:_checkCoinCollection()
 		self:_checkBombCollection()
+		self:_checkPortalCollection()
+
+		if self._portalActive then
+			for _, hazard in ipairs(HAZARDS) do
+				if not hazard._hit and not hazard._portalScored and hazard.t <= self._t then
+					hazard._portalScored = true
+					self._coinScore = self._coinScore + PORTAL_HAZARD_BONUS
+					self._coinsCollected = self._coinsCollected + 1
+					self.CoinCollected:Fire(self._coinScore, self._coinsCollected, 0, PORTAL_HAZARD_BONUS)
+				end
+			end
+		end
+
 		self.SpeedChanged:Fire(self._currentSpeed)
 	end
 
@@ -2478,7 +2717,14 @@ function LakelandRaceController:_updateMovement(dt)
 		self._totalDistance = self._totalDistance + self._currentSpeed * dt
 	end
 	self._t = self._t + tDelta
-	if self._t > 1 then self._t = self._t - 1 end
+	if self._t > 1 then
+		self._t = self._t - 1
+		self._laneEntryT = 0
+		for _, hazard in ipairs(HAZARDS) do hazard._hit = false; hazard._flybyPlayed = false; hazard._portalScored = false end
+		for _, coin in ipairs(COINS) do coin.collected = false; coin._flybyPlayed = false end
+		for _, bomb in ipairs(BOMBS) do bomb.collected = false; bomb._flybyPlayed = false end
+		for _, portal in ipairs(PORTALS) do portal.collected = false; portal._flybyPlayed = false end
+	end
 
 	-- Lane blending
 	if not self._countdownDrive then
