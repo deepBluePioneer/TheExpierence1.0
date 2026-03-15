@@ -9,11 +9,14 @@ local Shake = require(Packages.Shake)
 
 local FOLLOW_OFFSET = Vector3.new(0, 8, 14)
 local LOOK_AHEAD = 60
-local SMOOTH_SPEED = 50
+local SMOOTH_SPEED = 24
 local BASE_FOV = 70
 local BOOST_FOV = 95
 local FOV_ATTACK_SPEED = 12
 local FOV_RECOVER_SPEED = 3
+
+local LATERAL_STIFFNESS = 80
+local LATERAL_DAMPING = 9
 
 local LakelandCameraController = Knit.CreateController({
 	Name = "LakelandCameraController",
@@ -32,6 +35,9 @@ local LakelandCameraController = Knit.CreateController({
 	_deathZoomTarget = 0,
 	_deathZoomElapsed = 0,
 	_deathZoomDuration = 1.5,
+	_lateralOffset = 0,
+	_lateralVelocity = 0,
+	_lastDesiredX = 0,
 })
 
 function LakelandCameraController:KnitInit()
@@ -135,6 +141,33 @@ function LakelandCameraController:_update(dt)
 	local lookTarget = machineCF.Position + machineCF.LookVector * LOOK_AHEAD
 	local desiredCFrame = CFrame.lookAt(behind.Position, lookTarget)
 
+	if self._currentCFrame == CFrame.new() then
+		self._currentCFrame = desiredCFrame
+		self._lastDesiredX = desiredCFrame.Position.X
+		self._lateralOffset = 0
+		self._lateralVelocity = 0
+	end
+
+	local desiredX = desiredCFrame.Position.X
+	local xError = desiredX - (self._lastDesiredX + self._lateralOffset)
+	self._lateralVelocity = self._lateralVelocity + (LATERAL_STIFFNESS * xError - LATERAL_DAMPING * self._lateralVelocity) * dt
+	self._lateralOffset = self._lateralOffset + self._lateralVelocity * dt
+	self._lastDesiredX = desiredX
+
+	local smoothAlpha = math.clamp(SMOOTH_SPEED * dt, 0, 1)
+	local lerpedCFrame = self._currentCFrame:Lerp(desiredCFrame, smoothAlpha)
+
+	local springPos = Vector3.new(
+		desiredX + self._lateralOffset - desiredX,
+		lerpedCFrame.Position.Y - desiredCFrame.Position.Y,
+		0
+	)
+	local finalPos = desiredCFrame.Position + Vector3.new(self._lateralOffset, springPos.Y, 0)
+	self._currentCFrame = CFrame.lookAt(
+		Vector3.new(finalPos.X, lerpedCFrame.Position.Y, lerpedCFrame.Position.Z),
+		lookTarget + Vector3.new(self._lateralOffset * 0.3, 0, 0)
+	)
+
 	local totalPos = Vector3.zero
 	local totalRot = Vector3.zero
 	for i = #self._activeShakes, 1, -1 do
@@ -148,8 +181,8 @@ function LakelandCameraController:_update(dt)
 		end
 	end
 
-	desiredCFrame = desiredCFrame * CFrame.new(totalPos) * CFrame.Angles(totalRot.X, totalRot.Y, totalRot.Z)
-	camera.CFrame = desiredCFrame
+	local shaken = self._currentCFrame * CFrame.new(totalPos) * CFrame.Angles(totalRot.X, totalRot.Y, totalRot.Z)
+	camera.CFrame = shaken
 
 	local boosting = self._raceController:IsBoosting()
 	self._targetFOV = boosting and BOOST_FOV or BASE_FOV

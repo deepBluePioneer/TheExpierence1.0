@@ -131,6 +131,9 @@ local MAX_BANK_ANGLE = math.rad(12)
 local BANK_SMOOTH_SPEED = 14
 local LANE_SWITCH_BANK = math.rad(10)
 
+local LANE_SPRING_STIFFNESS = 280
+local LANE_SPRING_DAMPING = 18
+
 local BOOST_LENGTH = 0.008
 local BOOST_ZONES = {}
 do
@@ -598,6 +601,9 @@ local LakelandRaceController = Knit.CreateController({
 	_currentLane = 2,
 	_targetLane = 2,
 	_laneBlend = 0,
+	_laneSpringPos = 0,
+	_laneSpringVel = 0,
+	_laneSpringTarget = 0,
 	_t = 0,
 	_currentSpeed = 0,
 	_running = false,
@@ -2047,6 +2053,9 @@ function LakelandRaceController:PositionAtStart()
 	self._currentLane = 2
 	self._targetLane = 2
 	self._laneBlend = 0
+	self._laneSpringPos = 0
+	self._laneSpringVel = 0
+	self._laneSpringTarget = 0
 	self._t = 0
 	self._currentSpeed = 0
 	self._launching = false
@@ -2236,6 +2245,7 @@ function LakelandRaceController:SwitchLane(direction)
 	self._laneBlend = 0
 	self._targetLane = newLane
 	self._switchDir = direction
+	self._laneSpringTarget = (newLane - 2) * LANE_SPACING
 	self.LaneChanged:Fire(self._targetLane)
 end
 
@@ -2748,13 +2758,22 @@ function LakelandRaceController:_updateMovement(dt)
 	local lanePos = currentLanePos:Lerp(targetLanePos, self._laneBlend)
 	local laneOffset = lanePos - centerPos
 
+	-- Spring-driven lateral overshoot for visual position
+	local springError = self._laneSpringTarget - self._laneSpringPos
+	self._laneSpringVel = self._laneSpringVel + (LANE_SPRING_STIFFNESS * springError - LANE_SPRING_DAMPING * self._laneSpringVel) * dt
+	self._laneSpringPos = self._laneSpringPos + self._laneSpringVel * dt
+
 	-- Direction from center spline for forward orientation
 	local centerDir = centerSpline:CalculateDerivativeAt(self._t)
 	if centerDir.Magnitude < 0.001 then centerDir = Vector3.new(0, 0, -1) end
 	centerDir = centerDir.Unit
 
+	local rightDir = centerDir:Cross(Vector3.new(0, 1, 0))
+	if rightDir.Magnitude > 0.001 then rightDir = rightDir.Unit else rightDir = Vector3.new(1, 0, 0) end
+	local springLaneOffset = rightDir * self._laneSpringPos
+
 	-- Banking
-	local machineWorldPos = FIXED_MACHINE_POS + laneOffset
+	local machineWorldPos = FIXED_MACHINE_POS + springLaneOffset + Vector3.new(0, laneOffset.Y, 0)
 	local lateralDelta = machineWorldPos.X - self._lastXPos
 	self._lastXPos = machineWorldPos.X
 
