@@ -560,6 +560,19 @@ local SPEC_GLOW_BRIGHT  = 2.5
 local SPEC_BASS_COLOR   = Color3.fromRGB(255, 50, 180)
 local SPEC_TREBLE_COLOR = Color3.fromRGB(50, 200, 255)
 
+---------------------------------------------------------------------------
+-- Side buildings
+---------------------------------------------------------------------------
+local BLDG_POOL         = 120
+local BLDG_T_STEP       = 0.0012
+local BLDG_OFFSET       = ROAD_HALF_W + 8
+local BLDG_WIDTH_MIN    = 5
+local BLDG_WIDTH_MAX    = 12
+local BLDG_MIN_HEIGHT   = 8
+local BLDG_MAX_HEIGHT   = 35
+local BLDG_BEAT_EXTRA   = 10
+local BLDG_GLOW_RANGE   = 20
+
 local COMBO_WINDOW = 2.0
 
 local SHOCKWAVE_AMPLITUDE    = 20
@@ -886,7 +899,7 @@ function LakelandRaceController:_initPools()
 
 	makePool("road", ROAD_POOL, function(p)
 		p.Color = Color3.fromRGB(5, 5, 10)
-		p.Material = Enum.Material.Glass
+		p.Material = Enum.Material.SmoothPlastic
 	end)
 
 	makePool("lane", LANE_POOL, function(p)
@@ -952,6 +965,46 @@ function LakelandRaceController:_initPools()
 			bars[b] = bar
 		end
 		self._pools.sideLaser[i] = bars
+	end
+
+	-- Side buildings
+	self._pools.building = {}
+	local function makePart(name, mat, col)
+		local p = Instance.new("Part")
+		p.Name = name
+		p.Anchored = true
+		p.CanCollide = false
+		p.Material = mat
+		p.Color = col
+		p.Transparency = 1
+		p.Parent = folder
+		return p
+	end
+	for i = 1, BLDG_POOL do
+		local body = makePart("Building_" .. i, Enum.Material.SmoothPlastic, Color3.fromRGB(8, 10, 20))
+		local glow = Instance.new("PointLight")
+		glow.Name = "Glow"
+		glow.Brightness = 0
+		glow.Range = BLDG_GLOW_RANGE
+		glow.Shadows = false
+		glow.Parent = body
+
+		local stripe1 = makePart("Stripe1", Enum.Material.Neon, Color3.fromRGB(50, 140, 255))
+		local stripe2 = makePart("Stripe2", Enum.Material.Neon, Color3.fromRGB(50, 140, 255))
+		local cap = makePart("Cap", Enum.Material.SmoothPlastic, Color3.fromRGB(12, 16, 30))
+		local tower = makePart("Tower", Enum.Material.SmoothPlastic, Color3.fromRGB(6, 8, 16))
+		local towerStripe = makePart("TowerStripe", Enum.Material.Neon, Color3.fromRGB(50, 140, 255))
+		local antenna = makePart("Antenna", Enum.Material.Neon, Color3.fromRGB(50, 140, 255))
+
+		self._pools.building[i] = {
+			body = body,
+			stripe1 = stripe1,
+			stripe2 = stripe2,
+			cap = cap,
+			tower = tower,
+			towerStripe = towerStripe,
+			antenna = antenna,
+		}
 	end
 
 	local function buildCubeAssembly(size, outerColor, innerColor, glowColor, hlFill, hlOutline, lightRange)
@@ -1563,6 +1616,143 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			self._pools.sideLaser[i][b].Transparency = 1
 			self._pools.sideLaser[i][b].PointLight.Brightness = 0
 		end
+	end
+
+	-- Side buildings — varied sci-fi structures packed tightly on both sides
+	local bi2 = 1
+	local bt = math.floor(tMin / BLDG_T_STEP) * BLDG_T_STEP
+	while bt < tMax and bi2 <= BLDG_POOL do
+		local bt1 = math.min(bt + BLDG_T_STEP, 1)
+		local zone = getTrackZone(bt)
+		local posA = centerSpline:CalculatePositionAt(bt) + waveVec(bt)
+		local posB = centerSpline:CalculatePositionAt(bt1) + waveVec(bt1)
+		local mid = (posA + posB) * 0.5
+		local dir = posB - posA
+		local segLen = dir.Magnitude
+		if segLen > 0.01 then
+			local wM = toWorld(mid)
+			local fwd = dir.Unit
+			local right = fwd:Cross(Vector3.new(0, 1, 0))
+			if right.Magnitude > 0.001 then right = right.Unit else right = Vector3.new(1, 0, 0) end
+
+			local accent = beatAccent(zone.accent)
+
+			local seed = bt * 12345.6789
+			local h1 = (math.sin(seed) * 43758.5453) % 1
+			local h2 = (math.sin(seed * 1.73 + 2.9) * 23421.631) % 1
+			local h3 = (math.sin(seed * 2.47 + 5.1) * 67890.123) % 1
+			local h4 = (math.sin(seed * 3.19 + 7.7) * 54321.987) % 1
+			local h5 = (math.sin(seed * 4.61 + 1.3) * 98765.432) % 1
+			local h6 = (math.sin(seed * 5.83 + 3.7) * 31415.926) % 1
+			if h1 < 0 then h1 = h1 + 1 end
+			if h2 < 0 then h2 = h2 + 1 end
+			if h3 < 0 then h3 = h3 + 1 end
+			if h4 < 0 then h4 = h4 + 1 end
+			if h5 < 0 then h5 = h5 + 1 end
+			if h6 < 0 then h6 = h6 + 1 end
+
+			local baseH = BLDG_MIN_HEIGHT + h1 * (BLDG_MAX_HEIGHT - BLDG_MIN_HEIGHT)
+			local beatH = beat * beat * BLDG_BEAT_EXTRA
+			local h = baseH + beatH
+			local w = BLDG_WIDTH_MIN + h2 * (BLDG_WIDTH_MAX - BLDG_WIDTH_MIN)
+			local depth = segLen + 0.5
+
+			local hasTower = h4 > 0.4
+			local towerW = w * (0.25 + h5 * 0.25)
+			local towerH = h * (0.3 + h6 * 0.4)
+			local capH = 0.6 + h3 * 0.8
+
+			local bAlpha = 1
+			if bt > fadeStart then
+				bAlpha = math.clamp(1 - (bt - fadeStart) / (tMax - fadeStart), 0, 1)
+			end
+
+			local bodyColor = Color3.fromRGB(8, 10, 20):Lerp(accent, 0.06 + beat * 0.06)
+			local darkBody = Color3.fromRGB(6, 8, 16):Lerp(accent, 0.04 + beat * 0.04)
+			local capColor = Color3.fromRGB(12, 16, 30):Lerp(accent, 0.1 + beat * 0.08)
+			local neonAlpha = bAlpha * (0.15 + beat * 0.85)
+
+			for sideIdx = 0, 1 do
+				if bi2 > BLDG_POOL then break end
+				local side = sideIdx == 0 and -1 or 1
+				local lateralOff = BLDG_OFFSET + w * 0.5
+				local base = wM + right * (lateralOff * side)
+				local center = base + Vector3.new(0, h * 0.5, 0)
+				local lookCF = CFrame.lookAt(center, center + fwd)
+
+				local entry = self._pools.building[bi2]
+
+				entry.body.Size = Vector3.new(w, h, depth)
+				entry.body.CFrame = lookCF
+				entry.body.Color = bodyColor
+				entry.body.Transparency = 1 - bAlpha
+
+				local gl = entry.body:FindFirstChild("Glow")
+				if gl then
+					gl.Color = accent
+					gl.Brightness = (0.3 + beat * 0.8) * bAlpha
+				end
+
+				local s1H = 0.12 + beat * 0.08
+				local s1Y = h * (0.3 + h3 * 0.2)
+				entry.stripe1.Size = Vector3.new(w + 0.1, s1H, depth + 0.1)
+				entry.stripe1.CFrame = lookCF * CFrame.new(0, s1Y - h * 0.5, 0)
+				entry.stripe1.Color = accent
+				entry.stripe1.Transparency = 1 - neonAlpha
+
+				local s2Y = h * (0.65 + h5 * 0.2)
+				entry.stripe2.Size = Vector3.new(w + 0.1, s1H * 0.7, depth + 0.1)
+				entry.stripe2.CFrame = lookCF * CFrame.new(0, s2Y - h * 0.5, 0)
+				entry.stripe2.Color = accent
+				entry.stripe2.Transparency = 1 - neonAlpha * 0.7
+
+				local capCenter = base + Vector3.new(0, h + capH * 0.5, 0)
+				entry.cap.Size = Vector3.new(w + 1, capH, depth + 0.3)
+				entry.cap.CFrame = CFrame.lookAt(capCenter, capCenter + fwd)
+				entry.cap.Color = capColor
+				entry.cap.Transparency = 1 - bAlpha
+
+				if hasTower then
+					local towerCenter = base + Vector3.new(0, h + capH + towerH * 0.5, 0)
+					entry.tower.Size = Vector3.new(towerW, towerH, towerW)
+					entry.tower.CFrame = CFrame.lookAt(towerCenter, towerCenter + fwd)
+					entry.tower.Color = darkBody
+					entry.tower.Transparency = 1 - bAlpha
+
+					local tsY = towerH * (0.5 + h6 * 0.3)
+					entry.towerStripe.Size = Vector3.new(towerW + 0.1, s1H * 0.5, towerW + 0.1)
+					entry.towerStripe.CFrame = CFrame.lookAt(towerCenter, towerCenter + fwd) * CFrame.new(0, tsY - towerH * 0.5, 0)
+					entry.towerStripe.Color = accent
+					entry.towerStripe.Transparency = 1 - neonAlpha * 0.6
+
+					local antH = 1.5 + beat * 2
+					local antCenter = base + Vector3.new(0, h + capH + towerH + antH * 0.5, 0)
+					entry.antenna.Size = Vector3.new(0.15, antH, 0.15)
+					entry.antenna.CFrame = CFrame.new(antCenter)
+					entry.antenna.Color = accent
+					entry.antenna.Transparency = 1 - neonAlpha
+				else
+					entry.tower.Transparency = 1
+					entry.towerStripe.Transparency = 1
+					entry.antenna.Transparency = 1
+				end
+
+				bi2 = bi2 + 1
+			end
+		end
+		bt = bt + BLDG_T_STEP
+	end
+	for i = bi2, BLDG_POOL do
+		local entry = self._pools.building[i]
+		entry.body.Transparency = 1
+		entry.stripe1.Transparency = 1
+		entry.stripe2.Transparency = 1
+		entry.cap.Transparency = 1
+		entry.tower.Transparency = 1
+		entry.towerStripe.Transparency = 1
+		entry.antenna.Transparency = 1
+		local gl = entry.body:FindFirstChild("Glow")
+		if gl then gl.Brightness = 0 end
 	end
 
 	local function showCubeAssembly(model, cf, show, alpha, beatScale)
