@@ -427,48 +427,88 @@ do
 	end
 end
 
+-- Each zone uses 2-3 complementary colors so fog, ambient, tint all unify.
+-- accent   = primary neon color (buildings, bars, cubes, beat pulse)
+-- accent2  = secondary complement used for subtle variation
+-- fog/decay/ambient/ccTint all derived from accent so the whole scene turns one hue.
 local TRACK_ZONES = {
-	{
+	{ -- Deep blue
 		from = 0.00, to = 0.16,
-		roadColor = Color3.fromRGB(5, 5, 10),
-		roadMat = Enum.Material.Glass,
+		roadColor = Color3.fromRGB(4, 4, 12),
+		roadMat = Enum.Material.SmoothPlastic,
 		roadAlpha = 0.05,
-		accent = Color3.fromRGB(50, 140, 255),
+		accent  = Color3.fromRGB(50, 140, 255),
+		accent2 = Color3.fromRGB(100, 180, 255),
+		fogColor    = Color3.fromRGB(2, 6, 14),
+		fogDecay    = Color3.fromRGB(5, 14, 32),
+		ambientTint = Color3.fromRGB(5, 10, 22),
+		bloomSize   = 14,
+		ccTint      = Color3.fromRGB(195, 210, 255),
 	},
-	{
+	{ -- Cyan / electric blue
 		from = 0.16, to = 0.32,
-		roadColor = Color3.fromRGB(5, 5, 10),
-		roadMat = Enum.Material.Glass,
+		roadColor = Color3.fromRGB(3, 6, 10),
+		roadMat = Enum.Material.SmoothPlastic,
 		roadAlpha = 0.05,
-		accent = Color3.fromRGB(0, 210, 255),
+		accent  = Color3.fromRGB(0, 210, 255),
+		accent2 = Color3.fromRGB(60, 230, 255),
+		fogColor    = Color3.fromRGB(1, 10, 14),
+		fogDecay    = Color3.fromRGB(2, 22, 30),
+		ambientTint = Color3.fromRGB(3, 14, 20),
+		bloomSize   = 15,
+		ccTint      = Color3.fromRGB(185, 240, 255),
 	},
-	{
+	{ -- Cool silver / ice white
 		from = 0.32, to = 0.48,
-		roadColor = Color3.fromRGB(5, 5, 10),
-		roadMat = Enum.Material.Glass,
+		roadColor = Color3.fromRGB(6, 6, 10),
+		roadMat = Enum.Material.SmoothPlastic,
 		roadAlpha = 0.05,
-		accent = Color3.fromRGB(190, 200, 225),
+		accent  = Color3.fromRGB(190, 200, 225),
+		accent2 = Color3.fromRGB(160, 180, 220),
+		fogColor    = Color3.fromRGB(8, 8, 12),
+		fogDecay    = Color3.fromRGB(16, 16, 22),
+		ambientTint = Color3.fromRGB(12, 12, 18),
+		bloomSize   = 12,
+		ccTint      = Color3.fromRGB(215, 220, 235),
 	},
-	{
+	{ -- Purple / violet
 		from = 0.48, to = 0.64,
-		roadColor = Color3.fromRGB(5, 5, 10),
-		roadMat = Enum.Material.Glass,
+		roadColor = Color3.fromRGB(6, 3, 12),
+		roadMat = Enum.Material.SmoothPlastic,
 		roadAlpha = 0.05,
-		accent = Color3.fromRGB(170, 50, 255),
+		accent  = Color3.fromRGB(170, 50, 255),
+		accent2 = Color3.fromRGB(200, 100, 255),
+		fogColor    = Color3.fromRGB(8, 2, 16),
+		fogDecay    = Color3.fromRGB(18, 5, 36),
+		ambientTint = Color3.fromRGB(12, 5, 24),
+		bloomSize   = 14,
+		ccTint      = Color3.fromRGB(220, 195, 255),
 	},
-	{
+	{ -- Emerald / mint green
 		from = 0.64, to = 0.80,
-		roadColor = Color3.fromRGB(5, 5, 10),
-		roadMat = Enum.Material.Glass,
+		roadColor = Color3.fromRGB(3, 7, 6),
+		roadMat = Enum.Material.SmoothPlastic,
 		roadAlpha = 0.05,
-		accent = Color3.fromRGB(0, 255, 170),
+		accent  = Color3.fromRGB(0, 255, 170),
+		accent2 = Color3.fromRGB(50, 255, 200),
+		fogColor    = Color3.fromRGB(1, 12, 8),
+		fogDecay    = Color3.fromRGB(2, 28, 18),
+		ambientTint = Color3.fromRGB(3, 16, 12),
+		bloomSize   = 14,
+		ccTint      = Color3.fromRGB(185, 255, 225),
 	},
-	{
+	{ -- Hot red / crimson
 		from = 0.80, to = 1.00,
-		roadColor = Color3.fromRGB(5, 5, 10),
-		roadMat = Enum.Material.Glass,
+		roadColor = Color3.fromRGB(8, 3, 3),
+		roadMat = Enum.Material.SmoothPlastic,
 		roadAlpha = 0.05,
-		accent = Color3.fromRGB(255, 60, 40),
+		accent  = Color3.fromRGB(255, 60, 40),
+		accent2 = Color3.fromRGB(255, 120, 60),
+		fogColor    = Color3.fromRGB(14, 3, 2),
+		fogDecay    = Color3.fromRGB(32, 7, 4),
+		ambientTint = Color3.fromRGB(20, 5, 4),
+		bloomSize   = 16,
+		ccTint      = Color3.fromRGB(255, 200, 195),
 	},
 }
 
@@ -491,6 +531,7 @@ local ROAD_W      = ROAD_HALF_W * 2
 
 local ROAD_T_STEP    = 0.0015
 local LANE_T_STEP    = 0.00075
+local LANE_HL_COLOR  = Color3.fromRGB(30, 120, 255)
 local LIGHT_T_STEP   = 0.005
 local TUNNEL_T_STEP  = 0.0025
 
@@ -543,22 +584,17 @@ local RW_BAR_HEIGHT    = 4
 local RW_BAR_WIDTH     = 1.5
 local RW_BAR_DEPTH     = 0.6
 local RW_OFF_COLOR     = Color3.fromRGB(5, 10, 25)
-local RW_ON_COLOR      = Color3.fromRGB(80, 200, 255)
 local RW_CHASE_SPEED   = 12
 local RW_FADE_TAIL     = 3
 local RW_DIM_FLOOR     = 0.08
 
-local SPEC_BAND_COUNT   = 32
+local SPEC_POOL         = 80
+local SPEC_T_STEP       = 0.0005
 local SPEC_SIDE_OFFSET  = ROAD_HALF_W + 1
-local SPEC_BAR_WIDTH    = 1.2
-local SPEC_BAR_DEPTH    = 0.8
-local SPEC_BAR_SPACING  = 4.0
+local SPEC_BAR_WIDTH    = 0.6
+local SPEC_BAR_GAP      = 0.65
 local SPEC_MAX_HEIGHT   = 12
 local SPEC_MIN_HEIGHT   = 0.5
-local SPEC_GLOW_RANGE   = 20
-local SPEC_GLOW_BRIGHT  = 2.5
-local SPEC_BASS_COLOR   = Color3.fromRGB(255, 50, 180)
-local SPEC_TREBLE_COLOR = Color3.fromRGB(50, 200, 255)
 
 ---------------------------------------------------------------------------
 -- Side buildings
@@ -571,7 +607,6 @@ local BLDG_WIDTH_MAX    = 12
 local BLDG_MIN_HEIGHT   = 8
 local BLDG_MAX_HEIGHT   = 35
 local BLDG_BEAT_EXTRA   = 10
-local BLDG_GLOW_RANGE   = 20
 
 local COMBO_WINDOW = 2.0
 
@@ -595,7 +630,6 @@ local AMBIENT_MIN_Y          = 1
 local AMBIENT_MAX_Y          = 18
 local AMBIENT_SIZE_MIN       = 0.05
 local AMBIENT_SIZE_MAX       = 0.25
-local AMBIENT_GLOW_RANGE     = 12
 local AMBIENT_DRIFT_SPEED    = 1.8
 local AMBIENT_BEAT_BURST     = 8
 local AMBIENT_SYNC_BURST     = 12
@@ -671,7 +705,6 @@ local LakelandRaceController = Knit.CreateController({
 	_boostSfxEmitter = nil,
 
 	_specBars = {},
-	_specBands = {},
 	_menuRenderConn = nil,
 	_demoMode = false,
 
@@ -720,14 +753,42 @@ function LakelandRaceController:_setupDarkEnvironment()
 	if sky then sky:Destroy() end
 
 	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
-	if atmosphere then
-		atmosphere.Density = 0.5
-		atmosphere.Offset = 0
-		atmosphere.Color = Color3.fromRGB(0, 0, 0)
-		atmosphere.Decay = Color3.fromRGB(0, 0, 0)
-		atmosphere.Glare = 0
-		atmosphere.Haze = 0
+	if not atmosphere then
+		atmosphere = Instance.new("Atmosphere")
+		atmosphere.Parent = Lighting
 	end
+	atmosphere.Density = 0.35
+	atmosphere.Offset = 0.25
+	atmosphere.Color = Color3.fromRGB(4, 8, 22)
+	atmosphere.Decay = Color3.fromRGB(8, 20, 50)
+	atmosphere.Glare = 0.1
+	atmosphere.Haze = 2
+	self._atmosphere = atmosphere
+
+	local bloom = Lighting:FindFirstChild("RaceBloom")
+	if not bloom then
+		bloom = Instance.new("BloomEffect")
+		bloom.Name = "RaceBloom"
+		bloom.Parent = Lighting
+	end
+	bloom.Intensity = 0.03
+	bloom.Size = 5
+	bloom.Threshold = 2.0
+	self._bloom = bloom
+
+	local cc = Lighting:FindFirstChild("RaceCC")
+	if not cc then
+		cc = Instance.new("ColorCorrectionEffect")
+		cc.Name = "RaceCC"
+		cc.Parent = Lighting
+	end
+	cc.Brightness = 0
+	cc.Contrast = 0.05
+	cc.Saturation = 0.1
+	cc.TintColor = Color3.fromRGB(200, 215, 255)
+	self._raceCC = cc
+
+	self._envZoneLerp = { fogColor = Color3.fromRGB(4, 8, 22), fogDecay = Color3.fromRGB(8, 20, 50), ambientTint = Color3.fromRGB(10, 14, 28), bloomSize = 16, ccTint = Color3.fromRGB(200, 215, 255) }
 end
 
 function LakelandRaceController:KnitStart()
@@ -982,12 +1043,6 @@ function LakelandRaceController:_initPools()
 	end
 	for i = 1, BLDG_POOL do
 		local body = makePart("Building_" .. i, Enum.Material.SmoothPlastic, Color3.fromRGB(8, 10, 20))
-		local glow = Instance.new("PointLight")
-		glow.Name = "Glow"
-		glow.Brightness = 0
-		glow.Range = BLDG_GLOW_RANGE
-		glow.Shadows = false
-		glow.Parent = body
 
 		local stripe1 = makePart("Stripe1", Enum.Material.Neon, Color3.fromRGB(50, 140, 255))
 		local stripe2 = makePart("Stripe2", Enum.Material.Neon, Color3.fromRGB(50, 140, 255))
@@ -1018,7 +1073,7 @@ function LakelandRaceController:_initPools()
 		shell.Anchored = true
 		shell.CanCollide = false
 		shell.Color = outerColor
-		shell.Material = Enum.Material.Glass
+		shell.Material = Enum.Material.SmoothPlastic
 		shell.Transparency = 1
 		shell.Parent = model
 		model.PrimaryPart = shell
@@ -1041,14 +1096,6 @@ function LakelandRaceController:_initPools()
 		core.Material = Enum.Material.Neon
 		core.Transparency = 1
 		core.Parent = model
-
-		local glow = Instance.new("PointLight")
-		glow.Color = glowColor
-		glow.Brightness = 0.8
-		glow.Range = lightRange
-		glow.Shadows = false
-		glow.Enabled = false
-		glow.Parent = shell
 
 		local edgeLen = size
 		local edgeThick = size * 0.06
@@ -1183,7 +1230,7 @@ function LakelandRaceController:_initPools()
 
 	makePool("boostPad", BOOST_PAD_POOL, function(p)
 		p.Color = Color3.fromRGB(165, 125, 60)
-		p.Material = Enum.Material.Glass
+		p.Material = Enum.Material.SmoothPlastic
 	end)
 	self._pools.boostChev = {}
 	for i = 1, BOOST_CHEV_POOL do
@@ -1207,25 +1254,22 @@ function LakelandRaceController:_initPools()
 
 	-- Spectrum visualizer bars (fixed alongside the player)
 	self._specBars = {}
-	self._specBands = {}
-	for i = 1, SPEC_BAND_COUNT do
-		self._specBands[i] = 0
+	for i = 1, SPEC_POOL do
+		local left = Instance.new("Part")
+		left.Anchored = true
+		left.CanCollide = false
+		left.Material = Enum.Material.Neon
+		left.Transparency = 1
+		left.Parent = folder
 
-		local entry = {}
-		for _, sign in ipairs({ -1, 1 }) do
-			local bar = Instance.new("Part")
-			bar.Size = Vector3.new(SPEC_BAR_WIDTH, SPEC_MIN_HEIGHT, SPEC_BAR_DEPTH)
-			bar.Anchored = true
-			bar.CanCollide = false
-			bar.Material = Enum.Material.Neon
-			bar.Color = Color3.fromRGB(50, 200, 255)
-			bar.Transparency = 0
-			bar.Parent = folder
+		local right = Instance.new("Part")
+		right.Anchored = true
+		right.CanCollide = false
+		right.Material = Enum.Material.Neon
+		right.Transparency = 1
+		right.Parent = folder
 
-			local key = sign == -1 and "left" or "right"
-			entry[key] = bar
-		end
-		self._specBars[i] = entry
+		self._specBars[i] = { left = left, right = right }
 	end
 
 	self._glowPillars = {}
@@ -1251,11 +1295,6 @@ function LakelandRaceController:_initPools()
 		p.Material = Enum.Material.Neon
 		p.Transparency = 1
 		p.Parent = folder
-		local gl = Instance.new("PointLight")
-		gl.Brightness = 0
-		gl.Range = AMBIENT_GLOW_RANGE
-		gl.Shadows = false
-		gl.Parent = p
 		self._ambientParticles[i] = p
 	end
 
@@ -1371,6 +1410,14 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		end
 		return c
 	end
+	local function beatAccent2(zone)
+		local a2 = zone.accent2 or zone.accent
+		local c = a2:Lerp(beatColor, beat * 0.6)
+		if portalBlend > 0 then
+			c = c:Lerp(PORTAL_RED, portalBlend)
+		end
+		return c
+	end
 
 	local function toWorld(splinePos)
 		return FIXED_MACHINE_POS + (splinePos - centerRef)
@@ -1413,10 +1460,12 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local road = self._pools.road[ri]
 			road.Size = Vector3.new(ROAD_W + 2, 0.25, segLen + 0.5)
 			road.CFrame = CFrame.lookAt(wM - Vector3.new(0, 0.15, 0), wM - Vector3.new(0, 0.15, 0) + dir.Unit)
+			local rZone = getTrackZone(t)
+			local rCol = rZone.roadColor or Color3.fromRGB(5, 5, 10)
 			if portalBlend > 0 then
-				road.Color = Color3.fromRGB(5, 5, 10):Lerp(Color3.fromRGB(40, 2, 2), portalBlend)
+				road.Color = rCol:Lerp(Color3.fromRGB(40, 2, 2), portalBlend)
 			else
-				road.Color = Color3.fromRGB(5, 5, 10)
+				road.Color = rCol
 			end
 			road.Transparency = 0
 			ri = ri + 1
@@ -1425,10 +1474,12 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	end
 	for i = ri, ROAD_POOL do self._pools.road[i].Transparency = 1 end
 
-	-- Lane dividers
+	-- Lane dividers — target lane lines turn blue
 	local li = 1
-	for _, laneData in ipairs(self._splines) do
+	local targetLane = self._targetLane
+	for laneIdx, laneData in ipairs(self._splines) do
 		local spline = laneData.spline
+		local isTargetLine = (laneIdx == targetLane)
 		local lt = math.floor(tMin / LANE_T_STEP) * LANE_T_STEP
 		while lt < tMax and li <= LANE_POOL do
 			local lt1 = math.min(lt + LANE_T_STEP, tMax)
@@ -1444,17 +1495,21 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				local line = self._pools.lane[li]
 				line.Size = Vector3.new(0.35, 0.1, segLen + 0.25)
 				line.CFrame = CFrame.lookAt(wM + Vector3.new(0, 0.01, 0), wM + Vector3.new(0, 0.01, 0) + dir.Unit)
-				local accent = beatAccent(zone.accent)
-				local hardColor = Color3.fromRGB(255, 80, 80)
-				if tier == "hard" then
-					line.Color = accent:Lerp(hardColor, 0.55 * hardBlend)
-					line.Transparency = 0.15 * hardBlend + 0.25 * (1 - hardBlend)
-				elseif tier == "reprieve" then
-					line.Color = accent:Lerp(Color3.fromRGB(140, 220, 255), 0.45)
-					line.Transparency = 0.4
+				if isTargetLine then
+					line.Color = LANE_HL_COLOR
+					line.Transparency = 0.1
 				else
-					line.Color = accent
-					line.Transparency = 0.25
+					local accent = beatAccent(zone.accent)
+					if tier == "hard" then
+						line.Color = accent:Lerp(Color3.fromRGB(255, 80, 80), 0.55 * hardBlend)
+						line.Transparency = 0.15 * hardBlend + 0.25 * (1 - hardBlend)
+					elseif tier == "reprieve" then
+						line.Color = accent:Lerp(Color3.fromRGB(140, 220, 255), 0.45)
+						line.Transparency = 0.4
+					else
+						line.Color = accent
+						line.Transparency = 0.25
+					end
 				end
 				li = li + 1
 			end
@@ -1472,18 +1527,16 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		local wP = toWorld(pos)
 		local info = self._pools.light[tli]
 		info.part.Position = wP + Vector3.new(0, 6, 0)
-		local accent = beatAccent(zone.accent)
-		local hardColor = Color3.fromRGB(255, 80, 80)
-		local color = accent
+		local lightCol = (tli % 2 == 0) and beatAccent2(zone) or beatAccent(zone.accent)
 		local brightness = 0.6
 		if tier == "hard" then
-			color = accent:Lerp(hardColor, 0.55 * hardBlend)
+			lightCol = lightCol:Lerp(Color3.fromRGB(255, 80, 80), 0.55 * hardBlend)
 			brightness = 0.6 + 0.4 * hardBlend
 		elseif tier == "reprieve" then
-			color = accent:Lerp(Color3.fromRGB(140, 220, 255), 0.45)
+			lightCol = lightCol:Lerp(Color3.fromRGB(140, 220, 255), 0.45)
 			brightness = 0.4
 		end
-		info.light.Color = color
+		info.light.Color = lightCol
 		info.light.Brightness = brightness
 		tli = tli + 1
 		tlt = tlt + LIGHT_T_STEP
@@ -1520,12 +1573,16 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local up = Vector3.new(0, 1, 0)
 
 			local accent = beatAccent(zone.accent)
+			local accent2 = beatAccent2(zone)
 			local hardColor = Color3.fromRGB(255, 80, 80)
-			local color = accent
+			local postColor = accent
+			local topColor = accent2
 			if tier == "hard" then
-				color = accent:Lerp(hardColor, 0.6 * hardBlend)
+				postColor = accent:Lerp(hardColor, 0.6 * hardBlend)
+				topColor = accent2:Lerp(hardColor, 0.6 * hardBlend)
 			elseif tier == "reprieve" then
-				color = accent:Lerp(Color3.fromRGB(140, 220, 255), 0.45)
+				postColor = accent:Lerp(Color3.fromRGB(140, 220, 255), 0.45)
+				topColor = accent2:Lerp(Color3.fromRGB(140, 220, 255), 0.45)
 			end
 
 			local tAlpha = 1
@@ -1545,9 +1602,9 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local tl = bl + up * h
 			local tr = br + up * h
 
-			placeBar(frame.left,  bl, tl, color, trans, bright)
-			placeBar(frame.top,   tl, tr, color, trans, bright)
-			placeBar(frame.right, br, tr, color, trans, bright)
+			placeBar(frame.left,  bl, tl, postColor, trans, bright)
+			placeBar(frame.top,   tl, tr, topColor, trans, bright)
+			placeBar(frame.right, br, tr, postColor, trans, bright)
 
 			tfi = tfi + 1
 		end
@@ -1580,11 +1637,15 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local center = wP + right * (SIDE_LASER_OFFSET * side) + up * SIDE_LASER_HEIGHT
 
 			local accent = beatAccent(zone.accent)
+			local accent2 = beatAccent2(zone)
 			local color = accent
+			local color2 = accent2
 			if tier == "hard" then
 				color = accent:Lerp(Color3.fromRGB(255, 80, 80), 0.6 * hardBlend)
+				color2 = accent2:Lerp(Color3.fromRGB(255, 80, 80), 0.6 * hardBlend)
 			elseif tier == "reprieve" then
 				color = accent:Lerp(Color3.fromRGB(140, 220, 255), 0.45)
+				color2 = accent2:Lerp(Color3.fromRGB(140, 220, 255), 0.45)
 			end
 
 			local slAlpha = 1
@@ -1600,11 +1661,12 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				local angle = spin + (b - 1) * math.pi / SIDE_LASER_BARS
 				local planeDir = math.cos(angle) * up + math.sin(angle) * right
 				local bar = bars[b]
+				local barCol = (b % 2 == 0) and color2 or color
 				bar.Size = Vector3.new(SIDE_LASER_BAR_THICK, SIDE_LASER_BAR_THICK, SIDE_LASER_RADIUS * 2)
 				bar.CFrame = CFrame.lookAt(center, center + planeDir)
-				bar.Color = color
+				bar.Color = barCol
 				bar.Transparency = 1 - slAlpha * pulse
-				bar.PointLight.Color = color
+				bar.PointLight.Color = barCol
 				bar.PointLight.Brightness = TUNNEL_GLOW_BRIGHT * 0.5 * slAlpha * pulse
 			end
 			sli = sli + 1
@@ -1636,6 +1698,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			if right.Magnitude > 0.001 then right = right.Unit else right = Vector3.new(1, 0, 0) end
 
 			local accent = beatAccent(zone.accent)
+			local accent2 = beatAccent2(zone)
 
 			local seed = bt * 12345.6789
 			local h1 = (math.sin(seed) * 43758.5453) % 1
@@ -1667,8 +1730,8 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				bAlpha = math.clamp(1 - (bt - fadeStart) / (tMax - fadeStart), 0, 1)
 			end
 
-			local bodyColor = Color3.fromRGB(8, 10, 20):Lerp(accent, 0.06 + beat * 0.06)
-			local darkBody = Color3.fromRGB(6, 8, 16):Lerp(accent, 0.04 + beat * 0.04)
+			local bodyColor = Color3.fromRGB(8, 10, 20):Lerp(accent2, 0.08 + beat * 0.06)
+			local darkBody = Color3.fromRGB(6, 8, 16):Lerp(accent2, 0.05 + beat * 0.04)
 			local capColor = Color3.fromRGB(12, 16, 30):Lerp(accent, 0.1 + beat * 0.08)
 			local neonAlpha = bAlpha * (0.15 + beat * 0.85)
 
@@ -1687,12 +1750,6 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				entry.body.Color = bodyColor
 				entry.body.Transparency = 1 - bAlpha
 
-				local gl = entry.body:FindFirstChild("Glow")
-				if gl then
-					gl.Color = accent
-					gl.Brightness = (0.3 + beat * 0.8) * bAlpha
-				end
-
 				local s1H = 0.12 + beat * 0.08
 				local s1Y = h * (0.3 + h3 * 0.2)
 				entry.stripe1.Size = Vector3.new(w + 0.1, s1H, depth + 0.1)
@@ -1703,7 +1760,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				local s2Y = h * (0.65 + h5 * 0.2)
 				entry.stripe2.Size = Vector3.new(w + 0.1, s1H * 0.7, depth + 0.1)
 				entry.stripe2.CFrame = lookCF * CFrame.new(0, s2Y - h * 0.5, 0)
-				entry.stripe2.Color = accent
+				entry.stripe2.Color = accent2
 				entry.stripe2.Transparency = 1 - neonAlpha * 0.7
 
 				local capCenter = base + Vector3.new(0, h + capH * 0.5, 0)
@@ -1722,7 +1779,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 					local tsY = towerH * (0.5 + h6 * 0.3)
 					entry.towerStripe.Size = Vector3.new(towerW + 0.1, s1H * 0.5, towerW + 0.1)
 					entry.towerStripe.CFrame = CFrame.lookAt(towerCenter, towerCenter + fwd) * CFrame.new(0, tsY - towerH * 0.5, 0)
-					entry.towerStripe.Color = accent
+					entry.towerStripe.Color = accent2
 					entry.towerStripe.Transparency = 1 - neonAlpha * 0.6
 
 					local antH = 1.5 + beat * 2
@@ -1751,8 +1808,6 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		entry.tower.Transparency = 1
 		entry.towerStripe.Transparency = 1
 		entry.antenna.Transparency = 1
-		local gl = entry.body:FindFirstChild("Glow")
-		if gl then gl.Brightness = 0 end
 	end
 
 	local function showCubeAssembly(model, cf, show, alpha, beatScale)
@@ -1776,12 +1831,6 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			hl.Enabled = show and alpha > 0.1
 			if hl.Enabled then hl.FillTransparency = 1 - 0.7 * alpha end
 		end
-		local light = shell:FindFirstChildOfClass("PointLight")
-		if light then
-			light.Enabled = show and alpha > 0.1
-			if light.Enabled then light.Brightness = 0.8 + (beatScale - 1) * 8 end
-		end
-
 		local liftedCf = cf + Vector3.new(0, yLift, 0)
 		for _, child in ipairs(model:GetChildren()) do
 			if child == shell or not child:IsA("BasePart") then continue end
@@ -1806,8 +1855,6 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		shell.Transparency = 1
 		local hl = shell:FindFirstChildOfClass("Highlight")
 		if hl then hl.Enabled = false end
-		local light = shell:FindFirstChildOfClass("PointLight")
-		if light then light.Enabled = false end
 		for _, child in ipairs(model:GetChildren()) do
 			if child:IsA("BasePart") and child ~= shell then
 				child.Transparency = 1
@@ -2078,63 +2125,77 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		if pl then pl.Brightness = 0 end
 	end
 
-	-- Spectrum visualizer bars (follow spline, Y-scaled per band + chase effect)
-	local specTime = time()
-	local specLoud = beat
-	local halfSpan = (SPEC_BAND_COUNT - 1) * SPEC_BAR_SPACING * 0.5
-	local specTCenter = self._t
-
-	local chaseSpeed = RW_CHASE_SPEED * (0.5 + specLoud * 1.5)
+	-- Spectrum visualizer bars — span entire visible track, no gaps, scroll past player
+	local specNow = time()
+	local sbi = 1
+	local sbt = math.floor(tMin / SPEC_T_STEP) * SPEC_T_STEP
+	local chaseSpeed = RW_CHASE_SPEED * (0.5 + beat * 1.5)
 	self._rwElapsed = self._rwElapsed + dt * chaseSpeed
-	local chaseHead = self._rwElapsed % SPEC_BAND_COUNT
 
-	for i = 1, SPEC_BAND_COUNT do
-		local frac = (i - 1) / (SPEC_BAND_COUNT - 1)
-		local curve = frac * frac
-		local freq = 1.2 + curve * 14
-		local phase = i * 1.1
-		local target = specLoud * (0.55 + 0.45 * math.sin(specTime * freq + phase))
-		target = math.clamp(target, 0, 1)
+	while sbt < tMax and sbi <= SPEC_POOL do
+		local sbt1 = math.min(sbt + SPEC_T_STEP, 1)
+		local posA = centerSpline:CalculatePositionAt(sbt) + waveVec(sbt)
+		local posB = centerSpline:CalculatePositionAt(sbt1) + waveVec(sbt1)
+		local mid = (posA + posB) * 0.5
+		local dir = posB - posA
+		local segLen = dir.Magnitude
+		if segLen > 0.01 then
+			local wM = toWorld(mid)
+			local fwd = dir.Unit
+			local right = fwd:Cross(Vector3.new(0, 1, 0))
+			if right.Magnitude > 0.001 then right = right.Unit else right = Vector3.new(1, 0, 0) end
 
-		local smoothRate = 3 + curve * 22
-		local prev = self._specBands[i] or 0
-		local smoothed = prev + (target - prev) * math.min(dt * smoothRate, 1)
-		self._specBands[i] = smoothed
+			local zone = getTrackZone(sbt)
+			local accent = beatAccent(zone.accent)
+			local accent2 = beatAccent2(zone)
 
-		local behind = (chaseHead - (i - 1)) % SPEC_BAND_COUNT
-		local chaseIntensity
-		if behind < 1 then chaseIntensity = 1
-		elseif behind < 1 + RW_FADE_TAIL then chaseIntensity = math.max(RW_DIM_FLOOR, 1 - (behind - 1) / RW_FADE_TAIL)
-		else chaseIntensity = RW_DIM_FLOOR end
+			local seed = sbt * 9973.71
+			local h1 = (math.sin(seed) * 43758.5453) % 1
+			if h1 < 0 then h1 = h1 + 1 end
+			local freq = 2 + h1 * 12
+			local phase = seed * 1.7
+			local wave = 0.55 + 0.45 * math.sin(specNow * freq + phase)
+			local intensity = beat * wave
 
-		local h = SPEC_MIN_HEIGHT + smoothed * (SPEC_MAX_HEIGHT - SPEC_MIN_HEIGHT)
+			local chasePhase = (self._rwElapsed - sbt * 500) % 20
+			local chaseGlow
+			if chasePhase < 1 then chaseGlow = 1
+			elseif chasePhase < 1 + RW_FADE_TAIL then chaseGlow = math.max(RW_DIM_FLOOR, 1 - (chasePhase - 1) / RW_FADE_TAIL)
+			else chaseGlow = RW_DIM_FLOOR end
 
-		local chaseColor = beatColor:Lerp(Color3.new(1, 1, 1), chaseIntensity * 0.5)
+			local h = SPEC_MIN_HEIGHT + intensity * (SPEC_MAX_HEIGHT - SPEC_MIN_HEIGHT)
+			local depth = math.max(segLen * SPEC_BAR_GAP, 0.3)
 
-		local zOff = (i - 1) * SPEC_BAR_SPACING - halfSpan
-		local specT = math.clamp(specTCenter + zOff / TRACK_LENGTH, 0, 1)
-		local sPos = centerSpline:CalculatePositionAt(specT) + waveVec(specT)
-		local sDir = centerSpline:CalculateDerivativeAt(specT)
-		if sDir.Magnitude < 0.001 then sDir = Vector3.new(0, 0, -1) end
-		local wP = toWorld(sPos)
-		local fwd = sDir.Unit
-		local right = fwd:Cross(Vector3.new(0, 1, 0)).Unit
+			local barColor = accent:Lerp(accent2, chaseGlow * 0.6)
+			if portalBlend > 0 then
+				local fireSeed = sbt * 5471.3
+				local fireFlicker = 0.5 + 0.5 * math.sin(specNow * (8 + ((math.sin(fireSeed) * 43758.5453) % 1) * 12) + fireSeed)
+				local fireColor = Color3.fromRGB(255, 60, 10):Lerp(Color3.fromRGB(255, 160, 30), fireFlicker)
+				barColor = barColor:Lerp(fireColor, portalBlend)
+			end
 
-		local entry = self._specBars[i]
-		if entry then
+			local sbAlpha = 1
+			if sbt > fadeStart then
+				sbAlpha = math.clamp(1 - (sbt - fadeStart) / (tMax - fadeStart), 0, 1)
+			end
+
+			local entry = self._specBars[sbi]
 			for _, side in ipairs({ { key = "left", sign = -1 }, { key = "right", sign = 1 } }) do
 				local bar = entry[side.key]
-				if bar then
-					local sidePos = wP + right * side.sign * SPEC_SIDE_OFFSET
-					bar.Size = Vector3.new(SPEC_BAR_WIDTH, h, SPEC_BAR_DEPTH)
-					bar.Color = chaseColor
-					bar.CFrame = CFrame.lookAt(
-						sidePos + Vector3.new(0, h * 0.5, 0),
-						sidePos + Vector3.new(0, h * 0.5, 0) + fwd
-					)
-				end
+				local sidePos = wM + right * (side.sign * SPEC_SIDE_OFFSET)
+				local center = sidePos + Vector3.new(0, h * 0.5, 0)
+				bar.Size = Vector3.new(SPEC_BAR_WIDTH, h, depth)
+				bar.Color = barColor
+				bar.Transparency = 1 - sbAlpha
+				bar.CFrame = CFrame.lookAt(center, center + fwd)
 			end
+			sbi = sbi + 1
 		end
+		sbt = sbt + SPEC_T_STEP
+	end
+	for i = sbi, SPEC_POOL do
+		self._specBars[i].left.Transparency = 1
+		self._specBars[i].right.Transparency = 1
 	end
 
 	-- Synchronized particle burst: on strong beats, randomly pick a cardinal direction
@@ -2205,7 +2266,6 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		elseif distFrac < 0.1 then
 			fadeAlpha = distFrac / 0.1
 		end
-		local brightness = (0.3 + beat * 0.7) * fadeAlpha
 
 		local particle = self._ambientParticles[api]
 		particle.Size = Vector3.new(size, size, size)
@@ -2213,18 +2273,71 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		particle.Color = Color3.new(1, 1, 1)
 		local beatOpacity = 0.15 + beat * beat * 0.85
 		particle.Transparency = 1 - fadeAlpha * beatOpacity
-		local gl = particle:FindFirstChildOfClass("PointLight")
-		if gl then
-			gl.Color = Color3.new(1, 1, 1)
-			gl.Brightness = brightness
-		end
 		api = api + 1
 		apt = apt + AMBIENT_PARTICLE_T_STEP
 	end
 	for i = api, AMBIENT_PARTICLE_POOL do
 		self._ambientParticles[i].Transparency = 1
-		local gl = self._ambientParticles[i]:FindFirstChildOfClass("PointLight")
-		if gl then gl.Brightness = 0 end
+	end
+
+	-- Dynamic atmosphere — lerp post-processing toward current zone, pulse with beat
+	local playerZone = getTrackZone(self._t)
+	if playerZone.fogColor then
+		local env = self._envZoneLerp
+		local lerpRate = math.min(dt * 1.8, 1)
+		env.fogColor = env.fogColor:Lerp(playerZone.fogColor, lerpRate)
+		env.fogDecay = env.fogDecay:Lerp(playerZone.fogDecay, lerpRate)
+		env.ambientTint = env.ambientTint:Lerp(playerZone.ambientTint, lerpRate)
+		env.bloomSize = env.bloomSize + (playerZone.bloomSize - env.bloomSize) * lerpRate
+		env.ccTint = env.ccTint:Lerp(playerZone.ccTint, lerpRate)
+
+		local beatSq = beat * beat
+		local beatPulse = beatSq * 0.35
+		local pb = portalBlend
+
+		local accentPrimary = playerZone.accent
+		local accentSecondary = playerZone.accent2 or playerZone.accent
+		if pb > 0 then
+			accentPrimary = accentPrimary:Lerp(PORTAL_RED, pb)
+			accentSecondary = accentSecondary:Lerp(PORTAL_RED, pb)
+		end
+
+		if self._atmosphere then
+			local baseFog = env.fogColor
+			if pb > 0 then baseFog = baseFog:Lerp(Color3.fromRGB(18, 2, 2), pb) end
+			local pulsedFog = baseFog:Lerp(accentPrimary, beatPulse * 0.3)
+			self._atmosphere.Color = pulsedFog
+			local baseDecay = env.fogDecay
+			if pb > 0 then baseDecay = baseDecay:Lerp(Color3.fromRGB(40, 6, 4), pb) end
+			self._atmosphere.Decay = baseDecay:Lerp(accentSecondary, beatPulse * 0.15)
+			self._atmosphere.Density = 0.35 + beatSq * 0.1 + pb * 0.08
+			self._atmosphere.Haze = 2 + beatSq * 1.5 + pb * 1
+			self._atmosphere.Glare = 0.1 + beatSq * 0.15 + pb * 0.1
+		end
+
+		if self._bloom then
+			self._bloom.Size = env.bloomSize + beatSq * 1.5
+			self._bloom.Intensity = 0.03 + beatSq * 0.05 + pb * 0.02
+			self._bloom.Threshold = 2.0 - beatSq * 0.06 - pb * 0.03
+		end
+
+		if self._raceCC then
+			local tint = env.ccTint
+			if pb > 0 then tint = tint:Lerp(Color3.fromRGB(255, 180, 170), pb) end
+			self._raceCC.TintColor = tint
+			self._raceCC.Brightness = beatSq * 0.04 + pb * 0.02
+			self._raceCC.Contrast = 0.05 + beatSq * 0.08 + pb * 0.05
+			self._raceCC.Saturation = 0.1 + beatSq * 0.15 + pb * 0.1
+		end
+
+		local tintedAmbient = env.ambientTint:Lerp(accentPrimary, beatPulse * 0.2)
+		Lighting.Ambient = tintedAmbient
+		Lighting.OutdoorAmbient = Color3.new(
+			tintedAmbient.R * 0.7,
+			tintedAmbient.G * 0.7,
+			tintedAmbient.B * 0.7
+		)
+		Lighting.FogColor = env.fogColor
 	end
 
 end
@@ -2234,6 +2347,33 @@ end
 ---------------------------------------------------------------------------
 function LakelandRaceController:_setObstacleVisibility(show)
 	self._obstaclesVisible = show
+end
+
+---------------------------------------------------------------------------
+-- Reset atmosphere to neutral dark state (menu / game end)
+---------------------------------------------------------------------------
+function LakelandRaceController:_resetAtmosphere()
+	if self._atmosphere then
+		self._atmosphere.Color = Color3.fromRGB(4, 8, 22)
+		self._atmosphere.Decay = Color3.fromRGB(8, 20, 50)
+		self._atmosphere.Density = 0.35
+		self._atmosphere.Haze = 2
+		self._atmosphere.Glare = 0.1
+	end
+	if self._bloom then
+		self._bloom.Intensity = 0.03
+		self._bloom.Size = 5
+		self._bloom.Threshold = 2.0
+	end
+	if self._raceCC then
+		self._raceCC.Brightness = 0
+		self._raceCC.Contrast = 0.05
+		self._raceCC.Saturation = 0.1
+		self._raceCC.TintColor = Color3.fromRGB(200, 215, 255)
+	end
+	Lighting.Ambient = Color3.fromRGB(10, 10, 18)
+	Lighting.OutdoorAmbient = Color3.fromRGB(8, 8, 14)
+	Lighting.FogColor = Color3.fromRGB(0, 0, 0)
 end
 
 ---------------------------------------------------------------------------
@@ -2395,6 +2535,8 @@ function LakelandRaceController:StopRace()
 		RunService:UnbindFromRenderStep("LakelandMachineUpdate")
 		self._renderConn = nil
 	end
+
+	self:_resetAtmosphere()
 end
 
 ---------------------------------------------------------------------------
