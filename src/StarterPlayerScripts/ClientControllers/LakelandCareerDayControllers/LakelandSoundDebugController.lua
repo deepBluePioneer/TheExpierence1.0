@@ -17,11 +17,15 @@ local function getAllSounds(parent)
 	return sounds
 end
 
+local ENABLED = false
+
 function LakelandSoundDebugController:KnitInit()
+	if not ENABLED then return end
 	Iris.Init()
 end
 
 function LakelandSoundDebugController:KnitStart()
+	if not ENABLED then return end
 	local groups = {}
 	local originals = {}
 

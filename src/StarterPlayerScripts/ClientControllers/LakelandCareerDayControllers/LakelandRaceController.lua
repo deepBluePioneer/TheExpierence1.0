@@ -363,6 +363,7 @@ local BOMB_POOL         = 8
 local BOMB_CHAIN_POOL   = 26
 local BOMB_IND_MAX      = 5
 
+
 local BOMBS = {}
 do
 	local bombLanes = {2, 1, 3, 2, 3, 1}
@@ -592,7 +593,7 @@ local SPEC_POOL         = 80
 local SPEC_T_STEP       = 0.0005
 local SPEC_SIDE_OFFSET  = ROAD_HALF_W + 1
 local SPEC_BAR_WIDTH    = 0.6
-local SPEC_BAR_GAP      = 0.65
+local SPEC_BAR_GAP      = 0.3
 local SPEC_MAX_HEIGHT   = 12
 local SPEC_MIN_HEIGHT   = 0.5
 
@@ -771,9 +772,9 @@ function LakelandRaceController:_setupDarkEnvironment()
 		bloom.Name = "RaceBloom"
 		bloom.Parent = Lighting
 	end
-	bloom.Intensity = 0.03
-	bloom.Size = 5
-	bloom.Threshold = 2.0
+	bloom.Intensity = 0.015
+	bloom.Size = 3
+	bloom.Threshold = 2.5
 	self._bloom = bloom
 
 	local cc = Lighting:FindFirstChild("RaceCC")
@@ -1877,7 +1878,29 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local spline = self._splines[hazard.lane].spline
 			local pos = spline:CalculatePositionAt(hazard.t) + waveVec(hazard.t)
 			local wP = toWorld(pos)
-			showCubeAssembly(self._pools.hazard[hi], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha, cubeBeatScale)
+				local hazModel = self._pools.hazard[hi]
+			showCubeAssembly(hazModel, CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha, cubeBeatScale)
+			if show then
+				local pb = portalBlend
+				local shell = hazModel.PrimaryPart
+				if shell then
+					shell.Color = Color3.fromRGB(180, 20, 20):Lerp(Color3.fromRGB(255, 255, 60), pb)
+					local hl = shell:FindFirstChildOfClass("Highlight")
+					if hl and hl.Enabled then
+						hl.FillColor = Color3.fromRGB(255, 50, 50):Lerp(Color3.fromRGB(255, 255, 100), pb)
+						hl.OutlineColor = Color3.fromRGB(255, 100, 100):Lerp(Color3.fromRGB(255, 255, 0), pb)
+					end
+				end
+				for _, child in ipairs(hazModel:GetChildren()) do
+					if child:IsA("BasePart") and child.Name ~= "Shell" and child.Transparency < 1 then
+						if child.Name == "Core" then
+							child.Color = Color3.fromRGB(255, 60, 60):Lerp(Color3.fromRGB(255, 255, 0), pb)
+						else
+							child.Color = Color3.fromRGB(255, 80, 80):Lerp(Color3.fromRGB(255, 255, 0), pb)
+						end
+					end
+				end
+			end
 			if self._running and not hazard._flybyPlayed and hazard.t <= playerT then
 				hazard._flybyPlayed = true
 				playRandomFlybyAt(wP + Vector3.new(0, 2.5, 0), self._currentSpeed / MAX_SPEED)
@@ -2316,9 +2339,9 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		end
 
 		if self._bloom then
-			self._bloom.Size = env.bloomSize + beatSq * 1.5
-			self._bloom.Intensity = 0.03 + beatSq * 0.05 + pb * 0.02
-			self._bloom.Threshold = 2.0 - beatSq * 0.06 - pb * 0.03
+			self._bloom.Size = math.min(env.bloomSize, 3) + beatSq * 0.8
+			self._bloom.Intensity = 0.015 + beatSq * 0.025 + pb * 0.01
+			self._bloom.Threshold = 2.5 - beatSq * 0.04 - pb * 0.02
 		end
 
 		if self._raceCC then
@@ -2361,9 +2384,9 @@ function LakelandRaceController:_resetAtmosphere()
 		self._atmosphere.Glare = 0.1
 	end
 	if self._bloom then
-		self._bloom.Intensity = 0.03
-		self._bloom.Size = 5
-		self._bloom.Threshold = 2.0
+		self._bloom.Intensity = 0.015
+		self._bloom.Size = 3
+		self._bloom.Threshold = 2.5
 	end
 	if self._raceCC then
 		self._raceCC.Brightness = 0

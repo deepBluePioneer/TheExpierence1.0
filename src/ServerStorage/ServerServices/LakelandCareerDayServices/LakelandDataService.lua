@@ -14,9 +14,9 @@ local TableUtil = require(Packages.TableUtil)
 local CustomPackages = ReplicatedStorage.CustomPackages
 local ProfileService = require(CustomPackages.ProfileService.ProfileService)
 
-local STORE_NAME = "LakelandCareerDay_v1"
+local STORE_NAME = "LakelandCareerDay_v2"
 local PROFILE_KEY = "LakelandArcade"
-local LEADERBOARD_STORE_NAME = "LakelandLeaderboard_v1"
+local LEADERBOARD_STORE_NAME = "LakelandLeaderboard_v2"
 local MAX_LEADERBOARD = 10
 
 local DEFAULT_DATA = {

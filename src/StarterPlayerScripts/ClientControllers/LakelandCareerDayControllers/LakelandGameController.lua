@@ -34,10 +34,11 @@ local LakelandWipeTransition = require(ControllersFolder.LakelandWipeTransition)
 local LakelandBGMToastUI = require(ControllersFolder.LakelandBGMToastUI)
 local LakelandDemoOverlayUI = require(ControllersFolder.LakelandDemoOverlayUI)
 local LakelandDangerVignetteUI = require(ControllersFolder.LakelandDangerVignetteUI)
+local LakelandWaveformUI = require(ControllersFolder.LakelandWaveformUI)
 
 local RACE_DURATION = 120
 local END_SCREEN_DURATION = 5
-local IDLE_TIMEOUT = 15
+local IDLE_TIMEOUT = 600
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -56,7 +57,7 @@ local STATES = {
 local BGM_FADE_TIME = 1.5
 local BGM_VOLUME = 0.25
 
-local MENU_TRACK_ID = "rbxassetid://7028518546"  -- Protostar - New Horizons
+local MENU_TRACK_ID = "rbxassetid://130353120493764"
 
 local MUSIC_GROUP = SoundService:FindFirstChild("music")
 local GAME_TRACK_IDS = {}
@@ -244,6 +245,12 @@ function LakelandGameController:_createUI()
 		self._dangerVignette.destroy()
 	end)
 
+	self._waveformUI = LakelandWaveformUI.new(playerGui)
+	self._waveformUI.preloadTracks(GAME_TRACK_IDS)
+	self._trove:Add(function()
+		self._waveformUI.destroy()
+	end)
+
 	self._trove:Add(function()
 		self:_stopIntroCutscene()
 	end)
@@ -411,13 +418,13 @@ function LakelandGameController:_startDemoMode()
 				self._bgmEndedConn:Disconnect()
 				self._bgmEndedConn = nil
 			end
-			if self._bgmCurrent then
-				self._bgmEndedConn = self._bgmCurrent.Ended:Once(function()
-					if self._gameState:get() == STATES.DEMO and not self._demoEnding then
-						self:_exitDemoMode()
-					end
-				end)
-			end
+
+			local demoDuration = 30 + math.random() * 30
+			task.delay(demoDuration, function()
+				if self._gameState:get() == STATES.DEMO and not self._demoEnding then
+					self:_exitDemoMode()
+				end
+			end)
 
 			self:_setState(STATES.DEMO)
 			self._demoOverlay.show()
@@ -437,6 +444,7 @@ function LakelandGameController:_exitDemoMode()
 	self._demoEnding = true
 
 	self._demoOverlay.hide()
+	if self._waveformUI then self._waveformUI.hide() end
 
 	if self._demoInputConn then
 		self._demoInputConn:Disconnect()
@@ -569,6 +577,7 @@ function LakelandGameController:_onGameEnd(endReason)
 
 	self._raceController:StopRace()
 	self._dangerVignette.reset()
+	if self._waveformUI then self._waveformUI.hide() end
 
 	if self._bgmCurrent then
 		if self._bgmFadeTween then
@@ -925,6 +934,9 @@ function LakelandGameController:_playBGM(soundId, looping, showToast)
 	if showToast and self._bgmToast then
 		local name = TRACK_NAMES[soundId] or "Unknown Track"
 		self._bgmToast.show(name)
+		if self._waveformUI then
+			self._waveformUI.startTrack(sound, name)
+		end
 	end
 
 	if not looping then
@@ -946,6 +958,7 @@ function LakelandGameController:_playNextGameTrack()
 end
 
 function LakelandGameController:_stopBGM()
+	if self._waveformUI then self._waveformUI.hide() end
 	if self._bgmEndedConn then
 		self._bgmEndedConn:Disconnect()
 		self._bgmEndedConn = nil
