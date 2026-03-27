@@ -705,6 +705,19 @@ function LakelandGameController:_onGameEnd(endReason)
 end
 
 function LakelandGameController:_cleanup()
+	local character = LocalPlayer.Character
+	if character then
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			humanoid.WalkSpeed = 0
+			humanoid.JumpHeight = 0
+			humanoid.JumpPower = 0
+		end
+		local hrp = character:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			hrp.CFrame = CFrame.new(0, -500, 0)
+		end
+	end
 	self:_unseatPlayer()
 	self:_destroyMachine()
 	self._dataService:DestroyCharacter():expect()

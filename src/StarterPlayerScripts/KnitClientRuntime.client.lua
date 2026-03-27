@@ -54,6 +54,7 @@ loadControllersForPlace(game.PlaceId)
 -- Start Knit
 Knit.Start():andThen(function()
 	print("Knit Started on the Client")
+	_G.__KNIT_READY = true
 end):catch(function(err)
 	warn("Error starting Knit: ", err)
 end)
