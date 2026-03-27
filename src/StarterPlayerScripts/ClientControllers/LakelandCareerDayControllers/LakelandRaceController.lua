@@ -610,6 +610,23 @@ local BLDG_MIN_HEIGHT   = 8
 local BLDG_MAX_HEIGHT   = 35
 local BLDG_BEAT_EXTRA   = 10
 
+local HYPER = {
+	TRIGGER_TIME     = 10,
+	DURATION         = 30,
+	FADE_IN          = 1.5,
+	FADE_OUT         = 1.5,
+	FOV              = 110,
+	LINE_POOL        = 900,
+	LINE_SPEED       = 700,
+	LINE_LENGTH_MIN  = 20,
+	LINE_LENGTH_MAX  = 60,
+	TUNNEL_RADIUS    = 28,
+	TUNNEL_THICKNESS = 8,
+	LINE_COLORS = {
+		Color3.fromRGB(255, 255, 255),
+	},
+}
+
 local COMBO_WINDOW = 2.0
 
 local SHOCKWAVE_AMPLITUDE    = 20
@@ -722,6 +739,15 @@ local LakelandRaceController = Knit.CreateController({
 	_syncBurstDir = Vector3.zero,
 	_syncBurstStrength = 0,
 	_lastBeatBelow = true,
+
+	_raceElapsed = 0,
+	_hyperdriveActive = false,
+	_hyperdriveTriggered = false,
+	_hyperdriveTimer = 0,
+	_hyperdriveBlend = 0,
+	_hyperLines = {},
+	_hyperLineData = {},
+	_hyperBgmVolume = nil,
 
 	LaneChanged = Signal.new(),
 	RaceProgress = Signal.new(),
@@ -1330,6 +1356,31 @@ function LakelandRaceController:_initPools()
 		table.insert(self._machineLights, anchor)
 	end
 
+	self._hyperLines = {}
+	self._hyperLineData = {}
+	for i = 1, HYPER.LINE_POOL do
+		local len = HYPER.LINE_LENGTH_MIN + math.random() * (HYPER.LINE_LENGTH_MAX - HYPER.LINE_LENGTH_MIN)
+		local p = Instance.new("Part")
+		local thick = 0.2 + math.random() * 0.35
+		p.Size = Vector3.new(thick, thick, len)
+		p.Anchored = true
+		p.CanCollide = false
+		p.Material = Enum.Material.Neon
+		p.Color = HYPER.LINE_COLORS[math.random(1, #HYPER.LINE_COLORS)]
+		p.Transparency = 1
+		p.CastShadow = false
+		p.Parent = folder
+		self._hyperLines[i] = p
+		local angle = math.random() * math.pi * 2
+		local radius = HYPER.TUNNEL_RADIUS + (math.random() - 0.5) * HYPER.TUNNEL_THICKNESS
+		self._hyperLineData[i] = {
+			offsetX = math.cos(angle) * radius,
+			offsetY = math.sin(angle) * radius,
+			zOffset = (math.random() - 0.5) * 0.06,
+			length = len,
+		}
+	end
+
 	print("[LakelandRaceController] Pools initialized — treadmill ready")
 end
 
@@ -1386,6 +1437,7 @@ end
 ---------------------------------------------------------------------------
 function LakelandRaceController:_updateWorldScroll(dt)
 	local centerSpline = self._splines[2].spline
+	local hBlend = self._hyperdriveBlend
 
 	local shockActive = self._shockwaveActive
 	local function waveVec(tVal)
@@ -1470,7 +1522,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			else
 				road.Color = rCol
 			end
-			road.Transparency = 0
+			road.Transparency = hBlend
 			ri = ri + 1
 		end
 		t = t + ROAD_T_STEP
@@ -1500,18 +1552,18 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				line.CFrame = CFrame.lookAt(wM + Vector3.new(0, 0.01, 0), wM + Vector3.new(0, 0.01, 0) + dir.Unit)
 				if isTargetLine then
 					line.Color = LANE_HL_COLOR
-					line.Transparency = 0.1
+					line.Transparency = math.max(0.1, hBlend)
 				else
 					local accent = beatAccent(zone.accent)
 					if tier == "hard" then
 						line.Color = accent:Lerp(Color3.fromRGB(255, 80, 80), 0.55 * hardBlend)
-						line.Transparency = 0.15 * hardBlend + 0.25 * (1 - hardBlend)
+						line.Transparency = math.max(0.15 * hardBlend + 0.25 * (1 - hardBlend), hBlend)
 					elseif tier == "reprieve" then
 						line.Color = accent:Lerp(Color3.fromRGB(140, 220, 255), 0.45)
-						line.Transparency = 0.4
+						line.Transparency = math.max(0.4, hBlend)
 					else
 						line.Color = accent
-						line.Transparency = 0.25
+						line.Transparency = math.max(0.25, hBlend)
 					end
 				end
 				li = li + 1
@@ -1540,7 +1592,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			brightness = 0.4
 		end
 		info.light.Color = lightCol
-		info.light.Brightness = brightness
+		info.light.Brightness = brightness * (1 - hBlend)
 		tli = tli + 1
 		tlt = tlt + LIGHT_T_STEP
 	end
@@ -1556,9 +1608,9 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		bar.Size = Vector3.new(TUNNEL_BAR_THICK, TUNNEL_BAR_THICK, len)
 		bar.CFrame = CFrame.lookAt(mid, e)
 		bar.Color = color
-		bar.Transparency = trans
+		bar.Transparency = math.max(trans, hBlend)
 		bar.PointLight.Color = color
-		bar.PointLight.Brightness = bright
+		bar.PointLight.Brightness = bright * (1 - hBlend)
 	end
 
 	local tfi = 1
@@ -1668,9 +1720,9 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				bar.Size = Vector3.new(SIDE_LASER_BAR_THICK, SIDE_LASER_BAR_THICK, SIDE_LASER_RADIUS * 2)
 				bar.CFrame = CFrame.lookAt(center, center + planeDir)
 				bar.Color = barCol
-				bar.Transparency = 1 - slAlpha * pulse
+				bar.Transparency = math.max(1 - slAlpha * pulse, hBlend)
 				bar.PointLight.Color = barCol
-				bar.PointLight.Brightness = TUNNEL_GLOW_BRIGHT * 0.5 * slAlpha * pulse
+				bar.PointLight.Brightness = TUNNEL_GLOW_BRIGHT * 0.5 * slAlpha * pulse * (1 - hBlend)
 			end
 			sli = sli + 1
 		end
@@ -1751,46 +1803,46 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				entry.body.Size = Vector3.new(w, h, depth)
 				entry.body.CFrame = lookCF
 				entry.body.Color = bodyColor
-				entry.body.Transparency = 1 - bAlpha
+				entry.body.Transparency = math.max(1 - bAlpha, hBlend)
 
 				local s1H = 0.12 + beat * 0.08
 				local s1Y = h * (0.3 + h3 * 0.2)
 				entry.stripe1.Size = Vector3.new(w + 0.1, s1H, depth + 0.1)
 				entry.stripe1.CFrame = lookCF * CFrame.new(0, s1Y - h * 0.5, 0)
 				entry.stripe1.Color = accent
-				entry.stripe1.Transparency = 1 - neonAlpha
+				entry.stripe1.Transparency = math.max(1 - neonAlpha, hBlend)
 
 				local s2Y = h * (0.65 + h5 * 0.2)
 				entry.stripe2.Size = Vector3.new(w + 0.1, s1H * 0.7, depth + 0.1)
 				entry.stripe2.CFrame = lookCF * CFrame.new(0, s2Y - h * 0.5, 0)
 				entry.stripe2.Color = accent2
-				entry.stripe2.Transparency = 1 - neonAlpha * 0.7
+				entry.stripe2.Transparency = math.max(1 - neonAlpha * 0.7, hBlend)
 
 				local capCenter = base + Vector3.new(0, h + capH * 0.5, 0)
 				entry.cap.Size = Vector3.new(w + 1, capH, depth + 0.3)
 				entry.cap.CFrame = CFrame.lookAt(capCenter, capCenter + fwd)
 				entry.cap.Color = capColor
-				entry.cap.Transparency = 1 - bAlpha
+				entry.cap.Transparency = math.max(1 - bAlpha, hBlend)
 
 				if hasTower then
 					local towerCenter = base + Vector3.new(0, h + capH + towerH * 0.5, 0)
 					entry.tower.Size = Vector3.new(towerW, towerH, towerW)
 					entry.tower.CFrame = CFrame.lookAt(towerCenter, towerCenter + fwd)
 					entry.tower.Color = darkBody
-					entry.tower.Transparency = 1 - bAlpha
+					entry.tower.Transparency = math.max(1 - bAlpha, hBlend)
 
 					local tsY = towerH * (0.5 + h6 * 0.3)
 					entry.towerStripe.Size = Vector3.new(towerW + 0.1, s1H * 0.5, towerW + 0.1)
 					entry.towerStripe.CFrame = CFrame.lookAt(towerCenter, towerCenter + fwd) * CFrame.new(0, tsY - towerH * 0.5, 0)
 					entry.towerStripe.Color = accent2
-					entry.towerStripe.Transparency = 1 - neonAlpha * 0.6
+					entry.towerStripe.Transparency = math.max(1 - neonAlpha * 0.6, hBlend)
 
 					local antH = 1.5 + beat * 2
 					local antCenter = base + Vector3.new(0, h + capH + towerH + antH * 0.5, 0)
 					entry.antenna.Size = Vector3.new(0.15, antH, 0.15)
 					entry.antenna.CFrame = CFrame.new(antCenter)
 					entry.antenna.Color = accent
-					entry.antenna.Transparency = 1 - neonAlpha
+					entry.antenna.Transparency = math.max(1 - neonAlpha, hBlend)
 				else
 					entry.tower.Transparency = 1
 					entry.towerStripe.Transparency = 1
@@ -1814,7 +1866,8 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	end
 
 	local function showCubeAssembly(model, cf, show, alpha, beatScale)
-		alpha = alpha or 1
+		alpha = (alpha or 1) * (1 - hBlend)
+		if hBlend > 0.5 then show = false end
 		beatScale = beatScale or 1
 		local shell = model.PrimaryPart
 		local baseSize = model:GetAttribute("BaseSize") or 4
@@ -1903,7 +1956,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 					end
 				end
 			end
-			if self._running and not hazard._flybyPlayed and hazard.t <= playerT then
+			if self._running and not hazard._flybyPlayed and hazard.t <= playerT and not self._hyperdriveActive then
 				hazard._flybyPlayed = true
 				playRandomFlybyAt(wP + Vector3.new(0, 2.5, 0), self._currentSpeed / MAX_SPEED)
 			end
@@ -1927,7 +1980,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local pos = spline:CalculatePositionAt(coin.t) + waveVec(coin.t)
 			local wP = toWorld(pos)
 			showCubeAssembly(self._pools.coin[ci], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha, cubeBeatScale)
-			if self._running and not coin._flybyPlayed and coin.t <= playerT then
+			if self._running and not coin._flybyPlayed and coin.t <= playerT and not self._hyperdriveActive then
 				coin._flybyPlayed = true
 				playRandomFlybyAt(wP + Vector3.new(0, 2.5, 0), self._currentSpeed / MAX_SPEED)
 			end
@@ -1951,7 +2004,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local pos = spline:CalculatePositionAt(bomb.t) + waveVec(bomb.t)
 			local wP = toWorld(pos)
 			showCubeAssembly(self._pools.bomb[bi], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha, cubeBeatScale)
-			if self._running and not bomb._flybyPlayed and bomb.t <= playerT then
+			if self._running and not bomb._flybyPlayed and bomb.t <= playerT and not self._hyperdriveActive then
 				bomb._flybyPlayed = true
 				playRandomFlybyAt(wP + Vector3.new(0, 2.5, 0), self._currentSpeed / MAX_SPEED)
 			end
@@ -1976,7 +2029,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				local pos = spline:CalculatePositionAt(portal.t) + waveVec(portal.t)
 				local wP = toWorld(pos)
 				showCubeAssembly(self._pools.portal[pi2], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha, cubeBeatScale)
-				if self._running and not portal._flybyPlayed and portal.t <= playerT then
+				if self._running and not portal._flybyPlayed and portal.t <= playerT and not self._hyperdriveActive then
 					portal._flybyPlayed = true
 					playRandomFlybyAt(wP + Vector3.new(0, 2.5, 0), self._currentSpeed / MAX_SPEED)
 				end
@@ -1999,7 +2052,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local pillar = self._glowPillars[gi]
 			pillar.CFrame = CFrame.new(wP + Vector3.new(0, GLOW_PILLAR_SIZE.Y * 0.5 + 2.5, 0))
 			pillar.Color = color
-			pillar.Transparency = 0.5 + dist01 * 0.4
+			pillar.Transparency = math.max(0.5 + dist01 * 0.4, hBlend)
 			gi = gi + 1
 		end
 		for _, hazard in ipairs(HAZARDS) do
@@ -2047,8 +2100,8 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local indPos = center + Vector3.new(offsetX, orbitHeight + bobY, offsetZ)
 			ind.CFrame = CFrame.new(indPos) * CFrame.Angles(selfSpin, selfSpin * 0.6, 0)
 			ind.Size = Vector3.new(2, 2, 2)
-			ind.Transparency = 0.15
-			ind.PointLight.Brightness = 1.2 + 0.4 * math.sin(time() * 4 + i)
+			ind.Transparency = math.max(0.15, hBlend)
+			ind.PointLight.Brightness = (1.2 + 0.4 * math.sin(time() * 4 + i)) * (1 - hBlend)
 		else
 			ind.Transparency = 1
 			ind.PointLight.Brightness = 0
@@ -2073,8 +2126,8 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				entry.part.Size = Vector3.new(s, s, s)
 				local pos = entry.part.Position
 				entry.part.CFrame = CFrame.new(pos) * CFrame.Angles(chainSpin, chainSpin * 0.7, chainSpin * 0.4)
-				entry.part.Transparency = 1 - fade * 0.85
-				entry.part.PointLight.Brightness = 1.5 * fade
+				entry.part.Transparency = math.max(1 - fade * 0.85, hBlend)
+				entry.part.PointLight.Brightness = 1.5 * fade * (1 - hBlend)
 			end
 		end
 	end
@@ -2106,7 +2159,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local pad = self._pools.boostPad[pi]
 			pad.Size = Vector3.new(BOOST_VIS_WIDTH, 0.12, segLen + 0.15)
 			pad.CFrame = CFrame.lookAt(wM + Vector3.new(0, 0.03, 0), wM + Vector3.new(0, 0.03, 0) + dir.Unit)
-			pad.Transparency = show and 0.25 or 1
+			pad.Transparency = show and math.max(0.25, hBlend) or 1
 			pi = pi + 1
 		end
 
@@ -2132,9 +2185,9 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				elseif behind < 1 + BOOST_FADE_TAIL then intensity = math.max(BOOST_DIM_FLOOR, 1 - (behind - 1) / BOOST_FADE_TAIL)
 				else intensity = BOOST_DIM_FLOOR end
 				chev.Color = BOOST_OFF_COLOR:Lerp(BOOST_ON_COLOR, intensity)
-				chev.Transparency = 1 - intensity * 0.35
+				chev.Transparency = math.max(1 - intensity * 0.35, hBlend)
 				local pl = chev:FindFirstChildOfClass("PointLight")
-				if pl then pl.Brightness = intensity * 4 end
+				if pl then pl.Brightness = intensity * 4 * (1 - hBlend) end
 			else
 				chev.Transparency = 1
 				local pl = chev:FindFirstChildOfClass("PointLight")
@@ -2211,7 +2264,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				local center = sidePos + Vector3.new(0, h * 0.5, 0)
 				bar.Size = Vector3.new(SPEC_BAR_WIDTH, h, depth)
 				bar.Color = barColor
-				bar.Transparency = 1 - sbAlpha
+				bar.Transparency = math.max(1 - sbAlpha, hBlend)
 				bar.CFrame = CFrame.lookAt(center, center + fwd)
 			end
 			sbi = sbi + 1
@@ -2297,7 +2350,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		particle.CFrame = CFrame.new(particlePos)
 		particle.Color = Color3.new(1, 1, 1)
 		local beatOpacity = 0.15 + beat * beat * 0.85
-		particle.Transparency = 1 - fadeAlpha * beatOpacity
+		particle.Transparency = math.max(1 - fadeAlpha * beatOpacity, hBlend)
 		api = api + 1
 		apt = apt + AMBIENT_PARTICLE_T_STEP
 	end
@@ -2365,6 +2418,73 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		Lighting.FogColor = env.fogColor
 	end
 
+	if hBlend > 0 then
+		if self._atmosphere then
+			self._atmosphere.Density = self._atmosphere.Density + hBlend * 0.4
+		end
+		if self._raceCC then
+			self._raceCC.Saturation = self._raceCC.Saturation - hBlend * 0.3
+			self._raceCC.Brightness = self._raceCC.Brightness - hBlend * 0.05
+		end
+	end
+
+	if self._cameraController then
+		self._cameraController:SetHyperdriveFOV(hBlend)
+	end
+
+end
+
+---------------------------------------------------------------------------
+-- Hyperdrive speed lines
+---------------------------------------------------------------------------
+function LakelandRaceController:_updateHyperdriveLines(dt)
+	local blend = self._hyperdriveBlend
+	if blend <= 0 then
+		for i = 1, HYPER.LINE_POOL do
+			if self._hyperLines[i] then self._hyperLines[i].Transparency = 1 end
+		end
+		return
+	end
+
+	local centerSpline = self._splines[2].spline
+	local playerT = self._t
+	local centerRef = centerSpline:CalculatePositionAt(playerT)
+	local tRange = 0.06
+	local tSpeed = HYPER.LINE_SPEED / TRACK_LENGTH
+
+	for i = 1, HYPER.LINE_POOL do
+		local part = self._hyperLines[i]
+		local data = self._hyperLineData[i]
+		if not part or not data then continue end
+
+		data.zOffset = data.zOffset - tSpeed * dt
+		if data.zOffset < -tRange * 0.5 then
+			data.zOffset = data.zOffset + tRange
+		end
+
+		local sampleT = playerT + data.zOffset
+		if sampleT < 0 or sampleT > 1 then
+			part.Transparency = 1
+			continue
+		end
+
+		local splinePos = centerSpline:CalculatePositionAt(sampleT)
+		local deriv = centerSpline:CalculateDerivativeAt(sampleT)
+		if deriv.Magnitude < 0.001 then
+			part.Transparency = 1
+			continue
+		end
+
+		local fwd = deriv.Unit
+		local worldUp = Vector3.new(0, 1, 0)
+		local right = fwd:Cross(worldUp)
+		if right.Magnitude < 0.001 then right = Vector3.new(1, 0, 0) else right = right.Unit end
+		local up = right:Cross(fwd).Unit
+
+		local worldPos = FIXED_MACHINE_POS + (splinePos - centerRef) + right * data.offsetX + up * data.offsetY
+		part.CFrame = CFrame.lookAt(worldPos, worldPos + fwd)
+		part.Transparency = 1 - blend
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -2454,6 +2574,26 @@ function LakelandRaceController:PositionAtStart()
 	self._portalRefillT = 1
 	for _, portal in ipairs(PORTALS) do portal.collected = false; portal._flybyPlayed = false end
 
+	self._raceElapsed = 0
+	self._hyperdriveActive = false
+	self._hyperdriveTriggered = false
+	self._hyperdriveTimer = 0
+	self._hyperdriveBlend = 0
+	if self._hyperBgmVolume then
+		local bgm = self._gameController and self._gameController._bgmCurrent
+		if bgm and bgm:IsA("Sound") then
+			bgm.Volume = self._hyperBgmVolume
+			if bgm.IsPaused then bgm:Resume() end
+		end
+		self._hyperBgmVolume = nil
+	end
+	for i = 1, HYPER.LINE_POOL do
+		if self._hyperLines[i] then self._hyperLines[i].Transparency = 1 end
+	end
+	if self._cameraController then
+		self._cameraController:SetHyperdriveFOV(0)
+	end
+
 	task.spawn(function()
 		local machine = Workspace:WaitForChild("ActiveMachine", 5)
 		if not machine then
@@ -2538,6 +2678,26 @@ function LakelandRaceController:StopRace()
 	self._portalRefilling = false
 	self._portalRefillT = 1
 	if self._portalEQ then self._portalEQ:Destroy(); self._portalEQ = nil end
+
+	self._raceElapsed = 0
+	self._hyperdriveActive = false
+	self._hyperdriveTriggered = false
+	self._hyperdriveTimer = 0
+	self._hyperdriveBlend = 0
+	if self._hyperBgmVolume then
+		local bgm = self._gameController and self._gameController._bgmCurrent
+		if bgm and bgm:IsA("Sound") then
+			bgm.Volume = self._hyperBgmVolume
+			if bgm.IsPaused then bgm:Resume() end
+		end
+		self._hyperBgmVolume = nil
+	end
+	for i = 1, HYPER.LINE_POOL do
+		if self._hyperLines[i] then self._hyperLines[i].Transparency = 1 end
+	end
+	if self._cameraController then
+		self._cameraController:SetHyperdriveFOV(0)
+	end
 
 	if self._boosting then
 		self._boosting = false
@@ -2669,6 +2829,7 @@ function LakelandRaceController:_startRenderLoop()
 			self:_updateMovement(dt)
 		end
 		self:_updateWorldScroll(dt)
+		self:_updateHyperdriveLines(dt)
 	end)
 	self._renderConn = true
 
@@ -3004,7 +3165,7 @@ function LakelandRaceController:_updateMovement(dt)
 			end
 		end
 
-		local inBoost = self:_isInBoostZone()
+		local inBoost = self:_isInBoostZone() and not self._hyperdriveActive
 		if inBoost ~= self._boosting then
 			self._boosting = inBoost
 			if inBoost then
@@ -3055,40 +3216,42 @@ function LakelandRaceController:_updateMovement(dt)
 			self._currentBoostTally = self._currentBoostTally + BOOST_POINTS_PER_SEC * dt
 		end
 
-		local hitHazard = self:_getHitHazard()
-		if hitHazard and not hitHazard._hit then
-			hitHazard._hit = true
-			if not self._demoMode then
-				self._health = math.max(self._health - HAZARD_DAMAGE, 0)
-				self._comboCount = 0
-				self._comboTimer = 0
-				self._lastShockwaveThreshold = 0
-				if self._shockwaveActive then
-					self._shockwaveActive = false
-					self._shockwaveTime = 0
+		if not self._hyperdriveActive then
+			local hitHazard = self:_getHitHazard()
+			if hitHazard and not hitHazard._hit then
+				hitHazard._hit = true
+				if not self._demoMode then
+					self._health = math.max(self._health - HAZARD_DAMAGE, 0)
+					self._comboCount = 0
+					self._comboTimer = 0
+					self._lastShockwaveThreshold = 0
+					if self._shockwaveActive then
+						self._shockwaveActive = false
+						self._shockwaveTime = 0
+					end
+					self.HealthChanged:Fire(self._health)
+					self.HazardHit:Fire(self._health)
 				end
-				self.HealthChanged:Fire(self._health)
-				self.HazardHit:Fire(self._health)
-			end
-			self:_spawnBurst(Color3.fromRGB(255, 50, 50), Color3.fromRGB(255, 100, 100))
-			if self._health <= 0 and not self._demoMode then
-				if SFX_Impacts then playSoundAt(SFX_Impacts:FindFirstChild("OnImpactHazardFinal"), self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS) end
-			else
-				playRandomImpactAt(self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS)
-			end
-			if self._cameraController then
-				self._cameraController:ShakeCamera(3, 0.1, 0, 0.05, 0.3, Vector3.new(1.5, 1.5, 0.3), Vector3.new(0.08, 0.08, 0.04))
+				self:_spawnBurst(Color3.fromRGB(255, 50, 50), Color3.fromRGB(255, 100, 100))
+				if self._health <= 0 and not self._demoMode then
+					if SFX_Impacts then playSoundAt(SFX_Impacts:FindFirstChild("OnImpactHazardFinal"), self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS) end
+				else
+					playRandomImpactAt(self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS)
+				end
+				if self._cameraController then
+					self._cameraController:ShakeCamera(3, 0.1, 0, 0.05, 0.3, Vector3.new(1.5, 1.5, 0.3), Vector3.new(0.08, 0.08, 0.04))
+					local speedFrac = math.clamp((self._currentSpeed - MOVE_SPEED) / (MAX_SPEED - MOVE_SPEED), 0, 1)
+					self._cameraController:ZoomPunch(8 + 10 * speedFrac)
+				end
 				local speedFrac = math.clamp((self._currentSpeed - MOVE_SPEED) / (MAX_SPEED - MOVE_SPEED), 0, 1)
-				self._cameraController:ZoomPunch(8 + 10 * speedFrac)
+				self._hitFreezeTimer = HIT_FREEZE_BASE + (HIT_FREEZE_MAX - HIT_FREEZE_BASE) * speedFrac
+				return
 			end
-			local speedFrac = math.clamp((self._currentSpeed - MOVE_SPEED) / (MAX_SPEED - MOVE_SPEED), 0, 1)
-			self._hitFreezeTimer = HIT_FREEZE_BASE + (HIT_FREEZE_MAX - HIT_FREEZE_BASE) * speedFrac
-			return
-		end
 
-		self:_checkCoinCollection()
-		self:_checkBombCollection()
-		self:_checkPortalCollection()
+			self:_checkCoinCollection()
+			self:_checkBombCollection()
+			self:_checkPortalCollection()
+		end
 
 		if self._portalActive then
 			for _, hazard in ipairs(HAZARDS) do
@@ -3108,6 +3271,41 @@ function LakelandRaceController:_updateMovement(dt)
 	local tDelta = (self._currentSpeed / TRACK_LENGTH) * dt
 	if not self._countdownDrive then
 		self._totalDistance = self._totalDistance + self._currentSpeed * dt
+		self._raceElapsed = self._raceElapsed + dt
+
+		if self._raceElapsed >= HYPER.TRIGGER_TIME and not self._hyperdriveActive and not self._hyperdriveTriggered then
+			self._hyperdriveActive = true
+			self._hyperdriveTriggered = true
+			self._hyperdriveTimer = 0
+			local bgm = self._gameController and self._gameController._bgmCurrent
+			if bgm and bgm:IsA("Sound") and bgm.IsPlaying then
+				self._hyperBgmVolume = bgm.Volume
+				TweenService:Create(bgm, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = 0 }):Play()
+				task.delay(HYPER.FADE_IN, function()
+					if self._hyperdriveActive and bgm and bgm.Parent then
+						bgm:Pause()
+					end
+				end)
+			end
+		end
+
+		if self._hyperdriveActive then
+			self._hyperdriveTimer = self._hyperdriveTimer + dt
+			if self._hyperdriveTimer < HYPER.FADE_IN then
+				self._hyperdriveBlend = self._hyperdriveTimer / HYPER.FADE_IN
+			elseif self._hyperdriveTimer < HYPER.DURATION then
+				self._hyperdriveBlend = 1
+			else
+				self._hyperdriveBlend = 0
+				self._hyperdriveActive = false
+				local bgm = self._gameController and self._gameController._bgmCurrent
+				if bgm and bgm:IsA("Sound") and self._hyperBgmVolume then
+					bgm.Volume = self._hyperBgmVolume
+					if bgm.IsPaused then bgm:Resume() end
+					self._hyperBgmVolume = nil
+				end
+			end
+		end
 	end
 	self._t = self._t + tDelta
 	if self._t > 1 then

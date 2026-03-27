@@ -12,6 +12,7 @@ local LOOK_AHEAD = 60
 local SMOOTH_SPEED = 24
 local BASE_FOV = 70
 local BOOST_FOV = 95
+local HYPER_FOV = 110
 local FOV_ATTACK_SPEED = 12
 local FOV_RECOVER_SPEED = 3
 
@@ -38,6 +39,7 @@ local LakelandCameraController = Knit.CreateController({
 	_lateralOffset = 0,
 	_lateralVelocity = 0,
 	_lastDesiredX = 0,
+	_hyperdriveBlend = 0,
 })
 
 function LakelandCameraController:KnitInit()
@@ -131,6 +133,14 @@ function LakelandCameraController:ResetZoom()
 	self._deathZoomActive = false
 end
 
+function LakelandCameraController:SetHyperdriveFOV(blend)
+	local prev = self._hyperdriveBlend
+	self._hyperdriveBlend = blend or 0
+	if prev > 0 and self._hyperdriveBlend == 0 then
+		self._currentFOV = BASE_FOV
+	end
+end
+
 function LakelandCameraController:_update(dt)
 	local camera = Workspace.CurrentCamera
 
@@ -185,10 +195,14 @@ function LakelandCameraController:_update(dt)
 	camera.CFrame = shaken
 
 	local boosting = self._raceController:IsBoosting()
-	self._targetFOV = boosting and BOOST_FOV or BASE_FOV
-
-	local fovSpeed = (self._targetFOV > self._currentFOV) and FOV_ATTACK_SPEED or FOV_RECOVER_SPEED
-	self._currentFOV = self._currentFOV + (self._targetFOV - self._currentFOV) * math.min(fovSpeed * dt, 1)
+	local baseFOV = boosting and BOOST_FOV or BASE_FOV
+	if self._hyperdriveBlend > 0 then
+		self._currentFOV = baseFOV + (HYPER_FOV - baseFOV) * self._hyperdriveBlend
+	else
+		self._targetFOV = baseFOV
+		local fovSpeed = (self._targetFOV > self._currentFOV) and FOV_ATTACK_SPEED or FOV_RECOVER_SPEED
+		self._currentFOV = self._currentFOV + (self._targetFOV - self._currentFOV) * math.min(fovSpeed * dt, 1)
+	end
 
 	if self._deathZoomActive then
 		self._deathZoomElapsed = (self._deathZoomElapsed or 0) + dt
