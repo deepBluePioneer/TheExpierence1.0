@@ -193,12 +193,7 @@ function LakelandGameController:_createUI()
 		self._countdown.destroy()
 	end)
 
-	self._raceTimer = LakelandRaceTimerUI.new(playerGui, self._gameState, RACE_DURATION, self._beatIntensity, function()
-		self:_onGameEnd("TIME UP")
-	end)
-	self._trove:Add(function()
-		self._raceTimer.destroy()
-	end)
+	self._raceTimer = nil
 
 	self._healthBar = LakelandHealthBarUI.new(playerGui, self._gameState, self._beatIntensity)
 	self._trove:Add(function()
@@ -540,11 +535,10 @@ function LakelandGameController:_onCountdownDone()
 		return
 	end
 	self:_setState(STATES.PLAYING)
-	self._raceTimer.start()
 
 	self:_bindHealthWatch()
 
-	print("[LakelandGameController] Player has control! Race timer started.")
+	print("[LakelandGameController] Player has control!")
 end
 
 function LakelandGameController:_bindHealthWatch()

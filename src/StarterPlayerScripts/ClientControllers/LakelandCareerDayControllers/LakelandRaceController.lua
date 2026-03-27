@@ -627,6 +627,111 @@ local HYPER = {
 	},
 }
 
+local TERRAIN_BASE = {
+	WIDTH       = 300,
+	DEPTH       = 300,
+	RESOLUTION  = 4,
+	BASE_Y      = -2,
+}
+
+local BIOMES = {
+	{
+		name = "Meadow",
+		material = Enum.Material.Grass,
+		amp = 10,
+		noiseScale = 0.008,
+		seed = 42,
+		atmosphere = {
+			fogColor = Color3.fromRGB(140, 170, 200),
+			decay = Color3.fromRGB(180, 160, 130),
+			density = 0.15, haze = 1, glare = 0.05,
+		},
+		cc = {
+			tint = Color3.fromRGB(240, 235, 225),
+			brightness = 0.02, contrast = 0.08, saturation = 0.15,
+		},
+		ambient = Color3.fromRGB(60, 65, 75),
+		outdoorAmbient = Color3.fromRGB(50, 55, 65),
+		fogColor = Color3.fromRGB(140, 170, 200),
+	},
+	{
+		name = "Desert",
+		material = Enum.Material.Sand,
+		amp = 6,
+		noiseScale = 0.005,
+		seed = 137,
+		atmosphere = {
+			fogColor = Color3.fromRGB(220, 190, 140),
+			decay = Color3.fromRGB(200, 160, 100),
+			density = 0.2, haze = 3, glare = 0.15,
+		},
+		cc = {
+			tint = Color3.fromRGB(255, 235, 200),
+			brightness = 0.04, contrast = 0.1, saturation = 0.05,
+		},
+		ambient = Color3.fromRGB(80, 70, 55),
+		outdoorAmbient = Color3.fromRGB(70, 60, 45),
+		fogColor = Color3.fromRGB(220, 190, 140),
+	},
+	{
+		name = "Arctic",
+		material = Enum.Material.Glacier,
+		amp = 8,
+		noiseScale = 0.006,
+		seed = 256,
+		atmosphere = {
+			fogColor = Color3.fromRGB(200, 215, 235),
+			decay = Color3.fromRGB(180, 195, 220),
+			density = 0.25, haze = 4, glare = 0.08,
+		},
+		cc = {
+			tint = Color3.fromRGB(220, 230, 250),
+			brightness = 0.03, contrast = 0.06, saturation = -0.1,
+		},
+		ambient = Color3.fromRGB(65, 75, 90),
+		outdoorAmbient = Color3.fromRGB(55, 65, 80),
+		fogColor = Color3.fromRGB(200, 215, 235),
+	},
+	{
+		name = "Volcanic",
+		material = Enum.Material.Basalt,
+		amp = 15,
+		noiseScale = 0.01,
+		seed = 404,
+		atmosphere = {
+			fogColor = Color3.fromRGB(60, 20, 10),
+			decay = Color3.fromRGB(120, 40, 15),
+			density = 0.3, haze = 5, glare = 0.2,
+		},
+		cc = {
+			tint = Color3.fromRGB(255, 200, 170),
+			brightness = 0.01, contrast = 0.12, saturation = 0.08,
+		},
+		ambient = Color3.fromRGB(50, 25, 15),
+		outdoorAmbient = Color3.fromRGB(40, 20, 10),
+		fogColor = Color3.fromRGB(60, 20, 10),
+	},
+	{
+		name = "Forest",
+		material = Enum.Material.LeafyGrass,
+		amp = 14,
+		noiseScale = 0.009,
+		seed = 789,
+		atmosphere = {
+			fogColor = Color3.fromRGB(60, 100, 60),
+			decay = Color3.fromRGB(40, 80, 40),
+			density = 0.2, haze = 2, glare = 0.04,
+		},
+		cc = {
+			tint = Color3.fromRGB(220, 240, 215),
+			brightness = 0.01, contrast = 0.09, saturation = 0.2,
+		},
+		ambient = Color3.fromRGB(35, 55, 35),
+		outdoorAmbient = Color3.fromRGB(30, 50, 30),
+		fogColor = Color3.fromRGB(60, 100, 60),
+	},
+}
+
 local COMBO_WINDOW = 2.0
 
 local SHOCKWAVE_AMPLITUDE    = 20
@@ -748,6 +853,11 @@ local LakelandRaceController = Knit.CreateController({
 	_hyperLines = {},
 	_hyperLineData = {},
 	_hyperBgmVolume = nil,
+	_terrainRegion = nil,
+	_biomeRegions = {},
+	_activeBiome = nil,
+	_terrainMode = false,
+	_hyperExitBlend = 0,
 
 	LaneChanged = Signal.new(),
 	RaceProgress = Signal.new(),
@@ -1382,6 +1492,68 @@ function LakelandRaceController:_initPools()
 	end
 
 	print("[LakelandRaceController] Pools initialized — treadmill ready")
+
+	task.spawn(function()
+		local terrain = Workspace.Terrain
+		local cx, cz = FIXED_MACHINE_POS.X, FIXED_MACHINE_POS.Z
+		local halfW = TERRAIN_BASE.WIDTH / 2
+		local halfD = TERRAIN_BASE.DEPTH / 2
+		local res = TERRAIN_BASE.RESOLUTION
+		local baseY = TERRAIN_BASE.BASE_Y
+
+		self._biomeRegions = {}
+
+		for i, biome in ipairs(BIOMES) do
+			local seed = biome.seed
+			local amp = biome.amp
+			local nScale = biome.noiseScale
+
+			local function terrainHeight(wx, wz)
+				local nx = wx * nScale
+				local nz = wz * nScale
+				local h = math.noise(nx + seed, nz + seed) * 1.0
+					+ math.noise(nx * 2 + seed + 100, nz * 2 + seed + 100) * 0.5
+					+ math.noise(nx * 4 + seed + 200, nz * 4 + seed + 200) * 0.25
+				return baseY + (h / 1.75 + 0.5) * amp
+			end
+
+			for x = cx - halfW, cx + halfW - res, res do
+				for z = cz - halfD, cz + halfD - res, res do
+					local surfaceY = terrainHeight(x + res / 2, z + res / 2)
+					local columnH = math.max(surfaceY - (baseY - 20), res)
+					local midY = (baseY - 20 + surfaceY) / 2
+					terrain:FillBlock(
+						CFrame.new(x + res / 2, midY, z + res / 2),
+						Vector3.new(res, columnH, res),
+						biome.material
+					)
+				end
+				if math.fmod(x - (cx - halfW), res * 10) < res then
+					task.wait()
+				end
+			end
+
+			local minCorner = Vector3int16.new(
+				math.floor((cx - halfW) / res),
+				math.floor((baseY - 20) / res),
+				math.floor((cz - halfD) / res)
+			)
+			local maxCorner = Vector3int16.new(
+				math.ceil((cx + halfW) / res),
+				math.ceil((baseY + amp + 5) / res),
+				math.ceil((cz + halfD) / res)
+			)
+			self._biomeRegions[i] = terrain:CopyRegion(Region3int16.new(minCorner, maxCorner))
+			terrain:Clear()
+			print("[LakelandRaceController] Biome pre-generated:", biome.name)
+			task.wait()
+		end
+
+		local chosen = math.random(1, #BIOMES)
+		self._activeBiome = BIOMES[chosen]
+		self._terrainRegion = self._biomeRegions[chosen]
+		print("[LakelandRaceController] Active biome:", self._activeBiome.name)
+	end)
 end
 
 ---------------------------------------------------------------------------
@@ -1437,7 +1609,7 @@ end
 ---------------------------------------------------------------------------
 function LakelandRaceController:_updateWorldScroll(dt)
 	local centerSpline = self._splines[2].spline
-	local hBlend = self._hyperdriveBlend
+	local hBlend = self._terrainMode and 1 or self._hyperdriveBlend
 
 	local shockActive = self._shockwaveActive
 	local function waveVec(tVal)
@@ -1956,7 +2128,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 					end
 				end
 			end
-			if self._running and not hazard._flybyPlayed and hazard.t <= playerT and not self._hyperdriveActive then
+			if self._running and not hazard._flybyPlayed and hazard.t <= playerT and not self._hyperdriveActive and not self._terrainMode then
 				hazard._flybyPlayed = true
 				playRandomFlybyAt(wP + Vector3.new(0, 2.5, 0), self._currentSpeed / MAX_SPEED)
 			end
@@ -1980,7 +2152,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local pos = spline:CalculatePositionAt(coin.t) + waveVec(coin.t)
 			local wP = toWorld(pos)
 			showCubeAssembly(self._pools.coin[ci], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha, cubeBeatScale)
-			if self._running and not coin._flybyPlayed and coin.t <= playerT and not self._hyperdriveActive then
+			if self._running and not coin._flybyPlayed and coin.t <= playerT and not self._hyperdriveActive and not self._terrainMode then
 				coin._flybyPlayed = true
 				playRandomFlybyAt(wP + Vector3.new(0, 2.5, 0), self._currentSpeed / MAX_SPEED)
 			end
@@ -2004,7 +2176,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			local pos = spline:CalculatePositionAt(bomb.t) + waveVec(bomb.t)
 			local wP = toWorld(pos)
 			showCubeAssembly(self._pools.bomb[bi], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha, cubeBeatScale)
-			if self._running and not bomb._flybyPlayed and bomb.t <= playerT and not self._hyperdriveActive then
+			if self._running and not bomb._flybyPlayed and bomb.t <= playerT and not self._hyperdriveActive and not self._terrainMode then
 				bomb._flybyPlayed = true
 				playRandomFlybyAt(wP + Vector3.new(0, 2.5, 0), self._currentSpeed / MAX_SPEED)
 			end
@@ -2029,7 +2201,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				local pos = spline:CalculatePositionAt(portal.t) + waveVec(portal.t)
 				local wP = toWorld(pos)
 				showCubeAssembly(self._pools.portal[pi2], CFrame.new(wP + Vector3.new(0, 2.5, 0)), show, alpha, cubeBeatScale)
-				if self._running and not portal._flybyPlayed and portal.t <= playerT and not self._hyperdriveActive then
+				if self._running and not portal._flybyPlayed and portal.t <= playerT and not self._hyperdriveActive and not self._terrainMode then
 					portal._flybyPlayed = true
 					playRandomFlybyAt(wP + Vector3.new(0, 2.5, 0), self._currentSpeed / MAX_SPEED)
 				end
@@ -2432,13 +2604,40 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		self._cameraController:SetHyperdriveFOV(hBlend)
 	end
 
+	if self._terrainMode then
+		local biome = self._activeBiome or BIOMES[1]
+		local atm = biome.atmosphere
+		local cc = biome.cc
+		if self._atmosphere then
+			self._atmosphere.Color = atm.fogColor
+			self._atmosphere.Decay = atm.decay
+			self._atmosphere.Density = atm.density
+			self._atmosphere.Haze = atm.haze
+			self._atmosphere.Glare = atm.glare
+		end
+		if self._bloom then
+			self._bloom.Intensity = 0.02
+			self._bloom.Size = 8
+			self._bloom.Threshold = 1.5
+		end
+		if self._raceCC then
+			self._raceCC.TintColor = cc.tint
+			self._raceCC.Brightness = cc.brightness
+			self._raceCC.Contrast = cc.contrast
+			self._raceCC.Saturation = cc.saturation
+		end
+		Lighting.Ambient = biome.ambient
+		Lighting.OutdoorAmbient = biome.outdoorAmbient
+		Lighting.FogColor = Color3.fromRGB(140, 170, 200)
+	end
+
 end
 
 ---------------------------------------------------------------------------
 -- Hyperdrive speed lines
 ---------------------------------------------------------------------------
 function LakelandRaceController:_updateHyperdriveLines(dt)
-	local blend = self._hyperdriveBlend
+	local blend = self._terrainMode and self._hyperExitBlend or self._hyperdriveBlend
 	if blend <= 0 then
 		for i = 1, HYPER.LINE_POOL do
 			if self._hyperLines[i] then self._hyperLines[i].Transparency = 1 end
@@ -2587,6 +2786,14 @@ function LakelandRaceController:PositionAtStart()
 		end
 		self._hyperBgmVolume = nil
 	end
+	self._terrainMode = false
+	self._hyperExitBlend = 0
+	Workspace.Terrain:Clear()
+	if self._biomeRegions and #self._biomeRegions > 0 then
+		local chosen = math.random(1, #BIOMES)
+		self._activeBiome = BIOMES[chosen]
+		self._terrainRegion = self._biomeRegions[chosen]
+	end
 	for i = 1, HYPER.LINE_POOL do
 		if self._hyperLines[i] then self._hyperLines[i].Transparency = 1 end
 	end
@@ -2691,6 +2898,14 @@ function LakelandRaceController:StopRace()
 			if bgm.IsPaused then bgm:Resume() end
 		end
 		self._hyperBgmVolume = nil
+	end
+	self._terrainMode = false
+	self._hyperExitBlend = 0
+	Workspace.Terrain:Clear()
+	if self._biomeRegions and #self._biomeRegions > 0 then
+		local chosen = math.random(1, #BIOMES)
+		self._activeBiome = BIOMES[chosen]
+		self._terrainRegion = self._biomeRegions[chosen]
 	end
 	for i = 1, HYPER.LINE_POOL do
 		if self._hyperLines[i] then self._hyperLines[i].Transparency = 1 end
@@ -3165,7 +3380,7 @@ function LakelandRaceController:_updateMovement(dt)
 			end
 		end
 
-		local inBoost = self:_isInBoostZone() and not self._hyperdriveActive
+		local inBoost = self:_isInBoostZone() and not self._hyperdriveActive and not self._terrainMode
 		if inBoost ~= self._boosting then
 			self._boosting = inBoost
 			if inBoost then
@@ -3216,7 +3431,7 @@ function LakelandRaceController:_updateMovement(dt)
 			self._currentBoostTally = self._currentBoostTally + BOOST_POINTS_PER_SEC * dt
 		end
 
-		if not self._hyperdriveActive then
+		if not self._hyperdriveActive and not self._terrainMode then
 			local hitHazard = self:_getHitHazard()
 			if hitHazard and not hitHazard._hit then
 				hitHazard._hit = true
@@ -3270,7 +3485,9 @@ function LakelandRaceController:_updateMovement(dt)
 	-- Advance virtual progress
 	local tDelta = (self._currentSpeed / TRACK_LENGTH) * dt
 	if not self._countdownDrive then
-		self._totalDistance = self._totalDistance + self._currentSpeed * dt
+		if not self._hyperdriveActive and not self._terrainMode then
+			self._totalDistance = self._totalDistance + self._currentSpeed * dt
+		end
 		self._raceElapsed = self._raceElapsed + dt
 
 		if self._raceElapsed >= HYPER.TRIGGER_TIME and not self._hyperdriveActive and not self._hyperdriveTriggered then
@@ -3287,6 +3504,51 @@ function LakelandRaceController:_updateMovement(dt)
 					end
 				end)
 			end
+
+			local playerGui = game:GetService("Players").LocalPlayer
+				and game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui")
+			if playerGui then
+				local hudNames = {
+					"LakelandHealthBarUI", "LakelandDistanceUI",
+					"LakelandScoreBarUI", "LakelandBombUI",
+					"LakelandDangerVignetteUI",
+				}
+				for _, name in ipairs(hudNames) do
+					local sg = playerGui:FindFirstChild(name)
+					if sg and sg:IsA("ScreenGui") then
+						local container = sg:FindFirstChildWhichIsA("Frame") or sg:FindFirstChildWhichIsA("CanvasGroup")
+						if container then
+							TweenService:Create(container, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+								Position = container.Position + UDim2.fromScale(0, -0.15),
+								BackgroundTransparency = 1,
+							}):Play()
+							for _, desc in ipairs(container:GetDescendants()) do
+								if desc:IsA("TextLabel") or desc:IsA("TextButton") then
+									TweenService:Create(desc, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+								end
+								if desc:IsA("GuiObject") then
+									pcall(function()
+										TweenService:Create(desc, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
+									end)
+								end
+								if desc:IsA("UIStroke") then
+									TweenService:Create(desc, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
+								end
+								if desc:IsA("ImageLabel") or desc:IsA("ImageButton") then
+									TweenService:Create(desc, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { ImageTransparency = 1 }):Play()
+								end
+							end
+						end
+						task.delay(HYPER.FADE_IN, function()
+							sg.Enabled = false
+						end)
+					end
+				end
+			end
+
+			if self._gameController and self._gameController._waveformUI then
+				self._gameController._waveformUI.hide()
+			end
 		end
 
 		if self._hyperdriveActive then
@@ -3298,13 +3560,75 @@ function LakelandRaceController:_updateMovement(dt)
 			else
 				self._hyperdriveBlend = 0
 				self._hyperdriveActive = false
+				self._terrainMode = true
+				self._hyperExitBlend = 1
+				self._currentSpeed = 0
 				local bgm = self._gameController and self._gameController._bgmCurrent
-				if bgm and bgm:IsA("Sound") and self._hyperBgmVolume then
-					bgm.Volume = self._hyperBgmVolume
-					if bgm.IsPaused then bgm:Resume() end
-					self._hyperBgmVolume = nil
+				if bgm and bgm:IsA("Sound") then
+					bgm:Stop()
 				end
+				self._hyperBgmVolume = nil
+				if self._terrainRegion then
+					local halfW = TERRAIN_BASE.WIDTH / 2
+					local halfD = TERRAIN_BASE.DEPTH / 2
+					local minC = Vector3int16.new(
+						math.floor((FIXED_MACHINE_POS.X - halfW) / TERRAIN_BASE.RESOLUTION),
+						math.floor((TERRAIN_BASE.BASE_Y - 20) / TERRAIN_BASE.RESOLUTION),
+						math.floor((FIXED_MACHINE_POS.Z - halfD) / TERRAIN_BASE.RESOLUTION)
+					)
+					Workspace.Terrain:PasteRegion(self._terrainRegion, minC, true)
+				end
+				if self._cameraController then
+					self._cameraController:ZoomPunch(12)
+					self._cameraController:ShakeCamera(3, 0.15, 0, 0.1, 0.4, Vector3.new(1.5, 2, 0.3), Vector3.new(0.06, 0.06, 0.03))
+				end
+				task.delay(2, function()
+					if self._gameController then
+						self._gameController:_unseatPlayer()
+						self._gameController:_unfreezeCharacter()
+					end
+					if self._cameraController then
+						self._cameraController:_deactivate()
+					end
+					local player = game:GetService("Players").LocalPlayer
+					local character = player and player.Character
+					local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+					local camera = Workspace.CurrentCamera
+					if camera then
+						camera.CameraType = Enum.CameraType.Custom
+						if humanoid then
+							camera.CameraSubject = humanoid
+						end
+					end
+				end)
+				task.spawn(function()
+					local player = game:GetService("Players").LocalPlayer
+					local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
+					if not playerGui then return end
+					local sg = Instance.new("ScreenGui")
+					sg.Name = "HyperFlash"
+					sg.DisplayOrder = 100
+					sg.IgnoreGuiInset = true
+					sg.Parent = playerGui
+					local flash = Instance.new("Frame")
+					flash.Size = UDim2.fromScale(1, 1)
+					flash.BackgroundColor3 = Color3.new(1, 1, 1)
+					flash.BackgroundTransparency = 0
+					flash.BorderSizePixel = 0
+					flash.Parent = sg
+					local tw = TweenService:Create(flash, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = 1 })
+					tw:Play()
+					tw.Completed:Wait()
+					sg:Destroy()
+				end)
 			end
+		end
+
+		if self._terrainMode then
+			if self._hyperExitBlend > 0 then
+				self._hyperExitBlend = math.max(0, self._hyperExitBlend - dt / 0.5)
+			end
+			return
 		end
 	end
 	self._t = self._t + tDelta
