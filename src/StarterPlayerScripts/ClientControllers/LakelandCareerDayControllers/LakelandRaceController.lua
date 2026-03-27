@@ -126,6 +126,7 @@ local BOOST_ACCEL = 20
 local MAX_SPEED = 350
 local LAUNCH_ACCEL = 160
 local LANE_SWITCH_SPEED = 8
+local LATERAL_SPEED = 35
 
 local MAX_BANK_ANGLE = math.rad(12)
 local BANK_SMOOTH_SPEED = 14
@@ -652,6 +653,7 @@ local LakelandRaceController = Knit.CreateController({
 	_laneSpringPos = 0,
 	_laneSpringVel = 0,
 	_laneSpringTarget = 0,
+	_lateralInput = 0,
 	_t = 0,
 	_currentSpeed = 0,
 	_running = false,
@@ -1475,9 +1477,9 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	end
 	for i = ri, ROAD_POOL do self._pools.road[i].Transparency = 1 end
 
-	-- Lane dividers — target lane lines turn blue
+	-- Lane dividers — active lane lines turn blue
 	local li = 1
-	local targetLane = self._targetLane
+	local targetLane = self:_getEffectiveLane()
 	for laneIdx, laneData in ipairs(self._splines) do
 		local spline = laneData.spline
 		local isTargetLine = (laneIdx == targetLane)
@@ -2409,6 +2411,7 @@ function LakelandRaceController:PositionAtStart()
 	self._laneSpringPos = 0
 	self._laneSpringVel = 0
 	self._laneSpringTarget = 0
+	self._lateralInput = 0
 	self._t = 0
 	self._currentSpeed = 0
 	self._launching = false
@@ -2542,6 +2545,7 @@ function LakelandRaceController:StopRace()
 	end
 	self._currentBoostTally = 0
 	self._boostScore = 0
+	self._lateralInput = 0
 	self._inputTrove:Clean()
 
 	if self._boostSfxEmitter then
@@ -2567,15 +2571,24 @@ end
 ---------------------------------------------------------------------------
 function LakelandRaceController:_bindInput()
 	self._inputTrove:Clean()
+	self._lateralInput = 0
 
 	self._inputTrove:Add(UserInputService.InputBegan:Connect(function(input, processed)
 		if processed then return end
 		if input.KeyCode == Enum.KeyCode.A or input.KeyCode == Enum.KeyCode.Left then
-			self:SwitchLane(-1)
+			self._lateralInput = -1
 		elseif input.KeyCode == Enum.KeyCode.D or input.KeyCode == Enum.KeyCode.Right then
-			self:SwitchLane(1)
+			self._lateralInput = 1
 		elseif input.KeyCode == Enum.KeyCode.Space then
 			self:_deployBomb()
+		end
+	end), "Disconnect")
+
+	self._inputTrove:Add(UserInputService.InputEnded:Connect(function(input)
+		if input.KeyCode == Enum.KeyCode.A or input.KeyCode == Enum.KeyCode.Left then
+			if self._lateralInput == -1 then self._lateralInput = 0 end
+		elseif input.KeyCode == Enum.KeyCode.D or input.KeyCode == Enum.KeyCode.Right then
+			if self._lateralInput == 1 then self._lateralInput = 0 end
 		end
 	end), "Disconnect")
 
@@ -2583,11 +2596,26 @@ function LakelandRaceController:_bindInput()
 		self._inputTrove:Add(UserInputService.InputChanged:Connect(function(input)
 			if input.KeyCode == Enum.KeyCode.Thumbstick1 then
 				local x = input.Position.X
-				if x > 0.5 and self._targetLane < LANE_COUNT then
-					self:SwitchLane(1)
-				elseif x < -0.5 and self._targetLane > 1 then
-					self:SwitchLane(-1)
+				if math.abs(x) < 0.15 then
+					self._lateralInput = 0
+				else
+					self._lateralInput = math.clamp(x, -1, 1)
 				end
+			end
+		end), "Disconnect")
+	end
+
+	if UserInputService.TouchEnabled and UserInputService.GyroscopeEnabled then
+		local GYRO_DEAD_ZONE = math.rad(5)
+		local GYRO_MAX_TILT = math.rad(30)
+		local tiltRange = GYRO_MAX_TILT - GYRO_DEAD_ZONE
+		self._inputTrove:Add(UserInputService.DeviceRotationChanged:Connect(function(_rotation, cframe)
+			local _, _, roll = cframe:ToEulerAnglesYXZ()
+			if math.abs(roll) < GYRO_DEAD_ZONE then
+				self._lateralInput = 0
+			else
+				local sign = roll > 0 and -1 or 1
+				self._lateralInput = math.clamp((math.abs(roll) - GYRO_DEAD_ZONE) / tiltRange * sign, -1, 1)
 			end
 		end), "Disconnect")
 	end
@@ -2656,8 +2684,8 @@ end
 -- Game logic helpers (unchanged)
 ---------------------------------------------------------------------------
 function LakelandRaceController:_getEffectiveLane()
-	if self._laneBlend < 0.5 then return self._currentLane end
-	return self._targetLane
+	local laneFloat = (self._laneSpringTarget / LANE_SPACING) + 2
+	return math.clamp(math.floor(laneFloat + 0.5), 1, LANE_COUNT)
 end
 
 function LakelandRaceController:_isInBoostZone()
@@ -3091,27 +3119,23 @@ function LakelandRaceController:_updateMovement(dt)
 		for _, portal in ipairs(PORTALS) do portal.collected = false; portal._flybyPlayed = false end
 	end
 
-	-- Lane blending
+	-- Continuous lateral movement
 	if not self._countdownDrive then
-		self._laneBlend = self._laneBlend + LANE_SWITCH_SPEED * dt
-		if self._laneBlend >= 1 then
-			self._laneBlend = 0
-			self._currentLane = self._targetLane
-		end
+		self._laneSpringTarget = self._laneSpringTarget + self._lateralInput * LATERAL_SPEED * dt
+		self._laneSpringTarget = math.clamp(self._laneSpringTarget, -LANE_SPACING, LANE_SPACING)
+
 		local effectiveLane = self:_getEffectiveLane()
 		if effectiveLane ~= self._lastEffectiveLane then
 			self._laneEntryT = self._t
 			self._lastEffectiveLane = effectiveLane
+			self.LaneChanged:Fire(effectiveLane)
 		end
 	end
 
-	-- Compute lane offset relative to center spline
+	-- Compute lane offset (Y from center spline)
 	local centerSpline = self._splines[2].spline
 	local centerPos = centerSpline:CalculatePositionAt(self._t)
-	local currentLanePos = self._splines[self._currentLane].spline:CalculatePositionAt(self._t)
-	local targetLanePos = self._splines[self._targetLane].spline:CalculatePositionAt(self._t)
-	local lanePos = currentLanePos:Lerp(targetLanePos, self._laneBlend)
-	local laneOffset = lanePos - centerPos
+	local laneOffset = Vector3.new(0, 0, 0)
 
 	-- Spring-driven lateral overshoot for visual position
 	local springError = self._laneSpringTarget - self._laneSpringPos
@@ -3139,11 +3163,7 @@ function LakelandRaceController:_updateMovement(dt)
 		curvatureBank = math.clamp(-lateralSpeed * 0.008 * (0.5 + speedFrac), -MAX_BANK_ANGLE, MAX_BANK_ANGLE)
 	end
 
-	local switchBank = 0
-	if self._currentLane ~= self._targetLane then
-		local blend = math.sin(self._laneBlend * math.pi)
-		switchBank = -self._switchDir * LANE_SWITCH_BANK * blend
-	end
+	local switchBank = -self._lateralInput * LANE_SWITCH_BANK
 
 	local targetRoll = math.clamp(curvatureBank + switchBank, -MAX_BANK_ANGLE, MAX_BANK_ANGLE)
 	self._currentRoll = self._currentRoll + (targetRoll - self._currentRoll) * math.min(BANK_SMOOTH_SPEED * dt, 1)
