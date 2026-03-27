@@ -23,6 +23,8 @@ local SFX_Flyby = SoundService:FindFirstChild("flyby")
 
 local SFX_BoostPad = SoundService:FindFirstChild("BoostPad")
 
+local LakelandSkillTreeUI = require(script.Parent.LakelandSkillTreeUI)
+
 local function playSoundAt(sound, worldPos, volume, pitch)
 	if not sound or not sound:IsA("Sound") then return end
 	local emitter = Instance.new("Part")
@@ -627,6 +629,12 @@ local HYPER = {
 	},
 }
 
+local HYPER_RETURN = {
+	DURATION  = 5,
+	FADE_IN   = 1,
+	FADE_OUT  = 1,
+}
+
 local TERRAIN_BASE = {
 	WIDTH       = 300,
 	DEPTH       = 300,
@@ -646,13 +654,23 @@ local BIOMES = {
 			decay = Color3.fromRGB(180, 160, 130),
 			density = 0.15, haze = 1, glare = 0.05,
 		},
+		bloom = { intensity = 0.03, size = 12, threshold = 1.2 },
 		cc = {
 			tint = Color3.fromRGB(240, 235, 225),
 			brightness = 0.02, contrast = 0.08, saturation = 0.15,
 		},
-		ambient = Color3.fromRGB(60, 65, 75),
-		outdoorAmbient = Color3.fromRGB(50, 55, 65),
-		fogColor = Color3.fromRGB(140, 170, 200),
+		lighting = {
+			clockTime = 14.5,
+			brightness = 2,
+			ambient = Color3.fromRGB(100, 110, 120),
+			outdoorAmbient = Color3.fromRGB(90, 100, 110),
+			fogColor = Color3.fromRGB(140, 170, 200),
+			fogStart = 150,
+			fogEnd = 800,
+			envDiffuse = 0.5,
+			envSpecular = 0.3,
+			globalShadows = true,
+		},
 	},
 	{
 		name = "Desert",
@@ -661,17 +679,27 @@ local BIOMES = {
 		noiseScale = 0.005,
 		seed = 137,
 		atmosphere = {
-			fogColor = Color3.fromRGB(220, 190, 140),
-			decay = Color3.fromRGB(200, 160, 100),
-			density = 0.2, haze = 3, glare = 0.15,
+			fogColor = Color3.fromRGB(235, 200, 140),
+			decay = Color3.fromRGB(220, 170, 100),
+			density = 0.22, haze = 5, glare = 0.25,
 		},
+		bloom = { intensity = 0.06, size = 18, threshold = 0.9 },
 		cc = {
-			tint = Color3.fromRGB(255, 235, 200),
-			brightness = 0.04, contrast = 0.1, saturation = 0.05,
+			tint = Color3.fromRGB(255, 230, 190),
+			brightness = 0.06, contrast = 0.12, saturation = 0.0,
 		},
-		ambient = Color3.fromRGB(80, 70, 55),
-		outdoorAmbient = Color3.fromRGB(70, 60, 45),
-		fogColor = Color3.fromRGB(220, 190, 140),
+		lighting = {
+			clockTime = 11,
+			brightness = 3,
+			ambient = Color3.fromRGB(120, 100, 70),
+			outdoorAmbient = Color3.fromRGB(110, 90, 60),
+			fogColor = Color3.fromRGB(235, 200, 140),
+			fogStart = 80,
+			fogEnd = 600,
+			envDiffuse = 0.7,
+			envSpecular = 0.5,
+			globalShadows = true,
+		},
 	},
 	{
 		name = "Arctic",
@@ -680,17 +708,27 @@ local BIOMES = {
 		noiseScale = 0.006,
 		seed = 256,
 		atmosphere = {
-			fogColor = Color3.fromRGB(200, 215, 235),
-			decay = Color3.fromRGB(180, 195, 220),
-			density = 0.25, haze = 4, glare = 0.08,
+			fogColor = Color3.fromRGB(195, 210, 235),
+			decay = Color3.fromRGB(175, 190, 220),
+			density = 0.22, haze = 4, glare = 0.08,
 		},
+		bloom = { intensity = 0.04, size = 14, threshold = 1.0 },
 		cc = {
-			tint = Color3.fromRGB(220, 230, 250),
-			brightness = 0.03, contrast = 0.06, saturation = -0.1,
+			tint = Color3.fromRGB(215, 228, 250),
+			brightness = 0.03, contrast = 0.05, saturation = -0.1,
 		},
-		ambient = Color3.fromRGB(65, 75, 90),
-		outdoorAmbient = Color3.fromRGB(55, 65, 80),
-		fogColor = Color3.fromRGB(200, 215, 235),
+		lighting = {
+			clockTime = 10,
+			brightness = 1.8,
+			ambient = Color3.fromRGB(100, 115, 140),
+			outdoorAmbient = Color3.fromRGB(90, 105, 130),
+			fogColor = Color3.fromRGB(195, 210, 235),
+			fogStart = 80,
+			fogEnd = 600,
+			envDiffuse = 0.5,
+			envSpecular = 0.6,
+			globalShadows = true,
+		},
 	},
 	{
 		name = "Volcanic",
@@ -699,17 +737,27 @@ local BIOMES = {
 		noiseScale = 0.01,
 		seed = 404,
 		atmosphere = {
-			fogColor = Color3.fromRGB(60, 20, 10),
-			decay = Color3.fromRGB(120, 40, 15),
-			density = 0.3, haze = 5, glare = 0.2,
+			fogColor = Color3.fromRGB(80, 35, 15),
+			decay = Color3.fromRGB(130, 55, 20),
+			density = 0.25, haze = 4, glare = 0.2,
 		},
+		bloom = { intensity = 0.06, size = 18, threshold = 0.8 },
 		cc = {
-			tint = Color3.fromRGB(255, 200, 170),
-			brightness = 0.01, contrast = 0.12, saturation = 0.08,
+			tint = Color3.fromRGB(255, 195, 160),
+			brightness = 0.02, contrast = 0.12, saturation = 0.1,
 		},
-		ambient = Color3.fromRGB(50, 25, 15),
-		outdoorAmbient = Color3.fromRGB(40, 20, 10),
-		fogColor = Color3.fromRGB(60, 20, 10),
+		lighting = {
+			clockTime = 17.5,
+			brightness = 1.5,
+			ambient = Color3.fromRGB(100, 55, 30),
+			outdoorAmbient = Color3.fromRGB(90, 45, 25),
+			fogColor = Color3.fromRGB(80, 35, 15),
+			fogStart = 60,
+			fogEnd = 500,
+			envDiffuse = 0.3,
+			envSpecular = 0.3,
+			globalShadows = true,
+		},
 	},
 	{
 		name = "Forest",
@@ -718,17 +766,27 @@ local BIOMES = {
 		noiseScale = 0.009,
 		seed = 789,
 		atmosphere = {
-			fogColor = Color3.fromRGB(60, 100, 60),
-			decay = Color3.fromRGB(40, 80, 40),
-			density = 0.2, haze = 2, glare = 0.04,
+			fogColor = Color3.fromRGB(70, 110, 70),
+			decay = Color3.fromRGB(55, 95, 50),
+			density = 0.18, haze = 2, glare = 0.04,
 		},
+		bloom = { intensity = 0.03, size = 10, threshold = 1.3 },
 		cc = {
 			tint = Color3.fromRGB(220, 240, 215),
-			brightness = 0.01, contrast = 0.09, saturation = 0.2,
+			brightness = 0.02, contrast = 0.08, saturation = 0.2,
 		},
-		ambient = Color3.fromRGB(35, 55, 35),
-		outdoorAmbient = Color3.fromRGB(30, 50, 30),
-		fogColor = Color3.fromRGB(60, 100, 60),
+		lighting = {
+			clockTime = 10,
+			brightness = 1.8,
+			ambient = Color3.fromRGB(70, 100, 65),
+			outdoorAmbient = Color3.fromRGB(60, 90, 55),
+			fogColor = Color3.fromRGB(70, 110, 70),
+			fogStart = 80,
+			fogEnd = 500,
+			envDiffuse = 0.5,
+			envSpecular = 0.2,
+			globalShadows = true,
+		},
 	},
 }
 
@@ -858,6 +916,16 @@ local LakelandRaceController = Knit.CreateController({
 	_activeBiome = nil,
 	_terrainMode = false,
 	_hyperExitBlend = 0,
+	_skillTreeUI = nil,
+
+	_hyperLight = nil,
+	_savedBlockLighting = nil,
+	_waitingForReseat = false,
+	_reseatConn = nil,
+	_awaitingHyperjump = false,
+	_returnHyperActive = false,
+	_returnHyperTimer = 0,
+	_hyperjumpGui = nil,
 
 	LaneChanged = Signal.new(),
 	RaceProgress = Signal.new(),
@@ -928,6 +996,97 @@ function LakelandRaceController:_setupDarkEnvironment()
 	self._raceCC = cc
 
 	self._envZoneLerp = { fogColor = Color3.fromRGB(4, 8, 22), fogDecay = Color3.fromRGB(8, 20, 50), ambientTint = Color3.fromRGB(10, 14, 28), bloomSize = 16, ccTint = Color3.fromRGB(200, 215, 255) }
+end
+
+function LakelandRaceController:_saveBlockSpaceLighting()
+	self._savedBlockLighting = {
+		clockTime = Lighting.ClockTime,
+		brightness = Lighting.Brightness,
+		ambient = Lighting.Ambient,
+		outdoorAmbient = Lighting.OutdoorAmbient,
+		fogColor = Lighting.FogColor,
+		fogStart = Lighting.FogStart,
+		fogEnd = Lighting.FogEnd,
+		globalShadows = Lighting.GlobalShadows,
+		envDiffuse = Lighting.EnvironmentDiffuseScale,
+		envSpecular = Lighting.EnvironmentSpecularScale,
+		atmosphere = self._atmosphere and {
+			density = self._atmosphere.Density,
+			offset = self._atmosphere.Offset,
+			color = self._atmosphere.Color,
+			decay = self._atmosphere.Decay,
+			glare = self._atmosphere.Glare,
+			haze = self._atmosphere.Haze,
+		} or nil,
+		bloom = self._bloom and {
+			intensity = self._bloom.Intensity,
+			size = self._bloom.Size,
+			threshold = self._bloom.Threshold,
+		} or nil,
+		cc = self._raceCC and {
+			brightness = self._raceCC.Brightness,
+			contrast = self._raceCC.Contrast,
+			saturation = self._raceCC.Saturation,
+			tintColor = self._raceCC.TintColor,
+		} or nil,
+		envZoneLerp = self._envZoneLerp and {
+			fogColor = self._envZoneLerp.fogColor,
+			fogDecay = self._envZoneLerp.fogDecay,
+			ambientTint = self._envZoneLerp.ambientTint,
+			bloomSize = self._envZoneLerp.bloomSize,
+			ccTint = self._envZoneLerp.ccTint,
+		} or nil,
+	}
+end
+
+function LakelandRaceController:_restoreBlockSpaceLighting()
+	local s = self._savedBlockLighting
+	if not s then
+		self:_setupDarkEnvironment()
+		return
+	end
+
+	Lighting.ClockTime = s.clockTime
+	Lighting.Brightness = s.brightness
+	Lighting.Ambient = s.ambient
+	Lighting.OutdoorAmbient = s.outdoorAmbient
+	Lighting.FogColor = s.fogColor
+	Lighting.FogStart = s.fogStart
+	Lighting.FogEnd = s.fogEnd
+	Lighting.GlobalShadows = s.globalShadows
+	Lighting.EnvironmentDiffuseScale = s.envDiffuse
+	Lighting.EnvironmentSpecularScale = s.envSpecular
+
+	if self._atmosphere and s.atmosphere then
+		self._atmosphere.Density = s.atmosphere.density
+		self._atmosphere.Offset = s.atmosphere.offset
+		self._atmosphere.Color = s.atmosphere.color
+		self._atmosphere.Decay = s.atmosphere.decay
+		self._atmosphere.Glare = s.atmosphere.glare
+		self._atmosphere.Haze = s.atmosphere.haze
+	end
+	if self._bloom and s.bloom then
+		self._bloom.Intensity = s.bloom.intensity
+		self._bloom.Size = s.bloom.size
+		self._bloom.Threshold = s.bloom.threshold
+	end
+	if self._raceCC and s.cc then
+		self._raceCC.Brightness = s.cc.brightness
+		self._raceCC.Contrast = s.cc.contrast
+		self._raceCC.Saturation = s.cc.saturation
+		self._raceCC.TintColor = s.cc.tintColor
+	end
+	if s.envZoneLerp then
+		self._envZoneLerp = {
+			fogColor = s.envZoneLerp.fogColor,
+			fogDecay = s.envZoneLerp.fogDecay,
+			ambientTint = s.envZoneLerp.ambientTint,
+			bloomSize = s.envZoneLerp.bloomSize,
+			ccTint = s.envZoneLerp.ccTint,
+		}
+	end
+
+	self._savedBlockLighting = nil
 end
 
 function LakelandRaceController:KnitStart()
@@ -1463,7 +1622,7 @@ function LakelandRaceController:_initPools()
 		pl.Range = cfg.range
 		pl.Shadows = false
 		pl.Parent = anchor
-		table.insert(self._machineLights, anchor)
+		table.insert(self._machineLights, { part = anchor, light = pl, baseBrightness = cfg.brightness })
 	end
 
 	self._hyperLines = {}
@@ -1554,6 +1713,12 @@ function LakelandRaceController:_initPools()
 		self._terrainRegion = self._biomeRegions[chosen]
 		print("[LakelandRaceController] Active biome:", self._activeBiome.name)
 	end)
+
+	local player = game:GetService("Players").LocalPlayer
+	local playerGui = player and player:WaitForChild("PlayerGui", 5)
+	if playerGui then
+		self._skillTreeUI = LakelandSkillTreeUI.new(playerGui)
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -1610,6 +1775,96 @@ end
 function LakelandRaceController:_updateWorldScroll(dt)
 	local centerSpline = self._splines[2].spline
 	local hBlend = self._terrainMode and 1 or self._hyperdriveBlend
+
+	if hBlend >= 1 then
+		if self._folder then
+			for _, child in ipairs(self._folder:GetChildren()) do
+				if child:IsA("BasePart") then
+					child.Transparency = 1
+					local pl = child:FindFirstChildOfClass("PointLight")
+					if pl then pl.Brightness = 0 end
+				end
+			end
+		end
+		for _, entry in ipairs(self._pools.light or {}) do
+			entry.part.Transparency = 1
+			entry.light.Brightness = 0
+		end
+		if self._ambientParticles then
+			for i = 1, #self._ambientParticles do
+				self._ambientParticles[i].Transparency = 1
+			end
+		end
+
+		if self._cameraController then
+			self._cameraController:SetHyperdriveFOV(hBlend)
+		end
+
+		if self._terrainMode and not self._returnHyperActive then
+			local biome = self._activeBiome or BIOMES[1]
+			local atm = biome.atmosphere
+			local cc = biome.cc
+			local bl = biome.bloom
+			local lt = biome.lighting
+			if self._atmosphere then
+				self._atmosphere.Color = atm.fogColor
+				self._atmosphere.Decay = atm.decay
+				self._atmosphere.Density = atm.density
+				self._atmosphere.Haze = atm.haze
+				self._atmosphere.Glare = atm.glare
+			end
+			if self._bloom and bl then
+				self._bloom.Intensity = bl.intensity
+				self._bloom.Size = bl.size
+				self._bloom.Threshold = bl.threshold
+			end
+			if self._raceCC then
+				self._raceCC.TintColor = cc.tint
+				self._raceCC.Brightness = cc.brightness
+				self._raceCC.Contrast = cc.contrast
+				self._raceCC.Saturation = cc.saturation
+			end
+			if lt then
+				Lighting.ClockTime = lt.clockTime
+				Lighting.Brightness = lt.brightness
+				Lighting.Ambient = lt.ambient
+				Lighting.OutdoorAmbient = lt.outdoorAmbient
+				Lighting.FogColor = lt.fogColor
+				Lighting.FogStart = lt.fogStart
+				Lighting.FogEnd = lt.fogEnd
+				Lighting.EnvironmentDiffuseScale = lt.envDiffuse
+				Lighting.EnvironmentSpecularScale = lt.envSpecular
+				Lighting.GlobalShadows = lt.globalShadows
+			end
+		else
+			if self._atmosphere then
+				self._atmosphere.Density = 0.45
+				self._atmosphere.Color = Color3.fromRGB(8, 14, 35)
+				self._atmosphere.Decay = Color3.fromRGB(12, 28, 65)
+				self._atmosphere.Haze = 1.5
+				self._atmosphere.Glare = 0.15
+			end
+			if self._bloom then
+				self._bloom.Intensity = 0.04
+				self._bloom.Size = 8
+				self._bloom.Threshold = 1.8
+			end
+			if self._raceCC then
+				self._raceCC.Saturation = -0.15
+				self._raceCC.Brightness = 0.06
+				self._raceCC.Contrast = 0.1
+				self._raceCC.TintColor = Color3.fromRGB(180, 205, 255)
+			end
+			Lighting.Brightness = 0.3
+			Lighting.Ambient = Color3.fromRGB(30, 35, 55)
+			Lighting.OutdoorAmbient = Color3.fromRGB(22, 25, 40)
+		end
+		return
+	end
+
+	for _, ml in ipairs(self._machineLights) do
+		ml.light.Brightness = ml.baseBrightness * (1 - hBlend)
+	end
 
 	local shockActive = self._shockwaveActive
 	local function waveVec(tVal)
@@ -2608,6 +2863,8 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		local biome = self._activeBiome or BIOMES[1]
 		local atm = biome.atmosphere
 		local cc = biome.cc
+		local bl = biome.bloom
+		local lt = biome.lighting
 		if self._atmosphere then
 			self._atmosphere.Color = atm.fogColor
 			self._atmosphere.Decay = atm.decay
@@ -2615,10 +2872,10 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			self._atmosphere.Haze = atm.haze
 			self._atmosphere.Glare = atm.glare
 		end
-		if self._bloom then
-			self._bloom.Intensity = 0.02
-			self._bloom.Size = 8
-			self._bloom.Threshold = 1.5
+		if self._bloom and bl then
+			self._bloom.Intensity = bl.intensity
+			self._bloom.Size = bl.size
+			self._bloom.Threshold = bl.threshold
 		end
 		if self._raceCC then
 			self._raceCC.TintColor = cc.tint
@@ -2626,9 +2883,18 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			self._raceCC.Contrast = cc.contrast
 			self._raceCC.Saturation = cc.saturation
 		end
-		Lighting.Ambient = biome.ambient
-		Lighting.OutdoorAmbient = biome.outdoorAmbient
-		Lighting.FogColor = Color3.fromRGB(140, 170, 200)
+		if lt then
+			Lighting.ClockTime = lt.clockTime
+			Lighting.Brightness = lt.brightness
+			Lighting.Ambient = lt.ambient
+			Lighting.OutdoorAmbient = lt.outdoorAmbient
+			Lighting.FogColor = lt.fogColor
+			Lighting.FogStart = lt.fogStart
+			Lighting.FogEnd = lt.fogEnd
+			Lighting.EnvironmentDiffuseScale = lt.envDiffuse
+			Lighting.EnvironmentSpecularScale = lt.envSpecular
+			Lighting.GlobalShadows = lt.globalShadows
+		end
 	end
 
 end
@@ -2637,7 +2903,14 @@ end
 -- Hyperdrive speed lines
 ---------------------------------------------------------------------------
 function LakelandRaceController:_updateHyperdriveLines(dt)
-	local blend = self._terrainMode and self._hyperExitBlend or self._hyperdriveBlend
+	local blend
+	if self._returnHyperActive then
+		blend = self._hyperdriveBlend
+	elseif self._terrainMode then
+		blend = self._hyperExitBlend
+	else
+		blend = self._hyperdriveBlend
+	end
 	if blend <= 0 then
 		for i = 1, HYPER.LINE_POOL do
 			if self._hyperLines[i] then self._hyperLines[i].Transparency = 1 end
@@ -2691,6 +2964,265 @@ end
 ---------------------------------------------------------------------------
 function LakelandRaceController:_setObstacleVisibility(show)
 	self._obstaclesVisible = show
+end
+
+---------------------------------------------------------------------------
+-- Player re-seated on terrain -> show hyperjump button
+---------------------------------------------------------------------------
+function LakelandRaceController:_onPlayerReseated()
+	self._awaitingHyperjump = true
+
+	if self._cameraController then
+		self._cameraController:_activate()
+	end
+
+	local player = game:GetService("Players").LocalPlayer
+	local humanoid = player and player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.WalkSpeed = 0
+		humanoid.JumpHeight = 0
+		humanoid.JumpPower = 0
+	end
+
+	local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
+	if not playerGui then return end
+
+	if self._hyperjumpGui then
+		self._hyperjumpGui:Destroy()
+		self._hyperjumpGui = nil
+	end
+
+	local sg = Instance.new("ScreenGui")
+	sg.Name = "HyperjumpButton"
+	sg.ResetOnSpawn = false
+	sg.IgnoreGuiInset = true
+	sg.DisplayOrder = 65
+	sg.Parent = playerGui
+	self._hyperjumpGui = sg
+
+	local btn = Instance.new("TextButton")
+	btn.Name = "JumpBtn"
+	btn.AnchorPoint = Vector2.new(0.5, 1)
+	btn.Position = UDim2.fromScale(0.5, 1.1)
+	btn.Size = UDim2.fromScale(0.22, 0.055)
+	btn.BackgroundColor3 = Color3.fromRGB(8, 14, 28)
+	btn.BackgroundTransparency = 0.1
+	btn.Text = "JUMP TO HYPERSPACE"
+	btn.TextColor3 = Color3.fromRGB(0, 200, 255)
+	btn.Font = Enum.Font.GothamBold
+	btn.TextScaled = true
+	btn.BorderSizePixel = 0
+	btn.AutoButtonColor = false
+	btn.ZIndex = 2
+	btn.Parent = sg
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0.35, 0)
+	corner.Parent = btn
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(0, 200, 255)
+	stroke.Thickness = 2
+	stroke.Transparency = 0.15
+	stroke.Parent = btn
+
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0.1, 0)
+	pad.PaddingBottom = UDim.new(0.1, 0)
+	pad.Parent = btn
+
+	TweenService:Create(btn, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Position = UDim2.fromScale(0.5, 0.92),
+	}):Play()
+
+	btn.MouseEnter:Connect(function()
+		TweenService:Create(stroke, TweenInfo.new(0.12), { Thickness = 3, Transparency = 0 }):Play()
+		TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundTransparency = 0 }):Play()
+	end)
+	btn.MouseLeave:Connect(function()
+		TweenService:Create(stroke, TweenInfo.new(0.12), { Thickness = 2, Transparency = 0.15 }):Play()
+		TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundTransparency = 0.1 }):Play()
+	end)
+
+	btn.MouseButton1Click:Connect(function()
+		if not self._awaitingHyperjump then return end
+		self._awaitingHyperjump = false
+		TweenService:Create(btn, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			Position = UDim2.fromScale(0.5, 1.1),
+		}):Play()
+		task.delay(0.3, function()
+			if self._hyperjumpGui then
+				self._hyperjumpGui:Destroy()
+				self._hyperjumpGui = nil
+			end
+		end)
+		self:_triggerReturnHyperdrive()
+	end)
+end
+
+---------------------------------------------------------------------------
+-- Return hyperdrive: short jump back into block space
+---------------------------------------------------------------------------
+function LakelandRaceController:_triggerReturnHyperdrive()
+	self._returnHyperActive = true
+	self._returnHyperTimer = 0
+	self._hyperdriveBlend = 0
+
+	self:_bindInput()
+
+	Workspace.Terrain:Clear()
+	self:_setupDarkEnvironment()
+
+	if self._skillTreeUI then
+		self._skillTreeUI.hide()
+	end
+end
+
+function LakelandRaceController:_finishReturnHyperdrive()
+	self._returnHyperActive = false
+	self._returnHyperTimer = 0
+	self._hyperdriveBlend = 0
+	self._terrainMode = false
+	self._hyperExitBlend = 0
+	self._hyperdriveTriggered = false
+	self._raceElapsed = 0
+
+	Workspace.Terrain:Clear()
+	self:_restoreBlockSpaceLighting()
+
+	if self._biomeRegions and #self._biomeRegions > 0 then
+		local chosen = math.random(1, #BIOMES)
+		self._activeBiome = BIOMES[chosen]
+		self._terrainRegion = self._biomeRegions[chosen]
+	end
+
+	for i = 1, HYPER.LINE_POOL do
+		if self._hyperLines[i] then self._hyperLines[i].Transparency = 1 end
+	end
+
+	if self._hyperLight then
+		self._hyperLight:Destroy()
+		self._hyperLight = nil
+	end
+
+	if self._cameraController then
+		self._cameraController:SetHyperdriveFOV(0)
+	end
+
+	self._running = true
+	self._countdownDrive = false
+	self._launching = true
+	self._currentSpeed = 0
+	self._obstaclesVisible = true
+	self._laneSpringTarget = 0
+	self._laneSpringPos = 0
+	self._laneSpringVel = 0
+	self._laneEntryT = self._t
+	self:_bindInput()
+	if not self._renderConn then self:_startRenderLoop() end
+
+	local player = game:GetService("Players").LocalPlayer
+	local humanoid = player and player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.WalkSpeed = 0
+		humanoid.JumpHeight = 0
+		humanoid.JumpPower = 0
+	end
+
+	local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
+	if playerGui then
+		local hudNames = {
+			"LakelandHealthBarUI", "LakelandDistanceUI",
+			"LakelandScoreBarUI", "LakelandBombUI",
+			"LakelandDangerVignetteUI",
+		}
+		for _, name in ipairs(hudNames) do
+			local sg = playerGui:FindFirstChild(name)
+			if sg and sg:IsA("ScreenGui") then
+				sg.Enabled = true
+				local container = sg:FindFirstChildWhichIsA("Frame") or sg:FindFirstChildWhichIsA("CanvasGroup")
+				if container then
+					local origPos
+					if container:GetAttribute("_origPosXS") then
+						origPos = UDim2.new(
+							container:GetAttribute("_origPosXS"), container:GetAttribute("_origPosXO"),
+							container:GetAttribute("_origPosYS"), container:GetAttribute("_origPosYO")
+						)
+					else
+						origPos = container.Position
+					end
+					local origBgT = container:GetAttribute("_origBgT") or container.BackgroundTransparency
+					container.Position = origPos + UDim2.fromScale(0, -0.1)
+					TweenService:Create(container, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+						Position = origPos,
+						BackgroundTransparency = origBgT,
+					}):Play()
+					for _, desc in ipairs(container:GetDescendants()) do
+						if desc:IsA("TextLabel") or desc:IsA("TextButton") then
+							pcall(function()
+								local txtT = desc:GetAttribute("_origTxtT") or 0
+								local txtST = desc:GetAttribute("_origTxtST") or 0.5
+								TweenService:Create(desc, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { TextTransparency = txtT, TextStrokeTransparency = txtST }):Play()
+							end)
+						end
+						if desc:IsA("GuiObject") then
+							pcall(function()
+								local bgT = desc:GetAttribute("_origBgT") or desc.BackgroundTransparency
+								if bgT < 1 then
+									TweenService:Create(desc, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = bgT }):Play()
+								end
+							end)
+						end
+						if desc:IsA("UIStroke") then
+							pcall(function()
+								local sT = desc:GetAttribute("_origStrokeT") or 0
+								TweenService:Create(desc, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Transparency = sT }):Play()
+							end)
+						end
+						if desc:IsA("ImageLabel") or desc:IsA("ImageButton") then
+							pcall(function()
+								local imgT = desc:GetAttribute("_origImgT") or 0
+								TweenService:Create(desc, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { ImageTransparency = imgT }):Play()
+							end)
+						end
+					end
+				end
+			end
+		end
+	end
+
+	if self._gameController and self._gameController._waveformUI then
+		self._gameController._waveformUI.show()
+	end
+
+	local bgm = self._gameController and self._gameController._bgmCurrent
+	if bgm and bgm:IsA("Sound") then
+		bgm.Volume = 0
+		bgm:Resume()
+		TweenService:Create(bgm, TweenInfo.new(1.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = self._hyperBgmVolume or 0.5 }):Play()
+		self._hyperBgmVolume = nil
+	end
+
+	task.spawn(function()
+		local player = game:GetService("Players").LocalPlayer
+		local pg = player and player:FindFirstChildOfClass("PlayerGui")
+		if not pg then return end
+		local flashSg = Instance.new("ScreenGui")
+		flashSg.Name = "HyperFlash"
+		flashSg.DisplayOrder = 100
+		flashSg.IgnoreGuiInset = true
+		flashSg.Parent = pg
+		local flash = Instance.new("Frame")
+		flash.Size = UDim2.fromScale(1, 1)
+		flash.BackgroundColor3 = Color3.new(1, 1, 1)
+		flash.BackgroundTransparency = 0
+		flash.BorderSizePixel = 0
+		flash.Parent = flashSg
+		local tw = TweenService:Create(flash, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = 1 })
+		tw:Play()
+		tw.Completed:Wait()
+		flashSg:Destroy()
+	end)
 end
 
 ---------------------------------------------------------------------------
@@ -2788,6 +3320,27 @@ function LakelandRaceController:PositionAtStart()
 	end
 	self._terrainMode = false
 	self._hyperExitBlend = 0
+	if self._skillTreeUI then
+		self._skillTreeUI.hide()
+	end
+	if self._hyperLight then
+		self._hyperLight:Destroy()
+		self._hyperLight = nil
+	end
+	self._waitingForReseat = false
+	self._awaitingHyperjump = false
+	self._returnHyperActive = false
+	self._returnHyperTimer = 0
+	if self._reseatConn then
+		self._reseatConn:Disconnect()
+		self._reseatConn = nil
+	end
+	if self._hyperjumpGui then
+		self._hyperjumpGui:Destroy()
+		self._hyperjumpGui = nil
+	end
+	self._savedBlockLighting = nil
+	self:_setupDarkEnvironment()
 	Workspace.Terrain:Clear()
 	if self._biomeRegions and #self._biomeRegions > 0 then
 		local chosen = math.random(1, #BIOMES)
@@ -2901,6 +3454,27 @@ function LakelandRaceController:StopRace()
 	end
 	self._terrainMode = false
 	self._hyperExitBlend = 0
+	if self._skillTreeUI then
+		self._skillTreeUI.hide()
+	end
+	if self._hyperLight then
+		self._hyperLight:Destroy()
+		self._hyperLight = nil
+	end
+	self._waitingForReseat = false
+	self._awaitingHyperjump = false
+	self._returnHyperActive = false
+	self._returnHyperTimer = 0
+	if self._reseatConn then
+		self._reseatConn:Disconnect()
+		self._reseatConn = nil
+	end
+	if self._hyperjumpGui then
+		self._hyperjumpGui:Destroy()
+		self._hyperjumpGui = nil
+	end
+	self._savedBlockLighting = nil
+	self:_setupDarkEnvironment()
 	Workspace.Terrain:Clear()
 	if self._biomeRegions and #self._biomeRegions > 0 then
 		local chosen = math.random(1, #BIOMES)
@@ -3233,6 +3807,7 @@ function LakelandRaceController:_updatePortalRefill(dt)
 end
 
 function LakelandRaceController:_deployBomb()
+	if self._hyperdriveActive or self._terrainMode then return end
 	if self._bombCount <= 0 or self._bombChainActive then return end
 	self._bombCount = self._bombCount - 1
 	self._bombChainActive = true
@@ -3491,9 +4066,26 @@ function LakelandRaceController:_updateMovement(dt)
 		self._raceElapsed = self._raceElapsed + dt
 
 		if self._raceElapsed >= HYPER.TRIGGER_TIME and not self._hyperdriveActive and not self._hyperdriveTriggered then
+			self:_saveBlockSpaceLighting()
+
 			self._hyperdriveActive = true
 			self._hyperdriveTriggered = true
 			self._hyperdriveTimer = 0
+
+			if not self._hyperLight then
+				local machine = Workspace:FindFirstChild("ActiveMachine")
+				local anchor = machine and machine.PrimaryPart
+				if anchor then
+					local pl = Instance.new("PointLight")
+					pl.Name = "HyperdriveLight"
+					pl.Brightness = 1.5
+					pl.Range = 30
+					pl.Color = Color3.fromRGB(180, 210, 255)
+					pl.Parent = anchor
+					self._hyperLight = pl
+				end
+			end
+
 			local bgm = self._gameController and self._gameController._bgmCurrent
 			if bgm and bgm:IsA("Sound") and bgm.IsPlaying then
 				self._hyperBgmVolume = bgm.Volume
@@ -3518,23 +4110,43 @@ function LakelandRaceController:_updateMovement(dt)
 					if sg and sg:IsA("ScreenGui") then
 						local container = sg:FindFirstChildWhichIsA("Frame") or sg:FindFirstChildWhichIsA("CanvasGroup")
 						if container then
+							if not container:GetAttribute("_origPosXS") then
+								container:SetAttribute("_origPosXS", container.Position.X.Scale)
+								container:SetAttribute("_origPosXO", container.Position.X.Offset)
+								container:SetAttribute("_origPosYS", container.Position.Y.Scale)
+								container:SetAttribute("_origPosYO", container.Position.Y.Offset)
+								container:SetAttribute("_origBgT", container.BackgroundTransparency)
+							end
 							TweenService:Create(container, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 								Position = container.Position + UDim2.fromScale(0, -0.15),
 								BackgroundTransparency = 1,
 							}):Play()
 							for _, desc in ipairs(container:GetDescendants()) do
 								if desc:IsA("TextLabel") or desc:IsA("TextButton") then
+									if not desc:GetAttribute("_origTxtT") then
+										desc:SetAttribute("_origTxtT", desc.TextTransparency)
+										desc:SetAttribute("_origTxtST", desc.TextStrokeTransparency)
+									end
 									TweenService:Create(desc, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
 								end
 								if desc:IsA("GuiObject") then
 									pcall(function()
+										if not desc:GetAttribute("_origBgT") then
+											desc:SetAttribute("_origBgT", desc.BackgroundTransparency)
+										end
 										TweenService:Create(desc, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
 									end)
 								end
 								if desc:IsA("UIStroke") then
+									if not desc:GetAttribute("_origStrokeT") then
+										desc:SetAttribute("_origStrokeT", desc.Transparency)
+									end
 									TweenService:Create(desc, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
 								end
 								if desc:IsA("ImageLabel") or desc:IsA("ImageButton") then
+									if not desc:GetAttribute("_origImgT") then
+										desc:SetAttribute("_origImgT", desc.ImageTransparency)
+									end
 									TweenService:Create(desc, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { ImageTransparency = 1 }):Play()
 								end
 							end
@@ -3548,6 +4160,10 @@ function LakelandRaceController:_updateMovement(dt)
 
 			if self._gameController and self._gameController._waveformUI then
 				self._gameController._waveformUI.hide()
+			end
+
+			if self._skillTreeUI then
+				self._skillTreeUI.show()
 			end
 		end
 
@@ -3563,6 +4179,9 @@ function LakelandRaceController:_updateMovement(dt)
 				self._terrainMode = true
 				self._hyperExitBlend = 1
 				self._currentSpeed = 0
+				if self._skillTreeUI then
+					self._skillTreeUI.hide()
+				end
 				local bgm = self._gameController and self._gameController._bgmCurrent
 				if bgm and bgm:IsA("Sound") then
 					bgm:Stop()
@@ -3600,6 +4219,26 @@ function LakelandRaceController:_updateMovement(dt)
 							camera.CameraSubject = humanoid
 						end
 					end
+
+					self._waitingForReseat = true
+					if self._reseatConn then
+						self._reseatConn:Disconnect()
+						self._reseatConn = nil
+					end
+					if humanoid then
+						self._reseatConn = humanoid.Seated:Connect(function(isSeated, seatPart)
+							if not isSeated or not self._waitingForReseat then return end
+							local machine = Workspace:FindFirstChild("ActiveMachine")
+							if machine and seatPart and seatPart:IsDescendantOf(machine) then
+								self._waitingForReseat = false
+								if self._reseatConn then
+									self._reseatConn:Disconnect()
+									self._reseatConn = nil
+								end
+								self:_onPlayerReseated()
+							end
+						end)
+					end
 				end)
 				task.spawn(function()
 					local player = game:GetService("Players").LocalPlayer
@@ -3628,7 +4267,27 @@ function LakelandRaceController:_updateMovement(dt)
 			if self._hyperExitBlend > 0 then
 				self._hyperExitBlend = math.max(0, self._hyperExitBlend - dt / 0.5)
 			end
-			return
+
+			if self._returnHyperActive then
+				self._returnHyperTimer = self._returnHyperTimer + dt
+				local t = self._returnHyperTimer
+				if t < HYPER_RETURN.FADE_IN then
+					self._hyperdriveBlend = t / HYPER_RETURN.FADE_IN
+				elseif t < HYPER_RETURN.DURATION - HYPER_RETURN.FADE_OUT then
+					self._hyperdriveBlend = 1
+				elseif t < HYPER_RETURN.DURATION then
+					self._hyperdriveBlend = 1 - (t - (HYPER_RETURN.DURATION - HYPER_RETURN.FADE_OUT)) / HYPER_RETURN.FADE_OUT
+				else
+					self:_finishReturnHyperdrive()
+					return
+				end
+
+				if self._cameraController then
+					self._cameraController:SetHyperdriveFOV(self._hyperdriveBlend)
+				end
+			else
+				return
+			end
 		end
 	end
 	self._t = self._t + tDelta
