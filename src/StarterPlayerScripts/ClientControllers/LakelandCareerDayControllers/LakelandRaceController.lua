@@ -3216,6 +3216,7 @@ function LakelandRaceController:_finishReturnHyperdrive()
 
 	stopGroupLoop(self._hyperSfxEmitter)
 	self._hyperSfxEmitter = nil
+	playGroupOneShot(SFX_OnExitHyperSpace, FIXED_MACHINE_POS)
 
 	if not self._reentryActive then
 		self._reentryActive = true
