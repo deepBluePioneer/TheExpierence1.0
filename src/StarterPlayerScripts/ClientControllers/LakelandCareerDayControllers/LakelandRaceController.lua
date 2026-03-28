@@ -629,8 +629,8 @@ local HYPER = {
 	},
 }
 
-local REENTRY_DURATION = 2.5
-local REENTRY_FADE_WIDTH = 80
+local REENTRY_DURATION = 1.6
+local REENTRY_FADE_WIDTH = 60
 
 local HYPER_RETURN = {
 	DURATION  = 3,
@@ -2915,7 +2915,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		local fwd = centerSpline:CalculateDerivativeAt(self._t)
 		if fwd.Magnitude > 0.001 then fwd = fwd.Unit else fwd = Vector3.new(0, 0, -1) end
 
-		local maxDist = 350
+		local maxDist = 800
 		local sweepPos = maxDist * (1 - progress)
 
 		local function computeReveal(pos)
