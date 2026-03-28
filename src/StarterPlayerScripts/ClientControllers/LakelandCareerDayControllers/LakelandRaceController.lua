@@ -615,7 +615,7 @@ local BLDG_BEAT_EXTRA   = 10
 local HYPER = {
 	TRIGGER_TIME     = 10,
 	DURATION         = 30,
-	FADE_IN          = 1.5,
+	FADE_IN          = 0.5,
 	FADE_OUT         = 1.5,
 	FOV              = 110,
 	LINE_POOL        = 900,
@@ -629,9 +629,12 @@ local HYPER = {
 	},
 }
 
+local REENTRY_DURATION = 2.5
+local REENTRY_FADE_WIDTH = 80
+
 local HYPER_RETURN = {
-	DURATION  = 5,
-	FADE_IN   = 1,
+	DURATION  = 3,
+	FADE_IN   = 0.6,
 	FADE_OUT  = 1,
 }
 
@@ -918,8 +921,9 @@ local LakelandRaceController = Knit.CreateController({
 	_hyperExitBlend = 0,
 	_skillTreeUI = nil,
 
-	_hyperLight = nil,
 	_savedBlockLighting = nil,
+	_reentryActive = false,
+	_reentryTimer = 0,
 	_waitingForReseat = false,
 	_reseatConn = nil,
 	_awaitingHyperjump = false,
@@ -1774,7 +1778,12 @@ end
 ---------------------------------------------------------------------------
 function LakelandRaceController:_updateWorldScroll(dt)
 	local centerSpline = self._splines[2].spline
-	local hBlend = self._terrainMode and 1 or self._hyperdriveBlend
+	local hBlend
+	if self._returnHyperActive and self._reentryActive then
+		hBlend = self._hyperdriveBlend
+	else
+		hBlend = self._terrainMode and 1 or self._hyperdriveBlend
+	end
 
 	if hBlend >= 1 then
 		if self._folder then
@@ -1838,26 +1847,28 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			end
 		else
 			if self._atmosphere then
-				self._atmosphere.Density = 0.45
-				self._atmosphere.Color = Color3.fromRGB(8, 14, 35)
-				self._atmosphere.Decay = Color3.fromRGB(12, 28, 65)
-				self._atmosphere.Haze = 1.5
-				self._atmosphere.Glare = 0.15
+				self._atmosphere.Density = 0.35
+				self._atmosphere.Color = Color3.fromRGB(10, 18, 40)
+				self._atmosphere.Decay = Color3.fromRGB(15, 30, 70)
+				self._atmosphere.Haze = 1.2
+				self._atmosphere.Glare = 0.2
 			end
 			if self._bloom then
-				self._bloom.Intensity = 0.04
-				self._bloom.Size = 8
-				self._bloom.Threshold = 1.8
+				self._bloom.Intensity = 0.05
+				self._bloom.Size = 10
+				self._bloom.Threshold = 1.5
 			end
 			if self._raceCC then
-				self._raceCC.Saturation = -0.15
-				self._raceCC.Brightness = 0.06
-				self._raceCC.Contrast = 0.1
-				self._raceCC.TintColor = Color3.fromRGB(180, 205, 255)
+				self._raceCC.Saturation = -0.1
+				self._raceCC.Brightness = 0.12
+				self._raceCC.Contrast = 0.12
+				self._raceCC.TintColor = Color3.fromRGB(175, 200, 255)
 			end
-			Lighting.Brightness = 0.3
-			Lighting.Ambient = Color3.fromRGB(30, 35, 55)
-			Lighting.OutdoorAmbient = Color3.fromRGB(22, 25, 40)
+			Lighting.Brightness = 1
+			Lighting.Ambient = Color3.fromRGB(60, 70, 100)
+			Lighting.OutdoorAmbient = Color3.fromRGB(45, 55, 80)
+			Lighting.EnvironmentDiffuseScale = 0.3
+			Lighting.EnvironmentSpecularScale = 0.2
 		end
 		return
 	end
@@ -2859,7 +2870,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		self._cameraController:SetHyperdriveFOV(hBlend)
 	end
 
-	if self._terrainMode then
+	if self._terrainMode and not self._reentryActive then
 		local biome = self._activeBiome or BIOMES[1]
 		local atm = biome.atmosphere
 		local cc = biome.cc
@@ -2894,6 +2905,63 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			Lighting.EnvironmentDiffuseScale = lt.envDiffuse
 			Lighting.EnvironmentSpecularScale = lt.envSpecular
 			Lighting.GlobalShadows = lt.globalShadows
+		end
+	end
+
+	if self._reentryActive and self._folder then
+		local progress = math.clamp(self._reentryTimer / REENTRY_DURATION, 0, 1)
+		progress = progress * progress * (3 - 2 * progress)
+
+		local fwd = centerSpline:CalculateDerivativeAt(self._t)
+		if fwd.Magnitude > 0.001 then fwd = fwd.Unit else fwd = Vector3.new(0, 0, -1) end
+
+		local maxDist = 350
+		local sweepPos = maxDist * (1 - progress)
+
+		local function computeReveal(pos)
+			local dist = (pos - FIXED_MACHINE_POS):Dot(fwd)
+			if dist >= sweepPos then
+				return 1
+			elseif dist >= sweepPos - REENTRY_FADE_WIDTH then
+				return (dist - (sweepPos - REENTRY_FADE_WIDTH)) / REENTRY_FADE_WIDTH
+			end
+			return 0
+		end
+
+		for _, child in ipairs(self._folder:GetChildren()) do
+			if child:IsA("BasePart") then
+				local revealAlpha = computeReveal(child.Position)
+				child.Transparency = math.max(child.Transparency, 1 - revealAlpha)
+				local pl = child:FindFirstChildOfClass("PointLight")
+				if pl and revealAlpha < 1 then
+					pl.Brightness = pl.Brightness * revealAlpha
+				end
+			elseif child:IsA("Model") then
+				local anchor = child.PrimaryPart
+				if not anchor then
+					local first = child:FindFirstChildWhichIsA("BasePart")
+					if first then anchor = first end
+				end
+				if anchor then
+					local revealAlpha = computeReveal(anchor.Position)
+					for _, desc in ipairs(child:GetDescendants()) do
+						if desc:IsA("BasePart") then
+							desc.Transparency = math.max(desc.Transparency, 1 - revealAlpha)
+						elseif desc:IsA("PointLight") and revealAlpha < 1 then
+							desc.Brightness = desc.Brightness * revealAlpha
+						elseif desc:IsA("Highlight") then
+							if revealAlpha < 0.5 then
+								desc.Enabled = false
+							end
+						end
+					end
+				end
+			end
+		end
+
+		for _, ml in ipairs(self._machineLights) do
+			local nearReveal = math.clamp(progress * 1.5 - 0.3, 0, 1)
+			ml.light.Brightness = ml.baseBrightness * nearReveal
 		end
 	end
 
@@ -3074,7 +3142,7 @@ function LakelandRaceController:_triggerReturnHyperdrive()
 	self:_setupDarkEnvironment()
 
 	if self._skillTreeUI then
-		self._skillTreeUI.hide()
+		self._skillTreeUI.show()
 	end
 end
 
@@ -3087,8 +3155,13 @@ function LakelandRaceController:_finishReturnHyperdrive()
 	self._hyperdriveTriggered = false
 	self._raceElapsed = 0
 
+	if not self._reentryActive then
+		self._reentryActive = true
+		self._reentryTimer = 0
+		self:_restoreBlockSpaceLighting()
+	end
+
 	Workspace.Terrain:Clear()
-	self:_restoreBlockSpaceLighting()
 
 	if self._biomeRegions and #self._biomeRegions > 0 then
 		local chosen = math.random(1, #BIOMES)
@@ -3098,11 +3171,6 @@ function LakelandRaceController:_finishReturnHyperdrive()
 
 	for i = 1, HYPER.LINE_POOL do
 		if self._hyperLines[i] then self._hyperLines[i].Transparency = 1 end
-	end
-
-	if self._hyperLight then
-		self._hyperLight:Destroy()
-		self._hyperLight = nil
 	end
 
 	if self._cameraController then
@@ -3189,6 +3257,10 @@ function LakelandRaceController:_finishReturnHyperdrive()
 				end
 			end
 		end
+	end
+
+	if self._skillTreeUI then
+		self._skillTreeUI.hide()
 	end
 
 	if self._gameController and self._gameController._waveformUI then
@@ -3323,10 +3395,6 @@ function LakelandRaceController:PositionAtStart()
 	if self._skillTreeUI then
 		self._skillTreeUI.hide()
 	end
-	if self._hyperLight then
-		self._hyperLight:Destroy()
-		self._hyperLight = nil
-	end
 	self._waitingForReseat = false
 	self._awaitingHyperjump = false
 	self._returnHyperActive = false
@@ -3340,6 +3408,8 @@ function LakelandRaceController:PositionAtStart()
 		self._hyperjumpGui = nil
 	end
 	self._savedBlockLighting = nil
+	self._reentryActive = false
+	self._reentryTimer = 0
 	self:_setupDarkEnvironment()
 	Workspace.Terrain:Clear()
 	if self._biomeRegions and #self._biomeRegions > 0 then
@@ -3457,10 +3527,6 @@ function LakelandRaceController:StopRace()
 	if self._skillTreeUI then
 		self._skillTreeUI.hide()
 	end
-	if self._hyperLight then
-		self._hyperLight:Destroy()
-		self._hyperLight = nil
-	end
 	self._waitingForReseat = false
 	self._awaitingHyperjump = false
 	self._returnHyperActive = false
@@ -3474,6 +3540,8 @@ function LakelandRaceController:StopRace()
 		self._hyperjumpGui = nil
 	end
 	self._savedBlockLighting = nil
+	self._reentryActive = false
+	self._reentryTimer = 0
 	self:_setupDarkEnvironment()
 	Workspace.Terrain:Clear()
 	if self._biomeRegions and #self._biomeRegions > 0 then
@@ -4072,20 +4140,6 @@ function LakelandRaceController:_updateMovement(dt)
 			self._hyperdriveTriggered = true
 			self._hyperdriveTimer = 0
 
-			if not self._hyperLight then
-				local machine = Workspace:FindFirstChild("ActiveMachine")
-				local anchor = machine and machine.PrimaryPart
-				if anchor then
-					local pl = Instance.new("PointLight")
-					pl.Name = "HyperdriveLight"
-					pl.Brightness = 1.5
-					pl.Range = 30
-					pl.Color = Color3.fromRGB(180, 210, 255)
-					pl.Parent = anchor
-					self._hyperLight = pl
-				end
-			end
-
 			local bgm = self._gameController and self._gameController._bgmCurrent
 			if bgm and bgm:IsA("Sound") and bgm.IsPlaying then
 				self._hyperBgmVolume = bgm.Volume
@@ -4277,6 +4331,11 @@ function LakelandRaceController:_updateMovement(dt)
 					self._hyperdriveBlend = 1
 				elseif t < HYPER_RETURN.DURATION then
 					self._hyperdriveBlend = 1 - (t - (HYPER_RETURN.DURATION - HYPER_RETURN.FADE_OUT)) / HYPER_RETURN.FADE_OUT
+					if not self._reentryActive then
+						self._reentryActive = true
+						self._reentryTimer = 0
+						self:_restoreBlockSpaceLighting()
+					end
 				else
 					self:_finishReturnHyperdrive()
 					return
@@ -4290,6 +4349,15 @@ function LakelandRaceController:_updateMovement(dt)
 			end
 		end
 	end
+
+	if self._reentryActive then
+		self._reentryTimer = self._reentryTimer + dt
+		if self._reentryTimer >= REENTRY_DURATION then
+			self._reentryActive = false
+			self._reentryTimer = 0
+		end
+	end
+
 	self._t = self._t + tDelta
 	if self._t > 1 then
 		self._t = self._t - 1
