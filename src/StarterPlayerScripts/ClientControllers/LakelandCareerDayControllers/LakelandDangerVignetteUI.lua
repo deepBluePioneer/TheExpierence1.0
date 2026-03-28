@@ -275,7 +275,19 @@ function LakelandDangerVignetteUI.new(playerGui, gameState, beatIntensity)
 	task.spawn(bind)
 
 	local function reset()
-		deactivate()
+		active = false
+		stopTweens()
+		stopRender()
+		screenGui.Enabled = false
+		for _, edge in ipairs(edges) do
+			edge.BackgroundTransparency = 1
+		end
+		borderStroke.Transparency = 1
+		scanlines.BackgroundTransparency = 1
+		for _, w in ipairs(warningLabels) do
+			w.label.TextTransparency = 1
+			w.stroke.Transparency = 1
+		end
 	end
 
 	local function destroy()

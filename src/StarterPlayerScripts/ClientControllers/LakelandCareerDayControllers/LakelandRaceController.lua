@@ -22,6 +22,9 @@ local SFX_Countdown = SoundService:FindFirstChild("DuringCountDown")
 local SFX_Flyby = SoundService:FindFirstChild("flyby")
 
 local SFX_BoostPad = SoundService:FindFirstChild("BoostPad")
+local SFX_HyperSpace = SoundService:FindFirstChild("HyperSpace")
+local SFX_OnExitHyperSpace = SoundService:FindFirstChild("OnExitHyperSpace")
+local SFX_Terrain = SoundService:FindFirstChild("Terrain")
 
 local LakelandSkillTreeUI = require(script.Parent.LakelandSkillTreeUI)
 
@@ -79,6 +82,47 @@ local function playRandomFlybyAt(worldPos, speedFrac)
 	clone.Parent = emitter
 	clone:Play()
 	Debris:AddItem(emitter, (clone.TimeLength / clone.PlaybackSpeed) + 0.5)
+end
+
+local function playGroupOneShot(group, worldPos)
+	if not group then return end
+	local children = group:GetChildren()
+	if #children == 0 then return end
+	for _, snd in ipairs(children) do
+		if snd:IsA("Sound") then
+			playSoundAt(snd, worldPos, 1, 1)
+		end
+	end
+end
+
+local function startGroupLoop(group)
+	if not group then return nil end
+	local children = group:GetChildren()
+	if #children == 0 then return nil end
+	local folder = Instance.new("Folder")
+	folder.Name = "AmbientLoop_" .. group.Name
+	folder.Parent = SoundService
+	for _, snd in ipairs(children) do
+		if snd:IsA("Sound") then
+			local clone = snd:Clone()
+			clone.Looped = true
+			clone.Volume = 0
+			clone.Parent = folder
+			clone:Play()
+			TweenService:Create(clone, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = snd.Volume }):Play()
+		end
+	end
+	return folder
+end
+
+local function stopGroupLoop(container)
+	if not container or not container.Parent then return end
+	for _, snd in ipairs(container:GetChildren()) do
+		if snd:IsA("Sound") then
+			TweenService:Create(snd, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = 0 }):Play()
+		end
+	end
+	Debris:AddItem(container, 1)
 end
 
 local LANE_COUNT = 3
@@ -922,8 +966,11 @@ local LakelandRaceController = Knit.CreateController({
 	_skillTreeUI = nil,
 
 	_savedBlockLighting = nil,
+	_hyperSfxEmitter = nil,
+	_terrainSfxEmitter = nil,
 	_reentryActive = false,
 	_reentryTimer = 0,
+	_obstacleGraceTimer = 0,
 	_waitingForReseat = false,
 	_reseatConn = nil,
 	_awaitingHyperjump = false,
@@ -1854,21 +1901,21 @@ function LakelandRaceController:_updateWorldScroll(dt)
 				self._atmosphere.Glare = 0.2
 			end
 			if self._bloom then
-				self._bloom.Intensity = 0.05
-				self._bloom.Size = 10
-				self._bloom.Threshold = 1.5
+				self._bloom.Intensity = 0.15
+				self._bloom.Size = 14
+				self._bloom.Threshold = 1.0
 			end
 			if self._raceCC then
-				self._raceCC.Saturation = -0.1
-				self._raceCC.Brightness = 0.12
-				self._raceCC.Contrast = 0.12
-				self._raceCC.TintColor = Color3.fromRGB(175, 200, 255)
+				self._raceCC.Saturation = -0.05
+				self._raceCC.Brightness = 0.25
+				self._raceCC.Contrast = 0.15
+				self._raceCC.TintColor = Color3.fromRGB(185, 210, 255)
 			end
-			Lighting.Brightness = 1
-			Lighting.Ambient = Color3.fromRGB(60, 70, 100)
-			Lighting.OutdoorAmbient = Color3.fromRGB(45, 55, 80)
-			Lighting.EnvironmentDiffuseScale = 0.3
-			Lighting.EnvironmentSpecularScale = 0.2
+			Lighting.Brightness = 2
+			Lighting.Ambient = Color3.fromRGB(100, 115, 160)
+			Lighting.OutdoorAmbient = Color3.fromRGB(80, 95, 140)
+			Lighting.EnvironmentDiffuseScale = 0.5
+			Lighting.EnvironmentSpecularScale = 0.4
 		end
 		return
 	end
@@ -1888,7 +1935,8 @@ function LakelandRaceController:_updateWorldScroll(dt)
 	local centerRef = centerSpline:CalculatePositionAt(self._t) + waveVec(self._t)
 
 	local tMin = math.max(0, self._t - WINDOW_BEHIND)
-	local tMax = math.min(1, self._t + WINDOW_AHEAD)
+	local aheadWindow = self._reentryActive and 0.035 or WINDOW_AHEAD
+	local tMax = math.min(1, self._t + aheadWindow)
 
 	local beat = self._beatIntensity and self._beatIntensity:get() or 0
 	local cubeBeatScale = 1 + beat * 0.7
@@ -2358,11 +2406,13 @@ function LakelandRaceController:_updateWorldScroll(dt)
 
 	-- Hazards
 	local playerT = self._t
+	local graceT = self._obstacleGraceTimer > 0 and (playerT + 0.012 * (self._obstacleGraceTimer / 2)) or 0
 	local hi = 1
 	for _, hazard in ipairs(HAZARDS) do
 		if hi > HAZARD_POOL then break end
 		if not hazard._hit and hazard.t >= tMin and hazard.t <= tMax then
 			local show = self._obstaclesVisible
+			if graceT > 0 and hazard.t < graceT then show = false end
 			local alpha = 1
 			if hazard.t > fadeStart then
 				alpha = math.clamp(1 - (hazard.t - fadeStart) / (tMax - fadeStart), 0, 1)
@@ -2409,6 +2459,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		if ci > COIN_POOL then break end
 		if not coin.collected and coin.t >= tMin and coin.t <= tMax then
 			local show = self._obstaclesVisible
+			if graceT > 0 and coin.t < graceT then show = false end
 			local alpha = 1
 			if coin.t > fadeStart then
 				alpha = math.clamp(1 - (coin.t - fadeStart) / (tMax - fadeStart), 0, 1)
@@ -2433,6 +2484,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		if bi > BOMB_PICKUP_POOL then break end
 		if not bomb.collected and bomb.t >= tMin and bomb.t <= tMax then
 			local show = self._obstaclesVisible
+			if graceT > 0 and bomb.t < graceT then show = false end
 			local alpha = 1
 			if bomb.t > fadeStart then
 				alpha = math.clamp(1 - (bomb.t - fadeStart) / (tMax - fadeStart), 0, 1)
@@ -2458,6 +2510,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			if pi2 > PORTAL_POOL then break end
 			if not portal.collected and portal.t >= tMin and portal.t <= tMax then
 				local show = self._obstaclesVisible
+				if graceT > 0 and portal.t < graceT then show = false end
 				local alpha = 1
 				if portal.t > fadeStart then
 					alpha = math.clamp(1 - (portal.t - fadeStart) / (tMax - fadeStart), 0, 1)
@@ -2494,23 +2547,23 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			gi = gi + 1
 		end
 		for _, hazard in ipairs(HAZARDS) do
-			if not hazard._hit and hazard.t >= tMin and hazard.t <= tMax then
+			if not hazard._hit and hazard.t >= tMin and hazard.t <= tMax and not (graceT > 0 and hazard.t < graceT) then
 				placeGlow(hazard.t, hazard.lane, GLOW_HAZARD_COLOR)
 			end
 		end
 		for _, coin in ipairs(COINS) do
-			if not coin.collected and coin.t >= tMin and coin.t <= tMax then
+			if not coin.collected and coin.t >= tMin and coin.t <= tMax and not (graceT > 0 and coin.t < graceT) then
 				placeGlow(coin.t, coin.lane, GLOW_COIN_COLOR)
 			end
 		end
 		for _, bomb in ipairs(BOMBS) do
-			if not bomb.collected and bomb.t >= tMin and bomb.t <= tMax then
+			if not bomb.collected and bomb.t >= tMin and bomb.t <= tMax and not (graceT > 0 and bomb.t < graceT) then
 				placeGlow(bomb.t, bomb.lane, GLOW_BOMB_COLOR)
 			end
 		end
 		if not self._portalActive then
 			for _, portal in ipairs(PORTALS) do
-				if not portal.collected and portal.t >= tMin and portal.t <= tMax then
+				if not portal.collected and portal.t >= tMin and portal.t <= tMax and not (graceT > 0 and portal.t < graceT) then
 					placeGlow(portal.t, portal.lane, GLOW_PORTAL_COLOR)
 				end
 			end
@@ -2915,7 +2968,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 		local fwd = centerSpline:CalculateDerivativeAt(self._t)
 		if fwd.Magnitude > 0.001 then fwd = fwd.Unit else fwd = Vector3.new(0, 0, -1) end
 
-		local maxDist = 800
+		local maxDist = 600
 		local sweepPos = maxDist * (1 - progress)
 
 		local function computeReveal(pos)
@@ -3141,6 +3194,11 @@ function LakelandRaceController:_triggerReturnHyperdrive()
 	Workspace.Terrain:Clear()
 	self:_setupDarkEnvironment()
 
+	stopGroupLoop(self._terrainSfxEmitter)
+	self._terrainSfxEmitter = nil
+	stopGroupLoop(self._hyperSfxEmitter)
+	self._hyperSfxEmitter = startGroupLoop(SFX_HyperSpace)
+
 	if self._skillTreeUI then
 		self._skillTreeUI.show()
 	end
@@ -3154,6 +3212,10 @@ function LakelandRaceController:_finishReturnHyperdrive()
 	self._hyperExitBlend = 0
 	self._hyperdriveTriggered = false
 	self._raceElapsed = 0
+	self._obstacleGraceTimer = 2
+
+	stopGroupLoop(self._hyperSfxEmitter)
+	self._hyperSfxEmitter = nil
 
 	if not self._reentryActive then
 		self._reentryActive = true
@@ -3344,6 +3406,7 @@ function LakelandRaceController:PositionAtStart()
 	self._switchDir = 0
 	self._health = MAX_HEALTH
 	self._totalDistance = 0
+	self.HealthChanged:Fire(self._health)
 
 	for _, hazard in ipairs(HAZARDS) do hazard._hit = false; hazard._flybyPlayed = false; hazard._portalScored = false end
 	self._laneEntryT = 0
@@ -3392,6 +3455,10 @@ function LakelandRaceController:PositionAtStart()
 	end
 	self._terrainMode = false
 	self._hyperExitBlend = 0
+	stopGroupLoop(self._hyperSfxEmitter)
+	self._hyperSfxEmitter = nil
+	stopGroupLoop(self._terrainSfxEmitter)
+	self._terrainSfxEmitter = nil
 	if self._skillTreeUI then
 		self._skillTreeUI.hide()
 	end
@@ -3410,6 +3477,7 @@ function LakelandRaceController:PositionAtStart()
 	self._savedBlockLighting = nil
 	self._reentryActive = false
 	self._reentryTimer = 0
+	self._obstacleGraceTimer = 0
 	self:_setupDarkEnvironment()
 	Workspace.Terrain:Clear()
 	if self._biomeRegions and #self._biomeRegions > 0 then
@@ -3524,6 +3592,10 @@ function LakelandRaceController:StopRace()
 	end
 	self._terrainMode = false
 	self._hyperExitBlend = 0
+	stopGroupLoop(self._hyperSfxEmitter)
+	self._hyperSfxEmitter = nil
+	stopGroupLoop(self._terrainSfxEmitter)
+	self._terrainSfxEmitter = nil
 	if self._skillTreeUI then
 		self._skillTreeUI.hide()
 	end
@@ -3542,6 +3614,7 @@ function LakelandRaceController:StopRace()
 	self._savedBlockLighting = nil
 	self._reentryActive = false
 	self._reentryTimer = 0
+	self._obstacleGraceTimer = 0
 	self:_setupDarkEnvironment()
 	Workspace.Terrain:Clear()
 	if self._biomeRegions and #self._biomeRegions > 0 then
@@ -4074,7 +4147,7 @@ function LakelandRaceController:_updateMovement(dt)
 			self._currentBoostTally = self._currentBoostTally + BOOST_POINTS_PER_SEC * dt
 		end
 
-		if not self._hyperdriveActive and not self._terrainMode then
+		if not self._hyperdriveActive and not self._terrainMode and self._obstacleGraceTimer <= 0 then
 			local hitHazard = self:_getHitHazard()
 			if hitHazard and not hitHazard._hit then
 				hitHazard._hit = true
@@ -4139,6 +4212,9 @@ function LakelandRaceController:_updateMovement(dt)
 			self._hyperdriveActive = true
 			self._hyperdriveTriggered = true
 			self._hyperdriveTimer = 0
+
+			stopGroupLoop(self._hyperSfxEmitter)
+			self._hyperSfxEmitter = startGroupLoop(SFX_HyperSpace)
 
 			local bgm = self._gameController and self._gameController._bgmCurrent
 			if bgm and bgm:IsA("Sound") and bgm.IsPlaying then
@@ -4233,6 +4309,13 @@ function LakelandRaceController:_updateMovement(dt)
 				self._terrainMode = true
 				self._hyperExitBlend = 1
 				self._currentSpeed = 0
+
+				stopGroupLoop(self._hyperSfxEmitter)
+				self._hyperSfxEmitter = nil
+				playGroupOneShot(SFX_OnExitHyperSpace, FIXED_MACHINE_POS)
+				stopGroupLoop(self._terrainSfxEmitter)
+				self._terrainSfxEmitter = startGroupLoop(SFX_Terrain)
+
 				if self._skillTreeUI then
 					self._skillTreeUI.hide()
 				end
@@ -4356,6 +4439,10 @@ function LakelandRaceController:_updateMovement(dt)
 			self._reentryActive = false
 			self._reentryTimer = 0
 		end
+	end
+
+	if self._obstacleGraceTimer > 0 then
+		self._obstacleGraceTimer = math.max(0, self._obstacleGraceTimer - dt)
 	end
 
 	self._t = self._t + tDelta
