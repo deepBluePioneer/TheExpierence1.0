@@ -79,7 +79,7 @@ function LakelandDistanceUI.new(playerGui, gameState, playerName, beatIntensity)
 		ResetOnSpawn = false,
 		IgnoreGuiInset = true,
 		DisplayOrder = 52,
-		Enabled = visible,
+		Enabled = true,
 		Parent = playerGui,
 
 		[Children] = {

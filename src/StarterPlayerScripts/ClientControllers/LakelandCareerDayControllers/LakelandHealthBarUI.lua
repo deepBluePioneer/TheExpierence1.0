@@ -76,7 +76,7 @@ function LakelandHealthBarUI.new(playerGui, gameState, beatIntensity)
 		ResetOnSpawn = false,
 		IgnoreGuiInset = true,
 		DisplayOrder = 51,
-		Enabled = visible,
+		Enabled = true,
 		Parent = playerGui,
 
 		[Children] = {

@@ -71,7 +71,7 @@ function LakelandSpeedUI.new(playerGui, gameState)
 		ResetOnSpawn = false,
 		IgnoreGuiInset = true,
 		DisplayOrder = 53,
-		Enabled = visible,
+		Enabled = true,
 		Parent = playerGui,
 
 		[Children] = {

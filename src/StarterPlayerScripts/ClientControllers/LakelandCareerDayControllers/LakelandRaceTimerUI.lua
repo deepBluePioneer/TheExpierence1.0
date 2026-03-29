@@ -63,7 +63,7 @@ function LakelandRaceTimerUI.new(playerGui, gameState, raceDuration, beatIntensi
 		ResetOnSpawn = false,
 		IgnoreGuiInset = true,
 		DisplayOrder = 56,
-		Enabled = visible,
+		Enabled = true,
 		Parent = playerGui,
 
 		[Children] = {

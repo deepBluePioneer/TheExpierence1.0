@@ -51,7 +51,7 @@ function LakelandBombUI.new(playerGui, gameState, beatIntensity)
 		ResetOnSpawn = false,
 		IgnoreGuiInset = true,
 		DisplayOrder = 52,
-		Enabled = visible,
+		Enabled = true,
 		Parent = playerGui,
 
 		[Children] = {

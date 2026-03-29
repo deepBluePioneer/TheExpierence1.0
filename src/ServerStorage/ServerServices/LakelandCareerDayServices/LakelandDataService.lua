@@ -4,6 +4,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local MACHINE_SPAWN_POSITION = Vector3.new(0, 5, 0)
+-- FillBlock CFrame position is the region center; top surface Y = center.Y + size.Y/2
+local LOBBY_ORIGIN = Vector3.new(0, 50, -200)
+local LOBBY_PLATFORM_SIZE = Vector3.new(200, 4, 200)
+local LOBBY_SURFACE_Y = LOBBY_ORIGIN.Y + LOBBY_PLATFORM_SIZE.Y / 2
+local LOBBY_MACHINE_SPACING = 20
+local LOBBY_MACHINE_CLEARANCE = 0.15
 
 local Packages = ReplicatedStorage.Packages
 local Knit = require(Packages.Knit)
@@ -49,7 +55,8 @@ function LakelandDataService:KnitInit()
 end
 
 function LakelandDataService:KnitStart()
-	self:_loadProfile()
+	self:CreateLobbyPlatform()
+	self:SpawnLobbyMachines()
 
 	self._trove:Add(Players.PlayerAdded:Connect(function(player)
 		player:LoadCharacter()
@@ -57,11 +64,11 @@ function LakelandDataService:KnitStart()
 
 	for _, player in ipairs(Players:GetPlayers()) do
 		if not player.Character then
-			task.spawn(function()
-				player:LoadCharacter()
-			end)
+			player:LoadCharacter()
 		end
 	end
+
+	self:_loadProfile()
 
 	self._trove:Add(Players.PlayerRemoving:Connect(function(_player)
 		if #Players:GetPlayers() <= 1 and self._profile then
@@ -134,6 +141,22 @@ function LakelandDataService.Client:UnseatPlayer(player)
 	self.Server:UnseatPlayer(player)
 end
 
+function LakelandDataService.Client:CreateLobbyPlatform(_player)
+	self.Server:CreateLobbyPlatform()
+end
+
+function LakelandDataService.Client:SpawnLobbyMachines(_player)
+	return self.Server:SpawnLobbyMachines()
+end
+
+function LakelandDataService.Client:DestroyLobbyMachines(_player)
+	self.Server:DestroyLobbyMachines()
+end
+
+function LakelandDataService.Client:SpawnSpecificMachine(_player, templateName)
+	return self.Server:SpawnSpecificMachine(templateName)
+end
+
 function LakelandDataService.Client:GetProfiles(_player)
 	return self.Server:GetProfiles()
 end
@@ -193,6 +216,117 @@ function LakelandDataService:DestroyMachine()
 	if existing then
 		existing:Destroy()
 	end
+end
+
+function LakelandDataService:CreateLobbyPlatform()
+	local terrain = Workspace.Terrain
+	terrain:FillBlock(
+		CFrame.new(LOBBY_ORIGIN),
+		LOBBY_PLATFORM_SIZE,
+		Enum.Material.Grass
+	)
+	print("[LakelandDataService] Created lobby platform at " .. tostring(LOBBY_ORIGIN) .. " surfaceY=" .. LOBBY_SURFACE_Y)
+end
+
+local function snapModelBottomToSurfaceY(model, surfaceY)
+	if not model.PrimaryPart then return end
+	local cf, size = model:GetBoundingBox()
+	local bottomY = cf.Position.Y - size.Y * 0.5
+	local delta = surfaceY + LOBBY_MACHINE_CLEARANCE - bottomY
+	if math.abs(delta) > 0.001 then
+		model:TranslateBy(Vector3.new(0, delta, 0))
+	end
+end
+
+function LakelandDataService:SpawnLobbyMachines()
+	self:DestroyLobbyMachines()
+
+	local machinesFolder = ReplicatedStorage:FindFirstChild("Machines")
+	if not machinesFolder then
+		warn("[LakelandDataService] No Machines folder in ReplicatedStorage")
+		return {}
+	end
+
+	local templates = machinesFolder:GetChildren()
+	if #templates == 0 then
+		warn("[LakelandDataService] No machines found in ReplicatedStorage.Machines")
+		return {}
+	end
+
+	local lobbyFolder = Instance.new("Folder")
+	lobbyFolder.Name = "LobbyMachines"
+	lobbyFolder.Parent = Workspace
+
+	local totalWidth = (#templates - 1) * LOBBY_MACHINE_SPACING
+	local startX = -totalWidth / 2
+
+	local names = {}
+	for i, template in ipairs(templates) do
+		local machine = template:Clone()
+		machine.Name = "LobbyMachine_" .. template.Name
+		machine:SetAttribute("TemplateName", template.Name)
+
+		for _, desc in ipairs(machine:GetDescendants()) do
+			if desc:IsA("BasePart") then
+				desc.Anchored = true
+				desc.CanCollide = true
+			end
+			if desc:IsA("Seat") or desc:IsA("VehicleSeat") then
+				desc.Disabled = false
+			end
+		end
+
+		local x = startX + (i - 1) * LOBBY_MACHINE_SPACING
+		-- Rough place (Y arbitrary); snap so model AABB bottom sits on terrain top.
+		local pos = Vector3.new(LOBBY_ORIGIN.X + x, LOBBY_SURFACE_Y + 8, LOBBY_ORIGIN.Z)
+		machine.Parent = lobbyFolder
+		if machine.PrimaryPart then
+			machine:PivotTo(CFrame.new(pos) * CFrame.Angles(0, math.rad(180), 0))
+			snapModelBottomToSurfaceY(machine, LOBBY_SURFACE_Y)
+		end
+
+		table.insert(names, template.Name)
+	end
+
+	print("[LakelandDataService] Spawned " .. #names .. " lobby machines")
+	return names
+end
+
+function LakelandDataService:DestroyLobbyMachines()
+	local existing = Workspace:FindFirstChild("LobbyMachines")
+	if existing then
+		existing:Destroy()
+	end
+end
+
+function LakelandDataService:SpawnSpecificMachine(templateName)
+	self:DestroyMachine()
+
+	local machinesFolder = ReplicatedStorage:FindFirstChild("Machines")
+	if not machinesFolder then return "" end
+
+	local template = machinesFolder:FindFirstChild(templateName)
+	if not template then
+		warn("[LakelandDataService] Template not found: " .. tostring(templateName))
+		return ""
+	end
+
+	local machine = template:Clone()
+	machine.Name = "ActiveMachine"
+
+	for _, desc in ipairs(machine:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			desc.Anchored = true
+		end
+	end
+
+	if machine.PrimaryPart then
+		machine:PivotTo(CFrame.new(MACHINE_SPAWN_POSITION))
+	end
+
+	machine.Parent = Workspace
+	print("[LakelandDataService] Spawned specific machine: " .. templateName)
+	return templateName
 end
 
 ----------------------------------------------------------------

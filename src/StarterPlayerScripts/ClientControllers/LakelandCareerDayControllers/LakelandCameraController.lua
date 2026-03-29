@@ -51,9 +51,9 @@ function LakelandCameraController:KnitStart()
 
 	local gameController = Knit.GetController("LakelandGameController")
 	gameController.GameStateChanged:Connect(function(newState)
-		if newState == "COUNTDOWN" or newState == "PLAYING" or newState == "GAME_OVER" or newState == "DEMO" then
+		if newState == "PLAYING" or newState == "GAME_OVER" then
 			self:_activate()
-		elseif newState == "MENU" then
+		elseif newState == "LOBBY" then
 			self:_deactivate()
 		end
 	end)
@@ -64,7 +64,9 @@ function LakelandCameraController:_activate()
 	self._active = true
 
 	local camera = Workspace.CurrentCamera
-	self._currentCFrame = camera.CFrame
+	self._currentCFrame = CFrame.new()
+	self._lateralOffset = 0
+	self._lateralVelocity = 0
 	camera.CameraType = Enum.CameraType.Scriptable
 
 	RunService:BindToRenderStep("LakelandCameraUpdate", Enum.RenderPriority.Camera.Value + 1, function(dt)

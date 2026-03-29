@@ -18,7 +18,6 @@ local CatmullRomSpline = require(CustomPackages.Splines.CatmullRomSpline)
 
 local SFX_Impacts = SoundService:FindFirstChild("Impacts")
 local SFX_RandomImpact = SoundService:FindFirstChild("RandonOnImpact")
-local SFX_Countdown = SoundService:FindFirstChild("DuringCountDown")
 local SFX_Flyby = SoundService:FindFirstChild("flyby")
 
 local SFX_BoostPad = SoundService:FindFirstChild("BoostPad")
@@ -689,6 +688,28 @@ local TERRAIN_BASE = {
 	BASE_Y      = -2,
 }
 
+-- Biome height envelope; used so we never Terrain:Clear() (that wipes server lobby terrain too).
+local TERRAIN_AMP_MAX = 24
+
+local function clearRaceTerrainVoxels()
+	local terrain = Workspace.Terrain
+	local res = TERRAIN_BASE.RESOLUTION
+
+	local cx, cz = FIXED_MACHINE_POS.X, FIXED_MACHINE_POS.Z
+	local halfW = TERRAIN_BASE.WIDTH / 2
+	local halfD = TERRAIN_BASE.DEPTH / 2
+	local baseY = TERRAIN_BASE.BASE_Y
+	local minPos = Vector3.new(cx - halfW, baseY - 20, cz - halfD)
+	local maxPos = Vector3.new(cx + halfW, baseY + TERRAIN_AMP_MAX + 5, cz + halfD)
+	terrain:FillRegion(Region3.new(minPos, maxPos):ExpandToGrid(res), res, Enum.Material.Air)
+
+	local lobbyOrigin = Vector3.new(0, 50, -200)
+	local lobbyHalf = Vector3.new(100, 4, 100)
+	local lobbyMin = lobbyOrigin - lobbyHalf - Vector3.new(0, 2, 0)
+	local lobbyMax = lobbyOrigin + lobbyHalf + Vector3.new(0, 2, 0)
+	terrain:FillRegion(Region3.new(lobbyMin, lobbyMax):ExpandToGrid(res), res, Enum.Material.Air)
+end
+
 local BIOMES = {
 	{
 		name = "Meadow",
@@ -897,7 +918,6 @@ local LakelandRaceController = Knit.CreateController({
 	_laneEntryT = 0,
 	_lastEffectiveLane = 2,
 	_lastCFrame = CFrame.new(),
-	_countdownDrive = false,
 	_coinScore = 0,
 	_coinsCollected = 0,
 	_boostScore = 0,
@@ -933,10 +953,6 @@ local LakelandRaceController = Knit.CreateController({
 
 	_machineLoadEmitter = nil,
 	_boostSfxEmitter = nil,
-
-	_specBars = {},
-	_menuRenderConn = nil,
-	_demoMode = false,
 
 	_comboCount = 0,
 	_comboTimer = 0,
@@ -974,6 +990,7 @@ local LakelandRaceController = Knit.CreateController({
 	_waitingForReseat = false,
 	_reseatConn = nil,
 	_awaitingHyperjump = false,
+	_initialHyperjump = false,
 	_returnHyperActive = false,
 	_returnHyperTimer = 0,
 	_hyperjumpGui = nil,
@@ -995,7 +1012,34 @@ function LakelandRaceController:KnitInit()
 	self._trove:Add(self._inputTrove)
 end
 
+function LakelandRaceController:_ensureLightingObjects()
+	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+	if not atmosphere then
+		atmosphere = Instance.new("Atmosphere")
+		atmosphere.Parent = Lighting
+	end
+	self._atmosphere = atmosphere
+
+	local bloom = Lighting:FindFirstChild("RaceBloom")
+	if not bloom then
+		bloom = Instance.new("BloomEffect")
+		bloom.Name = "RaceBloom"
+		bloom.Parent = Lighting
+	end
+	self._bloom = bloom
+
+	local cc = Lighting:FindFirstChild("RaceCC")
+	if not cc then
+		cc = Instance.new("ColorCorrectionEffect")
+		cc.Name = "RaceCC"
+		cc.Parent = Lighting
+	end
+	self._raceCC = cc
+end
+
 function LakelandRaceController:_setupDarkEnvironment()
+	self:_ensureLightingObjects()
+
 	Lighting.ClockTime = 0
 	Lighting.Brightness = 0
 	Lighting.Ambient = Color3.fromRGB(10, 10, 18)
@@ -1010,41 +1054,21 @@ function LakelandRaceController:_setupDarkEnvironment()
 	local sky = Lighting:FindFirstChildOfClass("Sky")
 	if sky then sky:Destroy() end
 
-	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
-	if not atmosphere then
-		atmosphere = Instance.new("Atmosphere")
-		atmosphere.Parent = Lighting
-	end
-	atmosphere.Density = 0.35
-	atmosphere.Offset = 0.25
-	atmosphere.Color = Color3.fromRGB(4, 8, 22)
-	atmosphere.Decay = Color3.fromRGB(8, 20, 50)
-	atmosphere.Glare = 0.1
-	atmosphere.Haze = 2
-	self._atmosphere = atmosphere
+	self._atmosphere.Density = 0.35
+	self._atmosphere.Offset = 0.25
+	self._atmosphere.Color = Color3.fromRGB(4, 8, 22)
+	self._atmosphere.Decay = Color3.fromRGB(8, 20, 50)
+	self._atmosphere.Glare = 0.1
+	self._atmosphere.Haze = 2
 
-	local bloom = Lighting:FindFirstChild("RaceBloom")
-	if not bloom then
-		bloom = Instance.new("BloomEffect")
-		bloom.Name = "RaceBloom"
-		bloom.Parent = Lighting
-	end
-	bloom.Intensity = 0.015
-	bloom.Size = 3
-	bloom.Threshold = 2.5
-	self._bloom = bloom
+	self._bloom.Intensity = 0.015
+	self._bloom.Size = 3
+	self._bloom.Threshold = 2.5
 
-	local cc = Lighting:FindFirstChild("RaceCC")
-	if not cc then
-		cc = Instance.new("ColorCorrectionEffect")
-		cc.Name = "RaceCC"
-		cc.Parent = Lighting
-	end
-	cc.Brightness = 0
-	cc.Contrast = 0.05
-	cc.Saturation = 0.1
-	cc.TintColor = Color3.fromRGB(200, 215, 255)
-	self._raceCC = cc
+	self._raceCC.Brightness = 0
+	self._raceCC.Contrast = 0.05
+	self._raceCC.Saturation = 0.1
+	self._raceCC.TintColor = Color3.fromRGB(200, 215, 255)
 
 	self._envZoneLerp = { fogColor = Color3.fromRGB(4, 8, 22), fogDecay = Color3.fromRGB(8, 20, 50), ambientTint = Color3.fromRGB(10, 14, 28), bloomSize = 16, ccTint = Color3.fromRGB(200, 215, 255) }
 end
@@ -1141,7 +1165,7 @@ function LakelandRaceController:_restoreBlockSpaceLighting()
 end
 
 function LakelandRaceController:KnitStart()
-	self:_setupDarkEnvironment()
+	self:_ensureLightingObjects()
 	self:_buildSplines()
 	self:_initPools()
 
@@ -1151,59 +1175,23 @@ function LakelandRaceController:KnitStart()
 	self._gameController = gameController
 	self._beatIntensity = gameController:GetBeatIntensity()
 
-	self:_startMenuRenderLoop()
-
 	gameController.GameStateChanged:Connect(function(newState)
-		if newState == "COUNTDOWN" then
-			self:_stopMenuRenderLoop()
+		if newState == "PLAYING" then
 			self._obstaclesVisible = false
+			self._initialHyperjump = true
 			self:PositionAtStart()
-			if SFX_Countdown then
-				local ml = SFX_Countdown:FindFirstChild("MachineLoad")
-				if ml then
-					if self._machineLoadEmitter then
-						self._machineLoadEmitter:Destroy()
-						self._machineLoadEmitter = nil
-					end
-					local emitter = Instance.new("Part")
-					emitter.Size = Vector3.new(0.1, 0.1, 0.1)
-					emitter.Transparency = 1
-					emitter.Anchored = true
-					emitter.CanCollide = false
-					emitter.CanQuery = false
-					emitter.CFrame = CFrame.new(FIXED_MACHINE_POS)
-					emitter.Parent = Workspace
-					local clone = ml:Clone()
-					clone.Parent = emitter
-					clone:Play()
-					self._machineLoadEmitter = emitter
-				end
-			end
-		elseif newState == "PLAYING" then
-			self._obstaclesVisible = true
-			self:StartRace()
-			if self._machineLoadEmitter then
-				self._machineLoadEmitter:Destroy()
-				self._machineLoadEmitter = nil
-			end
 		elseif newState == "GAME_OVER" then
 			self:StopRace()
 			if self._machineLoadEmitter then
 				self._machineLoadEmitter:Destroy()
 				self._machineLoadEmitter = nil
 			end
-		elseif newState == "DEMO" then
-			self:_stopMenuRenderLoop()
-			self._obstaclesVisible = true
-			self:PositionAtStart()
-			self:StartDemoRace()
-		elseif newState == "MENU" then
+		elseif newState == "LOBBY" then
 			self:StopRace()
 			if self._machineLoadEmitter then
 				self._machineLoadEmitter:Destroy()
 				self._machineLoadEmitter = nil
 			end
-			self:_startMenuRenderLoop()
 		end
 	end)
 end
@@ -1753,8 +1741,11 @@ function LakelandRaceController:_initPools()
 				math.ceil((baseY + amp + 5) / res),
 				math.ceil((cz + halfD) / res)
 			)
-			self._biomeRegions[i] = terrain:CopyRegion(Region3int16.new(minCorner, maxCorner))
-			terrain:Clear()
+			local copyRegion = Region3int16.new(minCorner, maxCorner)
+			self._biomeRegions[i] = terrain:CopyRegion(copyRegion)
+			local clearMin = Vector3.new(cx - halfW, baseY - 20, cz - halfD)
+			local clearMax = Vector3.new(cx + halfW, baseY + amp + 5, cz + halfD)
+			terrain:FillRegion(Region3.new(clearMin, clearMax):ExpandToGrid(res), res, Enum.Material.Air)
 			print("[LakelandRaceController] Biome pre-generated:", biome.name)
 			task.wait()
 		end
@@ -2907,6 +2898,13 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			tintedAmbient.B * 0.7
 		)
 		Lighting.FogColor = env.fogColor
+		Lighting.Brightness = 0
+		Lighting.ClockTime = 0
+		Lighting.EnvironmentDiffuseScale = 0
+		Lighting.EnvironmentSpecularScale = 0
+		Lighting.FogStart = 200
+		Lighting.FogEnd = 2000
+		Lighting.GlobalShadows = true
 	end
 
 	if hBlend > 0 then
@@ -3191,7 +3189,7 @@ function LakelandRaceController:_triggerReturnHyperdrive()
 
 	self:_bindInput()
 
-	Workspace.Terrain:Clear()
+	clearRaceTerrainVoxels()
 	self:_setupDarkEnvironment()
 
 	stopGroupLoop(self._terrainSfxEmitter)
@@ -3199,8 +3197,53 @@ function LakelandRaceController:_triggerReturnHyperdrive()
 	stopGroupLoop(self._hyperSfxEmitter)
 	self._hyperSfxEmitter = startGroupLoop(SFX_HyperSpace)
 
+	local bgm = self._gameController and self._gameController._bgmCurrent
+	if bgm and bgm:IsA("Sound") and bgm.IsPlaying then
+		self._hyperBgmVolume = bgm.Volume
+		TweenService:Create(bgm, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = 0 }):Play()
+		task.delay(HYPER.FADE_IN, function()
+			if self._returnHyperActive and bgm and bgm.Parent then
+				bgm:Pause()
+			end
+		end)
+	end
+
+	self:_hideHUD()
+
 	if self._skillTreeUI then
 		self._skillTreeUI.show()
+	end
+end
+
+local HUD_NAMES = {
+	"LakelandHealthBarUI", "LakelandDistanceUI",
+	"LakelandBombUI", "LakelandSpeedUI",
+	"LakelandRaceTimerUI", "LakelandDangerVignetteUI",
+}
+
+function LakelandRaceController:_hideHUD()
+	local playerGui = game:GetService("Players").LocalPlayer
+		and game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui")
+	if not playerGui then return end
+
+	for _, name in ipairs(HUD_NAMES) do
+		local sg = playerGui:FindFirstChild(name)
+		if sg and sg:IsA("ScreenGui") then
+			sg.Enabled = false
+		end
+	end
+end
+
+function LakelandRaceController:_restoreHUD()
+	local playerGui = game:GetService("Players").LocalPlayer
+		and game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui")
+	if not playerGui then return end
+
+	for _, name in ipairs(HUD_NAMES) do
+		local sg = playerGui:FindFirstChild(name)
+		if sg and sg:IsA("ScreenGui") then
+			sg.Enabled = true
+		end
 	end
 end
 
@@ -3221,10 +3264,10 @@ function LakelandRaceController:_finishReturnHyperdrive()
 	if not self._reentryActive then
 		self._reentryActive = true
 		self._reentryTimer = 0
-		self:_restoreBlockSpaceLighting()
 	end
+	self:_restoreBlockSpaceLighting()
 
-	Workspace.Terrain:Clear()
+	clearRaceTerrainVoxels()
 
 	if self._biomeRegions and #self._biomeRegions > 0 then
 		local chosen = math.random(1, #BIOMES)
@@ -3241,7 +3284,6 @@ function LakelandRaceController:_finishReturnHyperdrive()
 	end
 
 	self._running = true
-	self._countdownDrive = false
 	self._launching = true
 	self._currentSpeed = 0
 	self._obstaclesVisible = true
@@ -3260,82 +3302,15 @@ function LakelandRaceController:_finishReturnHyperdrive()
 		humanoid.JumpPower = 0
 	end
 
-	local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
-	if playerGui then
-		local hudNames = {
-			"LakelandHealthBarUI", "LakelandDistanceUI",
-			"LakelandScoreBarUI", "LakelandBombUI",
-			"LakelandDangerVignetteUI",
-		}
-		for _, name in ipairs(hudNames) do
-			local sg = playerGui:FindFirstChild(name)
-			if sg and sg:IsA("ScreenGui") then
-				sg.Enabled = true
-				local container = sg:FindFirstChildWhichIsA("Frame") or sg:FindFirstChildWhichIsA("CanvasGroup")
-				if container then
-					local origPos
-					if container:GetAttribute("_origPosXS") then
-						origPos = UDim2.new(
-							container:GetAttribute("_origPosXS"), container:GetAttribute("_origPosXO"),
-							container:GetAttribute("_origPosYS"), container:GetAttribute("_origPosYO")
-						)
-					else
-						origPos = container.Position
-					end
-					local origBgT = container:GetAttribute("_origBgT") or container.BackgroundTransparency
-					container.Position = origPos + UDim2.fromScale(0, -0.1)
-					TweenService:Create(container, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-						Position = origPos,
-						BackgroundTransparency = origBgT,
-					}):Play()
-					for _, desc in ipairs(container:GetDescendants()) do
-						if desc:IsA("TextLabel") or desc:IsA("TextButton") then
-							pcall(function()
-								local txtT = desc:GetAttribute("_origTxtT") or 0
-								local txtST = desc:GetAttribute("_origTxtST") or 0.5
-								TweenService:Create(desc, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { TextTransparency = txtT, TextStrokeTransparency = txtST }):Play()
-							end)
-						end
-						if desc:IsA("GuiObject") then
-							pcall(function()
-								local bgT = desc:GetAttribute("_origBgT") or desc.BackgroundTransparency
-								if bgT < 1 then
-									TweenService:Create(desc, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = bgT }):Play()
-								end
-							end)
-						end
-						if desc:IsA("UIStroke") then
-							pcall(function()
-								local sT = desc:GetAttribute("_origStrokeT") or 0
-								TweenService:Create(desc, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Transparency = sT }):Play()
-							end)
-						end
-						if desc:IsA("ImageLabel") or desc:IsA("ImageButton") then
-							pcall(function()
-								local imgT = desc:GetAttribute("_origImgT") or 0
-								TweenService:Create(desc, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { ImageTransparency = imgT }):Play()
-							end)
-						end
-					end
-				end
-			end
-		end
-	end
+	self:_restoreHUD()
 
 	if self._skillTreeUI then
 		self._skillTreeUI.hide()
 	end
 
-	if self._gameController and self._gameController._waveformUI then
-		self._gameController._waveformUI.show()
-	end
-
-	local bgm = self._gameController and self._gameController._bgmCurrent
-	if bgm and bgm:IsA("Sound") then
-		bgm.Volume = 0
-		bgm:Resume()
-		TweenService:Create(bgm, TweenInfo.new(1.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = self._hyperBgmVolume or 0.5 }):Play()
-		self._hyperBgmVolume = nil
+	self._hyperBgmVolume = nil
+	if self._gameController then
+		self._gameController:_playNextGameTrack()
 	end
 
 	task.spawn(function()
@@ -3412,7 +3387,6 @@ function LakelandRaceController:PositionAtStart()
 	for _, hazard in ipairs(HAZARDS) do hazard._hit = false; hazard._flybyPlayed = false; hazard._portalScored = false end
 	self._laneEntryT = 0
 	self._lastEffectiveLane = 2
-	self._countdownDrive = true
 	self._coinScore = 0
 	self._coinsCollected = 0
 	self._boostScore = 0
@@ -3480,7 +3454,7 @@ function LakelandRaceController:PositionAtStart()
 	self._reentryTimer = 0
 	self._obstacleGraceTimer = 0
 	self:_setupDarkEnvironment()
-	Workspace.Terrain:Clear()
+	clearRaceTerrainVoxels()
 	if self._biomeRegions and #self._biomeRegions > 0 then
 		local chosen = math.random(1, #BIOMES)
 		self._activeBiome = BIOMES[chosen]
@@ -3491,6 +3465,13 @@ function LakelandRaceController:PositionAtStart()
 	end
 	if self._cameraController then
 		self._cameraController:SetHyperdriveFOV(0)
+	end
+
+	local wantHyperjump = self._initialHyperjump
+	self._initialHyperjump = false
+
+	if wantHyperjump then
+		self:_hideHUD()
 	end
 
 	task.spawn(function()
@@ -3509,8 +3490,169 @@ function LakelandRaceController:PositionAtStart()
 		self._lastCFrame = startCF
 
 		self:_startRenderLoop()
-		print("[LakelandRaceController] Machine at fixed position — ready for countdown")
+
+		if wantHyperjump then
+			self._running = true
+			self._terrainMode = true
+			self:_bindInput()
+			self:_triggerReturnHyperdrive()
+		end
+
+		print("[LakelandRaceController] Machine at fixed position — ready")
 	end)
+end
+
+function LakelandRaceController:_showInitialHyperjumpButton()
+	local player = game:GetService("Players").LocalPlayer
+	local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
+	if not playerGui then return end
+
+	if self._hyperjumpGui then
+		self._hyperjumpGui:Destroy()
+		self._hyperjumpGui = nil
+	end
+
+	self._awaitingHyperjump = true
+
+	local sg = Instance.new("ScreenGui")
+	sg.Name = "HyperjumpButton"
+	sg.ResetOnSpawn = false
+	sg.IgnoreGuiInset = true
+	sg.DisplayOrder = 65
+	sg.Parent = playerGui
+	self._hyperjumpGui = sg
+
+	local btn = Instance.new("TextButton")
+	btn.Name = "JumpBtn"
+	btn.AnchorPoint = Vector2.new(0.5, 1)
+	btn.Position = UDim2.fromScale(0.5, 1.1)
+	btn.Size = UDim2.fromScale(0.22, 0.055)
+	btn.BackgroundColor3 = Color3.fromRGB(8, 14, 28)
+	btn.BackgroundTransparency = 0.1
+	btn.Text = "JUMP TO HYPERSPACE"
+	btn.TextColor3 = Color3.fromRGB(0, 200, 255)
+	btn.Font = Enum.Font.GothamBold
+	btn.TextScaled = true
+	btn.BorderSizePixel = 0
+	btn.AutoButtonColor = false
+	btn.ZIndex = 2
+	btn.Parent = sg
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0.35, 0)
+	corner.Parent = btn
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(0, 200, 255)
+	stroke.Thickness = 2
+	stroke.Transparency = 0.15
+	stroke.Parent = btn
+
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0.1, 0)
+	pad.PaddingBottom = UDim.new(0.1, 0)
+	pad.Parent = btn
+
+	TweenService:Create(btn, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Position = UDim2.fromScale(0.5, 0.92),
+	}):Play()
+
+	btn.MouseEnter:Connect(function()
+		TweenService:Create(stroke, TweenInfo.new(0.12), { Thickness = 3, Transparency = 0 }):Play()
+		TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundTransparency = 0 }):Play()
+	end)
+	btn.MouseLeave:Connect(function()
+		TweenService:Create(stroke, TweenInfo.new(0.12), { Thickness = 2, Transparency = 0.15 }):Play()
+		TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundTransparency = 0.1 }):Play()
+	end)
+
+	btn.MouseButton1Click:Connect(function()
+		if not self._awaitingHyperjump then return end
+		self._awaitingHyperjump = false
+		TweenService:Create(btn, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			Position = UDim2.fromScale(0.5, 1.1),
+		}):Play()
+		task.delay(0.3, function()
+			if self._hyperjumpGui then
+				self._hyperjumpGui:Destroy()
+				self._hyperjumpGui = nil
+			end
+		end)
+		self._obstaclesVisible = true
+		self:StartRace()
+		self:_triggerInitialHyperdrive()
+	end)
+end
+
+function LakelandRaceController:_triggerInitialHyperdrive()
+	self:_saveBlockSpaceLighting()
+
+	self._hyperdriveActive = true
+	self._hyperdriveTriggered = true
+	self._hyperdriveTimer = 0
+
+	stopGroupLoop(self._hyperSfxEmitter)
+	self._hyperSfxEmitter = startGroupLoop(SFX_HyperSpace)
+
+	local bgm = self._gameController and self._gameController._bgmCurrent
+	if bgm and bgm:IsA("Sound") and bgm.IsPlaying then
+		self._hyperBgmVolume = bgm.Volume
+		TweenService:Create(bgm, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = 0 }):Play()
+		task.delay(HYPER.FADE_IN, function()
+			if self._hyperdriveActive and bgm and bgm.Parent then
+				bgm:Pause()
+			end
+		end)
+	end
+
+	if self._skillTreeUI then
+		self._skillTreeUI.show()
+	end
+
+	local playerGui = game:GetService("Players").LocalPlayer
+		and game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui")
+	if playerGui then
+		local hudNames = {
+			"LakelandHealthBarUI", "LakelandDistanceUI",
+			"LakelandBombUI", "LakelandDangerVignetteUI",
+		}
+		for _, name in ipairs(hudNames) do
+			local sg = playerGui:FindFirstChild(name)
+			if sg and sg:IsA("ScreenGui") then
+				local container = sg:FindFirstChildWhichIsA("Frame") or sg:FindFirstChildWhichIsA("CanvasGroup")
+				if container then
+					if not container:GetAttribute("_origPosXS") then
+						container:SetAttribute("_origPosXS", container.Position.X.Scale)
+						container:SetAttribute("_origPosXO", container.Position.X.Offset)
+						container:SetAttribute("_origPosYS", container.Position.Y.Scale)
+						container:SetAttribute("_origPosYO", container.Position.Y.Offset)
+						container:SetAttribute("_origBgT", container.BackgroundTransparency)
+					end
+					TweenService:Create(container, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+						Position = container.Position + UDim2.fromScale(0, -0.15),
+						BackgroundTransparency = 1,
+					}):Play()
+					for _, desc in ipairs(container:GetDescendants()) do
+						if desc:IsA("TextLabel") or desc:IsA("TextButton") then
+							if not desc:GetAttribute("_origTxtT") then
+								desc:SetAttribute("_origTxtT", desc.TextTransparency)
+								desc:SetAttribute("_origTxtST", desc.TextStrokeTransparency)
+							end
+							TweenService:Create(desc, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+						end
+						if desc:IsA("GuiObject") then
+							pcall(function()
+								if not desc:GetAttribute("_origBgT") then
+									desc:SetAttribute("_origBgT", desc.BackgroundTransparency)
+								end
+								TweenService:Create(desc, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
+							end)
+						end
+					end
+				end
+			end
+		end
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -3519,7 +3661,6 @@ end
 function LakelandRaceController:StartRace()
 	if self._running then return end
 	self._running = true
-	self._countdownDrive = false
 	self._launching = true
 	self._currentSpeed = 0
 	self._laneEntryT = self._t
@@ -3528,46 +3669,9 @@ function LakelandRaceController:StartRace()
 	print("[LakelandRaceController] LAUNCH on lane " .. self._currentLane)
 end
 
-function LakelandRaceController:StartDemoRace()
-	if self._running then return end
-	self._running = true
-	self._demoMode = true
-	self._countdownDrive = false
-	self._launching = true
-	self._currentSpeed = 0
-	self._laneEntryT = self._t
-	if not self._renderConn then self:_startRenderLoop() end
-
-	task.spawn(function()
-		while self._demoMode and self._running do
-			local delay = 0.8 + math.random() * 1.2
-			task.wait(delay)
-			if not self._demoMode or not self._running then break end
-
-			local current = self._targetLane
-			local dir
-			if current == 1 then
-				dir = 1
-			elseif current == LANE_COUNT then
-				dir = -1
-			else
-				dir = math.random() > 0.5 and 1 or -1
-			end
-			self:SwitchLane(dir)
-
-			if math.random() > 0.7 and self._bombCount > 0 then
-				self:_deployBomb()
-			end
-		end
-	end)
-
-	print("[LakelandRaceController] DEMO LAUNCH on lane " .. self._currentLane)
-end
 
 function LakelandRaceController:StopRace()
 	self._running = false
-	self._demoMode = false
-	self._countdownDrive = false
 	self._launching = false
 	self._shockwaveActive = false
 	self._shockwaveTime = 0
@@ -3602,6 +3706,7 @@ function LakelandRaceController:StopRace()
 	end
 	self._waitingForReseat = false
 	self._awaitingHyperjump = false
+	self._initialHyperjump = false
 	self._returnHyperActive = false
 	self._returnHyperTimer = 0
 	if self._reseatConn then
@@ -3617,7 +3722,7 @@ function LakelandRaceController:StopRace()
 	self._reentryTimer = 0
 	self._obstacleGraceTimer = 0
 	self:_setupDarkEnvironment()
-	Workspace.Terrain:Clear()
+	clearRaceTerrainVoxels()
 	if self._biomeRegions and #self._biomeRegions > 0 then
 		local chosen = math.random(1, #BIOMES)
 		self._activeBiome = BIOMES[chosen]
@@ -3654,7 +3759,21 @@ function LakelandRaceController:StopRace()
 		self._renderConn = nil
 	end
 
+	self:_hideAllPooledObjects()
 	self:_resetAtmosphere()
+end
+
+function LakelandRaceController:_hideAllPooledObjects()
+	if not self._folder then return end
+	for _, desc in ipairs(self._folder:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			desc.Transparency = 1
+		elseif desc:IsA("PointLight") then
+			desc.Brightness = 0
+		elseif desc:IsA("Highlight") then
+			desc.Enabled = false
+		end
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -3724,28 +3843,6 @@ function LakelandRaceController:SwitchLane(direction)
 end
 
 ---------------------------------------------------------------------------
--- Menu render loop (static decorative track during menu)
----------------------------------------------------------------------------
-local MENU_TRACK_T = 0.15
-
-function LakelandRaceController:_startMenuRenderLoop()
-	self:_stopMenuRenderLoop()
-	self._t = MENU_TRACK_T
-	self._obstaclesVisible = false
-
-	self._menuRenderConn = RunService.RenderStepped:Connect(function(dt)
-		self:_updateWorldScroll(dt)
-	end)
-end
-
-function LakelandRaceController:_stopMenuRenderLoop()
-	if self._menuRenderConn then
-		self._menuRenderConn:Disconnect()
-		self._menuRenderConn = nil
-	end
-end
-
----------------------------------------------------------------------------
 -- Render loop
 ---------------------------------------------------------------------------
 function LakelandRaceController:_startRenderLoop()
@@ -3756,7 +3853,7 @@ function LakelandRaceController:_startRenderLoop()
 
 	RunService:BindToRenderStep("LakelandMachineUpdate", Enum.RenderPriority.Camera.Value - 1, function(dt)
 		self:_updateShockwave(dt)
-		if self._running or self._countdownDrive then
+		if self._running then
 			self:_updateMovement(dt)
 		end
 		self:_updateWorldScroll(dt)
@@ -4088,35 +4185,34 @@ function LakelandRaceController:_updateMovement(dt)
 		end
 	end
 
-	if not self._countdownDrive then
-		if self._launching then
-			self._currentSpeed = self._currentSpeed + LAUNCH_ACCEL * dt
-			if self._currentSpeed >= MOVE_SPEED then
-				self._currentSpeed = MOVE_SPEED
-				self._launching = false
-			end
+	if self._launching then
+		self._currentSpeed = self._currentSpeed + LAUNCH_ACCEL * dt
+		if self._currentSpeed >= MOVE_SPEED then
+			self._currentSpeed = MOVE_SPEED
+			self._launching = false
 		end
+	end
 
-		local inBoost = self:_isInBoostZone() and not self._hyperdriveActive and not self._terrainMode
-		if inBoost ~= self._boosting then
-			self._boosting = inBoost
-			if inBoost then
-				self._currentBoostTally = 0
-				local boostSfx = SFX_BoostPad and SFX_BoostPad:FindFirstChild("BoostPad")
-				if boostSfx then
-					if self._boostSfxEmitter then
-						self._boostSfxEmitter:Destroy()
-						self._boostSfxEmitter = nil
-					end
-					local sf = math.clamp(self._currentSpeed / MAX_SPEED, 0, 1)
-					local emitter = Instance.new("Part")
-					emitter.Size = Vector3.new(0.1, 0.1, 0.1)
-					emitter.Transparency = 1
-					emitter.Anchored = true
-					emitter.CanCollide = false
-					emitter.CanQuery = false
-					emitter.CFrame = CFrame.new(self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS)
-					emitter.Parent = Workspace
+	local inBoost = self:_isInBoostZone() and not self._hyperdriveActive and not self._terrainMode
+	if inBoost ~= self._boosting then
+		self._boosting = inBoost
+		if inBoost then
+			self._currentBoostTally = 0
+			local boostSfx = SFX_BoostPad and SFX_BoostPad:FindFirstChild("BoostPad")
+			if boostSfx then
+				if self._boostSfxEmitter then
+					self._boostSfxEmitter:Destroy()
+					self._boostSfxEmitter = nil
+				end
+				local sf = math.clamp(self._currentSpeed / MAX_SPEED, 0, 1)
+				local emitter = Instance.new("Part")
+				emitter.Size = Vector3.new(0.1, 0.1, 0.1)
+				emitter.Transparency = 1
+				emitter.Anchored = true
+				emitter.CanCollide = false
+				emitter.CanQuery = false
+				emitter.CFrame = CFrame.new(self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS)
+				emitter.Parent = Workspace
 				local targetVol = (0.3 + sf * 0.7) * boostSfx.Volume
 				local clone = boostSfx:Clone()
 				clone.RollOffMode = Enum.RollOffMode.InverseTapered
@@ -4127,310 +4223,242 @@ function LakelandRaceController:_updateMovement(dt)
 				clone.Parent = emitter
 				clone:Play()
 				TweenService:Create(clone, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = targetVol }):Play()
-					self._boostSfxEmitter = emitter
-				end
-			else
-				if self._boostSfxEmitter then
-					local em = self._boostSfxEmitter
-					self._boostSfxEmitter = nil
-					local snd = em:FindFirstChildOfClass("Sound")
-					if snd then
-						TweenService:Create(snd, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = 0 }):Play()
-					end
-					Debris:AddItem(em, 0.5)
-				end
+				self._boostSfxEmitter = emitter
 			end
-			self.BoostChanged:Fire(inBoost, math.floor(self._currentBoostTally))
-		end
-		if inBoost then
-			self._currentSpeed = math.min(self._currentSpeed + BOOST_ACCEL * dt, MAX_SPEED)
-			self._boostScore = self._boostScore + BOOST_POINTS_PER_SEC * dt
-			self._currentBoostTally = self._currentBoostTally + BOOST_POINTS_PER_SEC * dt
-		end
-
-		if not self._hyperdriveActive and not self._terrainMode and self._obstacleGraceTimer <= 0 then
-			local hitHazard = self:_getHitHazard()
-			if hitHazard and not hitHazard._hit then
-				hitHazard._hit = true
-				if not self._demoMode then
-					self._health = math.max(self._health - HAZARD_DAMAGE, 0)
-					self._comboCount = 0
-					self._comboTimer = 0
-					self._lastShockwaveThreshold = 0
-					if self._shockwaveActive then
-						self._shockwaveActive = false
-						self._shockwaveTime = 0
-					end
-					self.HealthChanged:Fire(self._health)
-					self.HazardHit:Fire(self._health)
+		else
+			if self._boostSfxEmitter then
+				local em = self._boostSfxEmitter
+				self._boostSfxEmitter = nil
+				local snd = em:FindFirstChildOfClass("Sound")
+				if snd then
+					TweenService:Create(snd, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = 0 }):Play()
 				end
-				self:_spawnBurst(Color3.fromRGB(255, 50, 50), Color3.fromRGB(255, 100, 100))
-				if self._health <= 0 and not self._demoMode then
-					if SFX_Impacts then playSoundAt(SFX_Impacts:FindFirstChild("OnImpactHazardFinal"), self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS) end
-				else
-					playRandomImpactAt(self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS)
-				end
-				if self._cameraController then
-					self._cameraController:ShakeCamera(3, 0.1, 0, 0.05, 0.3, Vector3.new(1.5, 1.5, 0.3), Vector3.new(0.08, 0.08, 0.04))
-					local speedFrac = math.clamp((self._currentSpeed - MOVE_SPEED) / (MAX_SPEED - MOVE_SPEED), 0, 1)
-					self._cameraController:ZoomPunch(8 + 10 * speedFrac)
-				end
-				local speedFrac = math.clamp((self._currentSpeed - MOVE_SPEED) / (MAX_SPEED - MOVE_SPEED), 0, 1)
-				self._hitFreezeTimer = HIT_FREEZE_BASE + (HIT_FREEZE_MAX - HIT_FREEZE_BASE) * speedFrac
-				return
-			end
-
-			self:_checkCoinCollection()
-			self:_checkBombCollection()
-			self:_checkPortalCollection()
-		end
-
-		if self._portalActive then
-			for _, hazard in ipairs(HAZARDS) do
-				if not hazard._hit and not hazard._portalScored and hazard.t <= self._t then
-					hazard._portalScored = true
-					self._coinScore = self._coinScore + PORTAL_HAZARD_BONUS
-					self._coinsCollected = self._coinsCollected + 1
-					self.CoinCollected:Fire(self._coinScore, self._coinsCollected, 0, PORTAL_HAZARD_BONUS)
-				end
+				Debris:AddItem(em, 0.5)
 			end
 		end
-
-		self.SpeedChanged:Fire(self._currentSpeed)
+		self.BoostChanged:Fire(inBoost, math.floor(self._currentBoostTally))
 	end
+	if inBoost then
+		self._currentSpeed = math.min(self._currentSpeed + BOOST_ACCEL * dt, MAX_SPEED)
+		self._boostScore = self._boostScore + BOOST_POINTS_PER_SEC * dt
+		self._currentBoostTally = self._currentBoostTally + BOOST_POINTS_PER_SEC * dt
+	end
+
+	if not self._hyperdriveActive and not self._terrainMode and self._obstacleGraceTimer <= 0 then
+		local hitHazard = self:_getHitHazard()
+		if hitHazard and not hitHazard._hit then
+			hitHazard._hit = true
+			self._health = math.max(self._health - HAZARD_DAMAGE, 0)
+			self._comboCount = 0
+			self._comboTimer = 0
+			self._lastShockwaveThreshold = 0
+			if self._shockwaveActive then
+				self._shockwaveActive = false
+				self._shockwaveTime = 0
+			end
+			self.HealthChanged:Fire(self._health)
+			self.HazardHit:Fire(self._health)
+			self:_spawnBurst(Color3.fromRGB(255, 50, 50), Color3.fromRGB(255, 100, 100))
+			if self._health <= 0 then
+				if SFX_Impacts then playSoundAt(SFX_Impacts:FindFirstChild("OnImpactHazardFinal"), self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS) end
+			else
+				playRandomImpactAt(self._lastCFrame and self._lastCFrame.Position or FIXED_MACHINE_POS)
+			end
+			if self._cameraController then
+				self._cameraController:ShakeCamera(3, 0.1, 0, 0.05, 0.3, Vector3.new(1.5, 1.5, 0.3), Vector3.new(0.08, 0.08, 0.04))
+				local speedFrac = math.clamp((self._currentSpeed - MOVE_SPEED) / (MAX_SPEED - MOVE_SPEED), 0, 1)
+				self._cameraController:ZoomPunch(8 + 10 * speedFrac)
+			end
+			local speedFrac = math.clamp((self._currentSpeed - MOVE_SPEED) / (MAX_SPEED - MOVE_SPEED), 0, 1)
+			self._hitFreezeTimer = HIT_FREEZE_BASE + (HIT_FREEZE_MAX - HIT_FREEZE_BASE) * speedFrac
+			return
+		end
+
+		self:_checkCoinCollection()
+		self:_checkBombCollection()
+		self:_checkPortalCollection()
+	end
+
+	if self._portalActive then
+		for _, hazard in ipairs(HAZARDS) do
+			if not hazard._hit and not hazard._portalScored and hazard.t <= self._t then
+				hazard._portalScored = true
+				self._coinScore = self._coinScore + PORTAL_HAZARD_BONUS
+				self._coinsCollected = self._coinsCollected + 1
+				self.CoinCollected:Fire(self._coinScore, self._coinsCollected, 0, PORTAL_HAZARD_BONUS)
+			end
+		end
+	end
+
+	self.SpeedChanged:Fire(self._currentSpeed)
 
 	-- Advance virtual progress
 	local tDelta = (self._currentSpeed / TRACK_LENGTH) * dt
-	if not self._countdownDrive then
-		if not self._hyperdriveActive and not self._terrainMode then
-			self._totalDistance = self._totalDistance + self._currentSpeed * dt
+	if not self._hyperdriveActive and not self._terrainMode then
+		self._totalDistance = self._totalDistance + self._currentSpeed * dt
+	end
+	self._raceElapsed = self._raceElapsed + dt
+
+	if self._raceElapsed >= HYPER.TRIGGER_TIME and not self._hyperdriveActive and not self._hyperdriveTriggered then
+		self:_saveBlockSpaceLighting()
+
+		self._hyperdriveActive = true
+		self._hyperdriveTriggered = true
+		self._hyperdriveTimer = 0
+
+		stopGroupLoop(self._hyperSfxEmitter)
+		self._hyperSfxEmitter = startGroupLoop(SFX_HyperSpace)
+
+		local bgm = self._gameController and self._gameController._bgmCurrent
+		if bgm and bgm:IsA("Sound") and bgm.IsPlaying then
+			self._hyperBgmVolume = bgm.Volume
+			TweenService:Create(bgm, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = 0 }):Play()
+			task.delay(HYPER.FADE_IN, function()
+				if self._hyperdriveActive and bgm and bgm.Parent then
+					bgm:Pause()
+				end
+			end)
 		end
-		self._raceElapsed = self._raceElapsed + dt
 
-		if self._raceElapsed >= HYPER.TRIGGER_TIME and not self._hyperdriveActive and not self._hyperdriveTriggered then
-			self:_saveBlockSpaceLighting()
+		self:_hideHUD()
 
-			self._hyperdriveActive = true
-			self._hyperdriveTriggered = true
-			self._hyperdriveTimer = 0
+		if self._skillTreeUI then
+			self._skillTreeUI.show()
+		end
+	end
+
+	if self._hyperdriveActive then
+		self._hyperdriveTimer = self._hyperdriveTimer + dt
+		if self._hyperdriveTimer < HYPER.FADE_IN then
+			self._hyperdriveBlend = self._hyperdriveTimer / HYPER.FADE_IN
+		elseif self._hyperdriveTimer < HYPER.DURATION then
+			self._hyperdriveBlend = 1
+		else
+			self._hyperdriveBlend = 0
+			self._hyperdriveActive = false
+			self._terrainMode = true
+			self._hyperExitBlend = 1
+			self._currentSpeed = 0
 
 			stopGroupLoop(self._hyperSfxEmitter)
-			self._hyperSfxEmitter = startGroupLoop(SFX_HyperSpace)
-
-			local bgm = self._gameController and self._gameController._bgmCurrent
-			if bgm and bgm:IsA("Sound") and bgm.IsPlaying then
-				self._hyperBgmVolume = bgm.Volume
-				TweenService:Create(bgm, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Volume = 0 }):Play()
-				task.delay(HYPER.FADE_IN, function()
-					if self._hyperdriveActive and bgm and bgm.Parent then
-						bgm:Pause()
-					end
-				end)
-			end
-
-			local playerGui = game:GetService("Players").LocalPlayer
-				and game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui")
-			if playerGui then
-				local hudNames = {
-					"LakelandHealthBarUI", "LakelandDistanceUI",
-					"LakelandScoreBarUI", "LakelandBombUI",
-					"LakelandDangerVignetteUI",
-				}
-				for _, name in ipairs(hudNames) do
-					local sg = playerGui:FindFirstChild(name)
-					if sg and sg:IsA("ScreenGui") then
-						local container = sg:FindFirstChildWhichIsA("Frame") or sg:FindFirstChildWhichIsA("CanvasGroup")
-						if container then
-							if not container:GetAttribute("_origPosXS") then
-								container:SetAttribute("_origPosXS", container.Position.X.Scale)
-								container:SetAttribute("_origPosXO", container.Position.X.Offset)
-								container:SetAttribute("_origPosYS", container.Position.Y.Scale)
-								container:SetAttribute("_origPosYO", container.Position.Y.Offset)
-								container:SetAttribute("_origBgT", container.BackgroundTransparency)
-							end
-							TweenService:Create(container, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-								Position = container.Position + UDim2.fromScale(0, -0.15),
-								BackgroundTransparency = 1,
-							}):Play()
-							for _, desc in ipairs(container:GetDescendants()) do
-								if desc:IsA("TextLabel") or desc:IsA("TextButton") then
-									if not desc:GetAttribute("_origTxtT") then
-										desc:SetAttribute("_origTxtT", desc.TextTransparency)
-										desc:SetAttribute("_origTxtST", desc.TextStrokeTransparency)
-									end
-									TweenService:Create(desc, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
-								end
-								if desc:IsA("GuiObject") then
-									pcall(function()
-										if not desc:GetAttribute("_origBgT") then
-											desc:SetAttribute("_origBgT", desc.BackgroundTransparency)
-										end
-										TweenService:Create(desc, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
-									end)
-								end
-								if desc:IsA("UIStroke") then
-									if not desc:GetAttribute("_origStrokeT") then
-										desc:SetAttribute("_origStrokeT", desc.Transparency)
-									end
-									TweenService:Create(desc, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
-								end
-								if desc:IsA("ImageLabel") or desc:IsA("ImageButton") then
-									if not desc:GetAttribute("_origImgT") then
-										desc:SetAttribute("_origImgT", desc.ImageTransparency)
-									end
-									TweenService:Create(desc, TweenInfo.new(HYPER.FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { ImageTransparency = 1 }):Play()
-								end
-							end
-						end
-						task.delay(HYPER.FADE_IN, function()
-							sg.Enabled = false
-						end)
-					end
-				end
-			end
-
-			if self._gameController and self._gameController._waveformUI then
-				self._gameController._waveformUI.hide()
-			end
+			self._hyperSfxEmitter = nil
+			playGroupOneShot(SFX_OnExitHyperSpace, FIXED_MACHINE_POS)
+			stopGroupLoop(self._terrainSfxEmitter)
+			self._terrainSfxEmitter = startGroupLoop(SFX_Terrain)
 
 			if self._skillTreeUI then
-				self._skillTreeUI.show()
+				self._skillTreeUI.hide()
 			end
-		end
-
-		if self._hyperdriveActive then
-			self._hyperdriveTimer = self._hyperdriveTimer + dt
-			if self._hyperdriveTimer < HYPER.FADE_IN then
-				self._hyperdriveBlend = self._hyperdriveTimer / HYPER.FADE_IN
-			elseif self._hyperdriveTimer < HYPER.DURATION then
-				self._hyperdriveBlend = 1
-			else
-				self._hyperdriveBlend = 0
-				self._hyperdriveActive = false
-				self._terrainMode = true
-				self._hyperExitBlend = 1
-				self._currentSpeed = 0
-
-				stopGroupLoop(self._hyperSfxEmitter)
-				self._hyperSfxEmitter = nil
-				playGroupOneShot(SFX_OnExitHyperSpace, FIXED_MACHINE_POS)
-				stopGroupLoop(self._terrainSfxEmitter)
-				self._terrainSfxEmitter = startGroupLoop(SFX_Terrain)
-
-				if self._skillTreeUI then
-					self._skillTreeUI.hide()
-				end
-				local bgm = self._gameController and self._gameController._bgmCurrent
-				if bgm and bgm:IsA("Sound") then
-					bgm:Stop()
-				end
-				self._hyperBgmVolume = nil
-				if self._terrainRegion then
-					local halfW = TERRAIN_BASE.WIDTH / 2
-					local halfD = TERRAIN_BASE.DEPTH / 2
-					local minC = Vector3int16.new(
-						math.floor((FIXED_MACHINE_POS.X - halfW) / TERRAIN_BASE.RESOLUTION),
-						math.floor((TERRAIN_BASE.BASE_Y - 20) / TERRAIN_BASE.RESOLUTION),
-						math.floor((FIXED_MACHINE_POS.Z - halfD) / TERRAIN_BASE.RESOLUTION)
-					)
-					Workspace.Terrain:PasteRegion(self._terrainRegion, minC, true)
+			local bgm = self._gameController and self._gameController._bgmCurrent
+			if bgm and bgm:IsA("Sound") then
+				bgm:Stop()
+			end
+			self._hyperBgmVolume = nil
+			if self._terrainRegion then
+				local halfW = TERRAIN_BASE.WIDTH / 2
+				local halfD = TERRAIN_BASE.DEPTH / 2
+				local minC = Vector3int16.new(
+					math.floor((FIXED_MACHINE_POS.X - halfW) / TERRAIN_BASE.RESOLUTION),
+					math.floor((TERRAIN_BASE.BASE_Y - 20) / TERRAIN_BASE.RESOLUTION),
+					math.floor((FIXED_MACHINE_POS.Z - halfD) / TERRAIN_BASE.RESOLUTION)
+				)
+				Workspace.Terrain:PasteRegion(self._terrainRegion, minC, true)
+			end
+			if self._cameraController then
+				self._cameraController:ZoomPunch(12)
+				self._cameraController:ShakeCamera(3, 0.15, 0, 0.1, 0.4, Vector3.new(1.5, 2, 0.3), Vector3.new(0.06, 0.06, 0.03))
+			end
+			task.delay(2, function()
+				if self._gameController then
+					self._gameController:_unseatPlayer()
+					self._gameController:_unfreezeCharacter()
 				end
 				if self._cameraController then
-					self._cameraController:ZoomPunch(12)
-					self._cameraController:ShakeCamera(3, 0.15, 0, 0.1, 0.4, Vector3.new(1.5, 2, 0.3), Vector3.new(0.06, 0.06, 0.03))
+					self._cameraController:_deactivate()
 				end
-				task.delay(2, function()
-					if self._gameController then
-						self._gameController:_unseatPlayer()
-						self._gameController:_unfreezeCharacter()
-					end
-					if self._cameraController then
-						self._cameraController:_deactivate()
-					end
-					local player = game:GetService("Players").LocalPlayer
-					local character = player and player.Character
-					local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-					local camera = Workspace.CurrentCamera
-					if camera then
-						camera.CameraType = Enum.CameraType.Custom
-						if humanoid then
-							camera.CameraSubject = humanoid
-						end
-					end
-
-					self._waitingForReseat = true
-					if self._reseatConn then
-						self._reseatConn:Disconnect()
-						self._reseatConn = nil
-					end
+				local player = game:GetService("Players").LocalPlayer
+				local character = player and player.Character
+				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+				local camera = Workspace.CurrentCamera
+				if camera then
+					camera.CameraType = Enum.CameraType.Custom
 					if humanoid then
-						self._reseatConn = humanoid.Seated:Connect(function(isSeated, seatPart)
-							if not isSeated or not self._waitingForReseat then return end
-							local machine = Workspace:FindFirstChild("ActiveMachine")
-							if machine and seatPart and seatPart:IsDescendantOf(machine) then
-								self._waitingForReseat = false
-								if self._reseatConn then
-									self._reseatConn:Disconnect()
-									self._reseatConn = nil
-								end
-								self:_onPlayerReseated()
-							end
-						end)
+						camera.CameraSubject = humanoid
 					end
-				end)
-				task.spawn(function()
-					local player = game:GetService("Players").LocalPlayer
-					local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
-					if not playerGui then return end
-					local sg = Instance.new("ScreenGui")
-					sg.Name = "HyperFlash"
-					sg.DisplayOrder = 100
-					sg.IgnoreGuiInset = true
-					sg.Parent = playerGui
-					local flash = Instance.new("Frame")
-					flash.Size = UDim2.fromScale(1, 1)
-					flash.BackgroundColor3 = Color3.new(1, 1, 1)
-					flash.BackgroundTransparency = 0
-					flash.BorderSizePixel = 0
-					flash.Parent = sg
-					local tw = TweenService:Create(flash, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = 1 })
-					tw:Play()
-					tw.Completed:Wait()
-					sg:Destroy()
-				end)
-			end
+				end
+
+				self._waitingForReseat = true
+				if self._reseatConn then
+					self._reseatConn:Disconnect()
+					self._reseatConn = nil
+				end
+				if humanoid then
+					self._reseatConn = humanoid.Seated:Connect(function(isSeated, seatPart)
+						if not isSeated or not self._waitingForReseat then return end
+						local machine = Workspace:FindFirstChild("ActiveMachine")
+						if machine and seatPart and seatPart:IsDescendantOf(machine) then
+							self._waitingForReseat = false
+							if self._reseatConn then
+								self._reseatConn:Disconnect()
+								self._reseatConn = nil
+							end
+							self:_onPlayerReseated()
+						end
+					end)
+				end
+			end)
+			task.spawn(function()
+				local player = game:GetService("Players").LocalPlayer
+				local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
+				if not playerGui then return end
+				local sg = Instance.new("ScreenGui")
+				sg.Name = "HyperFlash"
+				sg.DisplayOrder = 100
+				sg.IgnoreGuiInset = true
+				sg.Parent = playerGui
+				local flash = Instance.new("Frame")
+				flash.Size = UDim2.fromScale(1, 1)
+				flash.BackgroundColor3 = Color3.new(1, 1, 1)
+				flash.BackgroundTransparency = 0
+				flash.BorderSizePixel = 0
+				flash.Parent = sg
+				local tw = TweenService:Create(flash, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = 1 })
+				tw:Play()
+				tw.Completed:Wait()
+				sg:Destroy()
+			end)
+		end
+	end
+
+	if self._terrainMode then
+		if self._hyperExitBlend > 0 then
+			self._hyperExitBlend = math.max(0, self._hyperExitBlend - dt / 0.5)
 		end
 
-		if self._terrainMode then
-			if self._hyperExitBlend > 0 then
-				self._hyperExitBlend = math.max(0, self._hyperExitBlend - dt / 0.5)
-			end
-
-			if self._returnHyperActive then
-				self._returnHyperTimer = self._returnHyperTimer + dt
-				local t = self._returnHyperTimer
-				if t < HYPER_RETURN.FADE_IN then
-					self._hyperdriveBlend = t / HYPER_RETURN.FADE_IN
-				elseif t < HYPER_RETURN.DURATION - HYPER_RETURN.FADE_OUT then
-					self._hyperdriveBlend = 1
-				elseif t < HYPER_RETURN.DURATION then
-					self._hyperdriveBlend = 1 - (t - (HYPER_RETURN.DURATION - HYPER_RETURN.FADE_OUT)) / HYPER_RETURN.FADE_OUT
-					if not self._reentryActive then
-						self._reentryActive = true
-						self._reentryTimer = 0
-						self:_restoreBlockSpaceLighting()
-					end
-				else
-					self:_finishReturnHyperdrive()
-					return
-				end
-
-				if self._cameraController then
-					self._cameraController:SetHyperdriveFOV(self._hyperdriveBlend)
+		if self._returnHyperActive then
+			self._returnHyperTimer = self._returnHyperTimer + dt
+			local t = self._returnHyperTimer
+			if t < HYPER_RETURN.FADE_IN then
+				self._hyperdriveBlend = t / HYPER_RETURN.FADE_IN
+			elseif t < HYPER_RETURN.DURATION - HYPER_RETURN.FADE_OUT then
+				self._hyperdriveBlend = 1
+			elseif t < HYPER_RETURN.DURATION then
+				self._hyperdriveBlend = 1 - (t - (HYPER_RETURN.DURATION - HYPER_RETURN.FADE_OUT)) / HYPER_RETURN.FADE_OUT
+				if not self._reentryActive then
+					self._reentryActive = true
+					self._reentryTimer = 0
+					self:_restoreBlockSpaceLighting()
 				end
 			else
+				self:_finishReturnHyperdrive()
 				return
 			end
+
+			if self._cameraController then
+				self._cameraController:SetHyperdriveFOV(self._hyperdriveBlend)
+			end
+		else
+			return
 		end
 	end
 
@@ -4457,16 +4485,14 @@ function LakelandRaceController:_updateMovement(dt)
 	end
 
 	-- Continuous lateral movement
-	if not self._countdownDrive then
-		self._laneSpringTarget = self._laneSpringTarget + self._lateralInput * LATERAL_SPEED * dt
-		self._laneSpringTarget = math.clamp(self._laneSpringTarget, -LANE_SPACING, LANE_SPACING)
+	self._laneSpringTarget = self._laneSpringTarget + self._lateralInput * LATERAL_SPEED * dt
+	self._laneSpringTarget = math.clamp(self._laneSpringTarget, -LANE_SPACING, LANE_SPACING)
 
-		local effectiveLane = self:_getEffectiveLane()
-		if effectiveLane ~= self._lastEffectiveLane then
-			self._laneEntryT = self._t
-			self._lastEffectiveLane = effectiveLane
-			self.LaneChanged:Fire(effectiveLane)
-		end
+	local effectiveLane = self:_getEffectiveLane()
+	if effectiveLane ~= self._lastEffectiveLane then
+		self._laneEntryT = self._t
+		self._lastEffectiveLane = effectiveLane
+		self.LaneChanged:Fire(effectiveLane)
 	end
 
 	-- Compute lane offset (Y from center spline)
