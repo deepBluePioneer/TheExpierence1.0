@@ -32,6 +32,7 @@ local LakelandCameraController = Knit.CreateController({
 	_activeShakes = {},
 	_zoomPunchOffset = 0,
 	_zoomPunchVelocity = 0,
+	_initialFOV = nil,
 	_deathZoomActive = false,
 	_deathZoomTarget = 0,
 	_deathZoomElapsed = 0,
@@ -40,6 +41,7 @@ local LakelandCameraController = Knit.CreateController({
 	_lateralVelocity = 0,
 	_lastDesiredX = 0,
 	_hyperdriveBlend = 0,
+	_rawFOVOverride = false,
 })
 
 function LakelandCameraController:KnitInit()
@@ -64,6 +66,9 @@ function LakelandCameraController:_activate()
 	self._active = true
 
 	local camera = Workspace.CurrentCamera
+	if not self._initialFOV then
+		self._initialFOV = camera.FieldOfView
+	end
 	self._currentCFrame = CFrame.new()
 	self._lateralOffset = 0
 	self._lateralVelocity = 0
@@ -101,6 +106,9 @@ function LakelandCameraController:_deactivate()
 
 	local camera = Workspace.CurrentCamera
 	camera.CameraType = Enum.CameraType.Custom
+	if self._initialFOV then
+		camera.FieldOfView = self._initialFOV
+	end
 
 	print("[LakelandCameraController] Camera released")
 end
@@ -141,6 +149,15 @@ function LakelandCameraController:SetHyperdriveFOV(blend)
 	if prev > 0 and self._hyperdriveBlend == 0 then
 		self._currentFOV = BASE_FOV
 	end
+end
+
+function LakelandCameraController:SetRawFOV(fov)
+	self._rawFOVOverride = true
+	self._currentFOV = fov
+end
+
+function LakelandCameraController:ClearRawFOV()
+	self._rawFOVOverride = false
 end
 
 function LakelandCameraController:_update(dt)
@@ -196,14 +213,16 @@ function LakelandCameraController:_update(dt)
 	local shaken = self._currentCFrame * CFrame.new(totalPos) * CFrame.Angles(totalRot.X, totalRot.Y, totalRot.Z)
 	camera.CFrame = shaken
 
-	local boosting = self._raceController:IsBoosting()
-	local baseFOV = boosting and BOOST_FOV or BASE_FOV
-	if self._hyperdriveBlend > 0 then
-		self._currentFOV = baseFOV + (HYPER_FOV - baseFOV) * self._hyperdriveBlend
-	else
-		self._targetFOV = baseFOV
-		local fovSpeed = (self._targetFOV > self._currentFOV) and FOV_ATTACK_SPEED or FOV_RECOVER_SPEED
-		self._currentFOV = self._currentFOV + (self._targetFOV - self._currentFOV) * math.min(fovSpeed * dt, 1)
+	if not self._rawFOVOverride then
+		local boosting = self._raceController:IsBoosting()
+		local baseFOV = boosting and BOOST_FOV or BASE_FOV
+		if self._hyperdriveBlend > 0 then
+			self._currentFOV = baseFOV + (HYPER_FOV - baseFOV) * self._hyperdriveBlend
+		else
+			self._targetFOV = baseFOV
+			local fovSpeed = (self._targetFOV > self._currentFOV) and FOV_ATTACK_SPEED or FOV_RECOVER_SPEED
+			self._currentFOV = self._currentFOV + (self._targetFOV - self._currentFOV) * math.min(fovSpeed * dt, 1)
+		end
 	end
 
 	if self._deathZoomActive then
@@ -223,7 +242,9 @@ function LakelandCameraController:_update(dt)
 		end
 	end
 
-	camera.FieldOfView = self._currentFOV + self._zoomPunchOffset
+	if not self._rawFOVOverride then
+		camera.FieldOfView = self._currentFOV + self._zoomPunchOffset
+	end
 end
 
 return LakelandCameraController

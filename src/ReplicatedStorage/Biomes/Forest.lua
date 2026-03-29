@@ -1,0 +1,65 @@
+return {
+	name = "Forest",
+	description = "A dense canopy world cloaked in emerald twilight. Tall ridges and thick fog reward careful exploration.",
+	accentColor = Color3.fromRGB(70, 190, 90),
+	planetColor = Color3.fromRGB(40, 140, 60),
+	tagline = "Dense canopy twilight",
+	material = Enum.Material.LeafyGrass,
+	amp = 15,
+	noiseScale = 0.0085,
+	seed = 789,
+	terrain = {
+		octaves = 5, lacunarity = 2, gain = 0.46, ridgeWeight = 0.22, warpAmp = 17,
+		verticalStuds = 132, caveEnabled = true, caveThreshold = 0.39, caveScale = 0.036,
+		caveSkinVoxels = 2, heightScale = 1.08,
+	},
+	atmosphere = {
+		fogColor = Color3.fromRGB(70, 110, 70), decay = Color3.fromRGB(55, 95, 50),
+		density = 0.18, haze = 2, glare = 0.04,
+	},
+	bloom = { intensity = 0.03, size = 10, threshold = 1.3 },
+	cc = { tint = Color3.fromRGB(220, 240, 215), brightness = 0.02, contrast = 0.08, saturation = 0.2 },
+	lighting = {
+		clockTime = 10, brightness = 1.8, ambient = Color3.fromRGB(70, 100, 65),
+		outdoorAmbient = Color3.fromRGB(60, 90, 55), fogColor = Color3.fromRGB(70, 110, 70),
+		fogStart = 80, fogEnd = 500, envDiffuse = 0.5, envSpecular = 0.2, globalShadows = true,
+	},
+	orbit = { radius = 0.30, angle = math.rad(18) },
+	elements = {
+		{
+			type = "lsystem", density = 0.02, cell = 12, minScale = 2.5, maxScale = 4.0,
+			rule = {
+				name = "AncientTree", axiom = "F",
+				rules = { F = "FF+[+F-FL]-[-F+FL]" },
+				iterations = 4, angle = 22,
+				segmentLength = 7, segmentThickness = 3.2,
+				lengthDecay = 0.7, thicknessDecay = 0.64,
+				material = Enum.Material.Wood, color = Color3.fromRGB(55, 40, 28),
+				leafEnabled = true, leafSize = 5, leafColor = Color3.fromRGB(35, 120, 45),
+			},
+		},
+		{
+			type = "lsystem", density = 0.012, cell = 14, minScale = 1.2, maxScale = 2.2,
+			rule = {
+				name = "ThickBrush", axiom = "F",
+				rules = { F = "[+FL][-FL][^FL]F" },
+				iterations = 2, angle = 38,
+				segmentLength = 3.0, segmentThickness = 1.2,
+				lengthDecay = 0.6, thicknessDecay = 0.55,
+				material = Enum.Material.Grass, color = Color3.fromRGB(40, 100, 35),
+				leafEnabled = true, leafSize = 3.0, leafColor = Color3.fromRGB(50, 160, 55),
+			},
+		},
+		{
+			type = "simple", name = "MossMonolith", density = 0.012, cell = 14,
+			sizeMin = Vector3.new(5, 10, 5), sizeMax = Vector3.new(12, 22, 12),
+			material = Enum.Material.Mud, color = Color3.fromRGB(55, 70, 45),
+		},
+		{
+			type = "simple", name = "MossRock", density = 0.01, cell = 12,
+			shape = "Ball",
+			sizeMin = Vector3.new(4, 3, 4), sizeMax = Vector3.new(10, 6, 10),
+			material = Enum.Material.Mud, color = Color3.fromRGB(55, 70, 45),
+		},
+	},
+}

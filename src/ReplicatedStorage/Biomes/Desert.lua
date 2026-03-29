@@ -1,0 +1,65 @@
+return {
+	name = "Desert",
+	description = "Endless sun-scorched dunes shimmer under a blazing sky. Low amplitude terrain hides sudden drops in the haze.",
+	accentColor = Color3.fromRGB(255, 210, 120),
+	planetColor = Color3.fromRGB(220, 180, 80),
+	tagline = "Endless sun-scorched dunes",
+	material = Enum.Material.Sand,
+	amp = 9,
+	noiseScale = 0.0045,
+	seed = 137,
+	terrain = {
+		octaves = 5, lacunarity = 2.1, gain = 0.52, ridgeWeight = 0.35, warpAmp = 18,
+		verticalStuds = 120, caveEnabled = true, caveThreshold = 0.48, caveScale = 0.028,
+		caveSkinVoxels = 2, heightScale = 1.15,
+	},
+	atmosphere = {
+		fogColor = Color3.fromRGB(235, 200, 140), decay = Color3.fromRGB(220, 170, 100),
+		density = 0.22, haze = 5, glare = 0.25,
+	},
+	bloom = { intensity = 0.06, size = 18, threshold = 0.9 },
+	cc = { tint = Color3.fromRGB(255, 230, 190), brightness = 0.06, contrast = 0.12, saturation = 0.0 },
+	lighting = {
+		clockTime = 11, brightness = 3, ambient = Color3.fromRGB(120, 100, 70),
+		outdoorAmbient = Color3.fromRGB(110, 90, 60), fogColor = Color3.fromRGB(235, 200, 140),
+		fogStart = 80, fogEnd = 600, envDiffuse = 0.7, envSpecular = 0.5, globalShadows = true,
+	},
+	orbit = { radius = 0.24, angle = math.rad(162) },
+	elements = {
+		{
+			type = "lsystem", density = 0.02, cell = 10, minScale = 2.0, maxScale = 3.5,
+			rule = {
+				name = "GiantCactus", axiom = "F",
+				rules = { F = "F[+F][-F]FF" },
+				iterations = 4, angle = 16,
+				segmentLength = 5.5, segmentThickness = 2.4,
+				lengthDecay = 0.82, thicknessDecay = 0.78,
+				material = Enum.Material.Sand, color = Color3.fromRGB(200, 150, 70),
+				leafEnabled = true, leafSize = 3.5, leafColor = Color3.fromRGB(255, 100, 40),
+			},
+		},
+		{
+			type = "lsystem", density = 0.01, cell = 16, minScale = 2.5, maxScale = 4.0,
+			rule = {
+				name = "SandstoneArch", axiom = "F",
+				rules = { F = "FF-[-F+F+F]+[+F-F-F]" },
+				iterations = 3, angle = 28,
+				segmentLength = 7, segmentThickness = 3.2,
+				lengthDecay = 0.75, thicknessDecay = 0.7,
+				material = Enum.Material.Sandstone, color = Color3.fromRGB(210, 170, 110),
+				leafEnabled = false,
+			},
+		},
+		{
+			type = "simple", name = "SandstoneMonolith", density = 0.018, cell = 10,
+			sizeMin = Vector3.new(4, 10, 4), sizeMax = Vector3.new(10, 25, 10),
+			material = Enum.Material.Sandstone, color = Color3.fromRGB(210, 170, 110),
+		},
+		{
+			type = "simple", name = "DuneRock", density = 0.01, cell = 12,
+			shape = "Ball",
+			sizeMin = Vector3.new(4, 3, 4), sizeMax = Vector3.new(12, 8, 10),
+			material = Enum.Material.Sandstone, color = Color3.fromRGB(180, 140, 90),
+		},
+	},
+}

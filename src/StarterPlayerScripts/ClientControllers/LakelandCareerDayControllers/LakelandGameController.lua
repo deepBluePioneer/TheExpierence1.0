@@ -25,6 +25,8 @@ local LakelandEndGameUI = require(ControllersFolder.LakelandEndGameUI)
 local LakelandBombUI = require(ControllersFolder.LakelandBombUI)
 local LakelandWipeTransition = require(ControllersFolder.LakelandWipeTransition)
 local LakelandDangerVignetteUI = require(ControllersFolder.LakelandDangerVignetteUI)
+local LakelandGalacticMapUI = require(ControllersFolder.LakelandGalacticMapUI)
+local LakelandLobbyConfig = require(ReplicatedStorage.Source.LakelandLobbyConfig)
 
 local END_SCREEN_DURATION = 5
 
@@ -36,11 +38,10 @@ local STATES = {
 	GAME_OVER = "GAME_OVER",
 }
 
--- Match LakelandDataService: center Y=50, thickness=4 → top surface Y=52
-local LOBBY_CENTER = Vector3.new(0, 50, -200)
-local LOBBY_PLATFORM_SIZE = Vector3.new(200, 4, 200)
-local LOBBY_PLATFORM_THICKNESS = 4
-local LOBBY_SURFACE_Y = LOBBY_CENTER.Y + LOBBY_PLATFORM_THICKNESS / 2
+local LOBBY_CENTER = LakelandLobbyConfig.ORIGIN
+local LOBBY_PLATFORM_SIZE = LakelandLobbyConfig.PLATFORM_SIZE
+local LOBBY_PLATFORM_THICKNESS = LOBBY_PLATFORM_SIZE.Y
+local LOBBY_SURFACE_Y = LakelandLobbyConfig.getSurfaceY()
 local LOBBY_SPAWN_POS = Vector3.new(LOBBY_CENTER.X, LOBBY_SURFACE_Y + 3, LOBBY_CENTER.Z + 15)
 
 ---------------------------------------------------------------------------
@@ -92,6 +93,7 @@ local LakelandGameController = Knit.CreateController({
 	_lobbyReady = false,
 	_chosenTemplate = nil,
 	_lobbyHyperjumpGui = nil,
+	_lobbyGalacticMapUI = nil,
 })
 
 local MAX_LEADERBOARD_ENTRIES = 10
@@ -466,12 +468,8 @@ end
 function LakelandGameController:_enterLobby()
 	self:_setState(STATES.LOBBY)
 
-	Workspace.Terrain:FillBlock(
-		CFrame.new(LOBBY_CENTER),
-		LOBBY_PLATFORM_SIZE,
-		Enum.Material.Grass
-	)
-
+	-- Lobby floor is a Part on the server (CreateLobbyPlatform), not Terrain voxels,
+	-- so biome/race Terrain generation stays the only voxel writer in that system.
 	self._dataService:CreateLobbyPlatform()
 	self._dataService:SpawnLobbyMachines()
 
@@ -585,60 +583,14 @@ function LakelandGameController:_showLobbyHyperjumpButton()
 	local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
 	if not playerGui then return end
 
-	local sg = Instance.new("ScreenGui")
-	sg.Name = "LobbyHyperjumpButton"
-	sg.ResetOnSpawn = false
-	sg.IgnoreGuiInset = true
-	sg.DisplayOrder = 65
-	sg.Parent = playerGui
-	self._lobbyHyperjumpGui = sg
+	if not self._lobbyGalacticMapUI then
+		self._lobbyGalacticMapUI = LakelandGalacticMapUI.new(playerGui)
+	end
 
-	local btn = Instance.new("TextButton")
-	btn.Name = "JumpBtn"
-	btn.AnchorPoint = Vector2.new(0.5, 1)
-	btn.Position = UDim2.fromScale(0.5, 1.1)
-	btn.Size = UDim2.fromScale(0.22, 0.055)
-	btn.BackgroundColor3 = Color3.fromRGB(8, 14, 28)
-	btn.BackgroundTransparency = 0.1
-	btn.Text = "JUMP TO HYPERSPACE"
-	btn.TextColor3 = Color3.fromRGB(0, 200, 255)
-	btn.Font = Enum.Font.GothamBold
-	btn.TextScaled = true
-	btn.BorderSizePixel = 0
-	btn.AutoButtonColor = false
-	btn.ZIndex = 2
-	btn.Parent = sg
-
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0.35, 0)
-	corner.Parent = btn
-
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = Color3.fromRGB(0, 200, 255)
-	stroke.Thickness = 2
-	stroke.Transparency = 0.15
-	stroke.Parent = btn
-
-	local pad = Instance.new("UIPadding")
-	pad.PaddingTop = UDim.new(0.1, 0)
-	pad.PaddingBottom = UDim.new(0.1, 0)
-	pad.Parent = btn
-
-	TweenService:Create(btn, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Position = UDim2.fromScale(0.5, 0.92),
-	}):Play()
-
-	btn.MouseEnter:Connect(function()
-		TweenService:Create(stroke, TweenInfo.new(0.12), { Thickness = 3, Transparency = 0 }):Play()
-		TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundTransparency = 0 }):Play()
-	end)
-	btn.MouseLeave:Connect(function()
-		TweenService:Create(stroke, TweenInfo.new(0.12), { Thickness = 2, Transparency = 0.15 }):Play()
-		TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundTransparency = 0.1 }):Play()
-	end)
-
-	btn.MouseButton1Click:Connect(function()
+	self._lobbyGalacticMapUI.show(function(chosenIndex)
 		if not self._chosenTemplate then return end
+		self._lobbyGalacticMapUI.hide()
+		self._pendingBiomeChoice = chosenIndex
 		self:_launchFromLobby()
 	end)
 end
@@ -647,6 +599,9 @@ function LakelandGameController:_hideLobbyHyperjumpButton()
 	if self._lobbyHyperjumpGui then
 		self._lobbyHyperjumpGui:Destroy()
 		self._lobbyHyperjumpGui = nil
+	end
+	if self._lobbyGalacticMapUI and self._lobbyGalacticMapUI.isVisible() then
+		self._lobbyGalacticMapUI.hide()
 	end
 end
 
@@ -661,9 +616,13 @@ function LakelandGameController:_launchFromLobby()
 	self._currentPlayerName = LocalPlayer.Name
 	self._playerNameValue:set(LocalPlayer.Name)
 
+	local biomeChoice = self._pendingBiomeChoice
+	self._pendingBiomeChoice = nil
+
 	task.spawn(function()
 		self:_stopBGM()
 		self._dataService:DestroyLobbyMachines()
+		self._dataService:DestroyLobbyPlatform()
 
 		self._dataService:SpawnSpecificMachine(templateName):expect()
 		self:_freezeCharacter()
@@ -673,6 +632,10 @@ function LakelandGameController:_launchFromLobby()
 		self._bombUI.reset()
 		self._dangerVignette.reset()
 		self:_shuffleGameTracks()
+
+		if biomeChoice and self._raceController then
+			self._raceController._pendingBiomeChoice = biomeChoice
+		end
 
 		self._raceController:_setupDarkEnvironment()
 		self:_flashTransition()
@@ -876,6 +839,7 @@ function LakelandGameController:_cleanup()
 	self:_stopUnseatWatch()
 	self:_hideLobbyHyperjumpButton()
 	self._chosenTemplate = nil
+	self._pendingBiomeChoice = nil
 
 	local camCtrl = self._raceController and self._raceController._cameraController
 	if camCtrl then

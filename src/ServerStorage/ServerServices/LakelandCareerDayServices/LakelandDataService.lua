@@ -3,13 +3,15 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
-local MACHINE_SPAWN_POSITION = Vector3.new(0, 5, 0)
--- FillBlock CFrame position is the region center; top surface Y = center.Y + size.Y/2
-local LOBBY_ORIGIN = Vector3.new(0, 50, -200)
-local LOBBY_PLATFORM_SIZE = Vector3.new(200, 4, 200)
-local LOBBY_SURFACE_Y = LOBBY_ORIGIN.Y + LOBBY_PLATFORM_SIZE.Y / 2
-local LOBBY_MACHINE_SPACING = 20
-local LOBBY_MACHINE_CLEARANCE = 0.15
+local LakelandLobbyConfig = require(ReplicatedStorage.Source.LakelandLobbyConfig)
+
+local MACHINE_SPAWN_POSITION = Vector3.new(0, 8, 0)
+-- Lobby platform Part uses ORIGIN as center; top surface Y = getSurfaceY()
+local LOBBY_ORIGIN = LakelandLobbyConfig.ORIGIN
+local LOBBY_PLATFORM_SIZE = LakelandLobbyConfig.PLATFORM_SIZE
+local LOBBY_SURFACE_Y = LakelandLobbyConfig.getSurfaceY()
+local LOBBY_MACHINE_SPACING = LakelandLobbyConfig.MACHINE_SPACING
+local LOBBY_MACHINE_CLEARANCE = LakelandLobbyConfig.MACHINE_CLEARANCE
 
 local Packages = ReplicatedStorage.Packages
 local Knit = require(Packages.Knit)
@@ -153,8 +155,20 @@ function LakelandDataService.Client:DestroyLobbyMachines(_player)
 	self.Server:DestroyLobbyMachines()
 end
 
+function LakelandDataService.Client:DestroyLobbyPlatform(_player)
+	self.Server:DestroyLobbyPlatform()
+end
+
 function LakelandDataService.Client:SpawnSpecificMachine(_player, templateName)
 	return self.Server:SpawnSpecificMachine(templateName)
+end
+
+function LakelandDataService.Client:PlaceMachineOnTerrain(_player, groundY)
+	self.Server:PlaceMachineOnTerrain(groundY)
+end
+
+function LakelandDataService.Client:SyncMachineTransform(_player, cf)
+	return self.Server:SyncMachineTransform(cf)
 end
 
 function LakelandDataService.Client:GetProfiles(_player)
@@ -206,6 +220,13 @@ function LakelandDataService:SpawnMachine()
 		machine:PivotTo(CFrame.new(MACHINE_SPAWN_POSITION))
 	end
 
+	for _, descendant in ipairs(machine:GetDescendants()) do
+		if descendant:IsA("WeldConstraint") then
+			descendant.Enabled = false
+			descendant.Enabled = true
+		end
+	end
+
 	machine.Parent = Workspace
 	print("[LakelandDataService] Spawned machine: " .. template.Name)
 	return template.Name
@@ -219,13 +240,37 @@ function LakelandDataService:DestroyMachine()
 end
 
 function LakelandDataService:CreateLobbyPlatform()
+	-- Use a Part for the lobby so Workspace.Terrain is only used for biome/race volumes
+	-- (avoids double grass slabs from client+server FillBlock and keeps one terrain “system”).
 	local terrain = Workspace.Terrain
-	terrain:FillBlock(
-		CFrame.new(LOBBY_ORIGIN),
-		LOBBY_PLATFORM_SIZE,
-		Enum.Material.Grass
-	)
-	print("[LakelandDataService] Created lobby platform at " .. tostring(LOBBY_ORIGIN) .. " surfaceY=" .. LOBBY_SURFACE_Y)
+	local half = LOBBY_PLATFORM_SIZE * 0.5
+	local minV = LOBBY_ORIGIN - half
+	local maxV = LOBBY_ORIGIN + half
+	local clearRes = 4
+	terrain:FillRegion(Region3.new(minV, maxV):ExpandToGrid(clearRes), clearRes, Enum.Material.Air)
+
+	local name = "LakelandLobbyPlatform"
+	local existing = Workspace:FindFirstChild(name)
+	if existing then
+		existing:Destroy()
+	end
+	local floor = Instance.new("Part")
+	floor.Name = name
+	floor.Size = LOBBY_PLATFORM_SIZE
+	floor.CFrame = CFrame.new(LOBBY_ORIGIN)
+	floor.Anchored = true
+	floor.CanCollide = true
+	floor.Material = Enum.Material.Grass
+	floor.CastShadow = true
+	floor.Parent = Workspace
+	print("[LakelandDataService] Created lobby platform (Part) at " .. tostring(LOBBY_ORIGIN) .. " surfaceY=" .. LOBBY_SURFACE_Y)
+end
+
+function LakelandDataService:DestroyLobbyPlatform()
+	local existing = Workspace:FindFirstChild("LakelandLobbyPlatform")
+	if existing then
+		existing:Destroy()
+	end
 end
 
 local function snapModelBottomToSurfaceY(model, surfaceY)
@@ -324,9 +369,39 @@ function LakelandDataService:SpawnSpecificMachine(templateName)
 		machine:PivotTo(CFrame.new(MACHINE_SPAWN_POSITION))
 	end
 
+	for _, desc in ipairs(machine:GetDescendants()) do
+		if desc:IsA("WeldConstraint") then
+			desc.Enabled = false
+			desc.Enabled = true
+		end
+	end
+
 	machine.Parent = Workspace
 	print("[LakelandDataService] Spawned specific machine: " .. templateName)
 	return templateName
+end
+
+function LakelandDataService:SyncMachineTransform(cf)
+	local machine = Workspace:FindFirstChild("ActiveMachine")
+	if not machine or not machine.PrimaryPart then return true end
+	machine:PivotTo(cf)
+	for _, desc in ipairs(machine:GetDescendants()) do
+		if desc:IsA("WeldConstraint") then
+			desc.Enabled = false
+			desc.Enabled = true
+		end
+	end
+	return true
+end
+
+function LakelandDataService:PlaceMachineOnTerrain(groundY)
+	local machine = Workspace:FindFirstChild("ActiveMachine")
+	if not machine or not machine.PrimaryPart then return end
+	local cf, size = machine:GetBoundingBox()
+	local bottomY = cf.Position.Y - size.Y * 0.5
+	local pivotCF = machine:GetPivot()
+	local deltaY = groundY - bottomY
+	machine:PivotTo(pivotCF + Vector3.new(0, deltaY, 0))
 end
 
 ----------------------------------------------------------------
@@ -376,6 +451,18 @@ function LakelandDataService:UnseatPlayer(player)
 	humanoid.Jump = true
 	humanoid.JumpHeight = 7.2
 	humanoid.JumpPower = 50
+
+	local machine = Workspace:FindFirstChild("ActiveMachine")
+	if machine then
+		for _, desc in ipairs(machine:GetDescendants()) do
+			if desc:IsA("BasePart") then
+				desc.Anchored = true
+			end
+		end
+		if machine.PrimaryPart then
+			machine:PivotTo(machine:GetPivot())
+		end
+	end
 end
 
 ----------------------------------------------------------------
