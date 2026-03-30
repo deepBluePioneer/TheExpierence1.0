@@ -9,6 +9,7 @@ local HubPlaceID = 91627323095607
 local CityTrialPlaceID = 107271232251787
 local LakelandCareerDayPlaceID = 108316442650035
 local ProvingGroundsPlaceID = 83678239321664
+local PacManPlaceID = 131551483824515
 
 -- Controller directories
 local ClientControllers = StarterPlayerScripts.Source.ClientControllers
@@ -16,6 +17,7 @@ local HubControllers = ClientControllers.HubControllers
 local CityTrialControllers = ClientControllers.CityTrialControllers
 local LakelandCareerDayControllers = ClientControllers.LakelandCareerDayControllers
 local EyeOfSauronControllers = ClientControllers.EyeOfSauronControllers
+local PacManControllers = ClientControllers.PacManControllers
 
 -- Function to require controllers recursively
 local function requireControllers(directory)
@@ -43,6 +45,8 @@ local function loadControllersForPlace(placeId)
 		requireControllers(LakelandCareerDayControllers)
 	elseif placeId == ProvingGroundsPlaceID then
 		requireControllers(EyeOfSauronControllers)
+	elseif placeId == PacManPlaceID then
+		requireControllers(PacManControllers)
 	elseif RunService:IsStudio() then
 		warn("Studio detected with PlaceId " .. placeId .. " -- loading Lakeland Career Day controllers for testing")
 		requireControllers(LakelandCareerDayControllers)

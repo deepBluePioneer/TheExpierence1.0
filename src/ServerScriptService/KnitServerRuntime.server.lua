@@ -12,12 +12,14 @@ local HubPlaceID = 91627323095607
 local CityTrialPlaceID = 107271232251787
 local LakelandCareerDayPlaceID = 108316442650035
 local ProvingGroundsPlaceID = 83678239321664
+local PacManPlaceID = 131551483824515
 
 -- Service directories
 local HubServices = ServerServices.HubServices
 local CityTrialServices = ServerServices.CityTrialServices
 local LakelandCareerDayServices = ServerServices.LakelandCareerDayServices
 local EyeOfSauronServices = ServerServices.EyeOfSauronServices
+local PacManServices = ServerServices.PacManServices
 
 -- Function to require services recursively
 local function requireServices(directory)
@@ -45,6 +47,8 @@ local function loadServicesForPlace(placeId)
 		requireServices(LakelandCareerDayServices)
 	elseif placeId == ProvingGroundsPlaceID then
 		requireServices(EyeOfSauronServices)
+	elseif placeId == PacManPlaceID then
+		requireServices(PacManServices)
 	elseif RunService:IsStudio() then
 		warn("Studio detected with PlaceId " .. placeId .. " -- loading Lakeland Career Day services for testing")
 		requireServices(LakelandCareerDayServices)
