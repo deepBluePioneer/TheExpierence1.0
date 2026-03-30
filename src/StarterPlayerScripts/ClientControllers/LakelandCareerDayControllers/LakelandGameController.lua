@@ -637,8 +637,6 @@ function LakelandGameController:_launchFromLobby()
 			self._raceController._pendingBiomeChoice = biomeChoice
 		end
 
-		self._raceController:_setupDarkEnvironment()
-		self:_flashTransition()
 		self:_setState(STATES.PLAYING)
 		self:_bindHealthWatch()
 	end)
@@ -848,6 +846,24 @@ function LakelandGameController:_cleanup()
 
 	self:_unseatPlayer()
 	self:_destroyMachine()
+end
+
+function LakelandGameController:returnToLobby()
+	if self._gameEnding then return end
+	self._gameEnding = true
+
+	task.spawn(function()
+		self._raceController:StopRace()
+
+		self._wipe.wipe(function()
+			pcall(function()
+				self:_cleanup()
+			end)
+			self._gameEnding = false
+			self:_playMenuMusic()
+			self:_enterLobby()
+		end)
+	end)
 end
 
 function LakelandGameController:_freezeCharacter()

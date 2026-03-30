@@ -271,6 +271,11 @@ function LakelandDataService:DestroyLobbyPlatform()
 	if existing then
 		existing:Destroy()
 	end
+
+	local baseplate = Workspace:FindFirstChild("Baseplate")
+	if baseplate then
+		baseplate:Destroy()
+	end
 end
 
 local function snapModelBottomToSurfaceY(model, surfaceY)

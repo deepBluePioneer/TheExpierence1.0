@@ -663,14 +663,14 @@ local BLDG_BEAT_EXTRA   = 10
 local HYPER = {
 	TRIGGER_TIME     = 10,
 	MIN_DURATION     = 8,
-	FADE_IN          = 0.5,
-	FADE_OUT         = 1.5,
+	FADE_IN          = 1.5,
+	FADE_OUT         = 1.8,
 	FOV              = 110,
-	WARP_BUILDUP_FOV = 85,
-	WARP_BUILDUP     = 2.2,
+	WARP_BUILDUP_FOV = 80,
+	WARP_BUILDUP     = 2.6,
 	WARP_SLING_FOV   = 130,
-	WARP_SLING       = 0.5,
-	WARP_FLASH       = 0.8,
+	WARP_SLING       = 0.6,
+	WARP_FLASH       = 1.2,
 	LINE_POOL        = 900,
 	LINE_SPEED       = 700,
 	LINE_LENGTH_MIN  = 20,
@@ -682,13 +682,13 @@ local HYPER = {
 	},
 }
 
-local REENTRY_DURATION = 1.6
+local REENTRY_DURATION = 1.8
 local REENTRY_FADE_WIDTH = 60
 
 local HYPER_RETURN = {
-	DURATION  = 3,
-	FADE_IN   = 0.6,
-	FADE_OUT  = 1,
+	DURATION  = 4.5,
+	FADE_IN   = 2.2,
+	FADE_OUT  = 1.5,
 }
 
 local TERRAIN_BASE = {
@@ -955,6 +955,78 @@ function LakelandRaceController:_setupDarkEnvironment()
 	self._raceCC.TintColor = Color3.fromRGB(200, 215, 255)
 
 	self._envZoneLerp = { fogColor = Color3.fromRGB(4, 8, 22), fogDecay = Color3.fromRGB(8, 20, 50), ambientTint = Color3.fromRGB(10, 14, 28), bloomSize = 16, ccTint = Color3.fromRGB(200, 215, 255) }
+end
+
+function LakelandRaceController:_tweenToDarkEnvironment(duration)
+	self:_ensureLightingObjects()
+	duration = duration or 1.5
+	local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+
+	local sky = Lighting:FindFirstChildOfClass("Sky")
+	if sky then sky:Destroy() end
+
+	local lightProxy = Instance.new("NumberValue")
+	lightProxy.Value = Lighting.ClockTime
+	lightProxy:GetPropertyChangedSignal("Value"):Connect(function()
+		Lighting.ClockTime = lightProxy.Value
+	end)
+	TweenService:Create(lightProxy, tweenInfo, { Value = 0 }):Play()
+	Debris:AddItem(lightProxy, duration + 0.5)
+
+	local brightProxy = Instance.new("NumberValue")
+	brightProxy.Value = Lighting.Brightness
+	brightProxy:GetPropertyChangedSignal("Value"):Connect(function()
+		Lighting.Brightness = brightProxy.Value
+	end)
+	TweenService:Create(brightProxy, tweenInfo, { Value = 0 }):Play()
+	Debris:AddItem(brightProxy, duration + 0.5)
+
+	local diffProxy = Instance.new("NumberValue")
+	diffProxy.Value = Lighting.EnvironmentDiffuseScale
+	diffProxy:GetPropertyChangedSignal("Value"):Connect(function()
+		Lighting.EnvironmentDiffuseScale = diffProxy.Value
+	end)
+	TweenService:Create(diffProxy, tweenInfo, { Value = 0 }):Play()
+	Debris:AddItem(diffProxy, duration + 0.5)
+
+	local specProxy = Instance.new("NumberValue")
+	specProxy.Value = Lighting.EnvironmentSpecularScale
+	specProxy:GetPropertyChangedSignal("Value"):Connect(function()
+		Lighting.EnvironmentSpecularScale = specProxy.Value
+	end)
+	TweenService:Create(specProxy, tweenInfo, { Value = 0 }):Play()
+	Debris:AddItem(specProxy, duration + 0.5)
+
+	Lighting.GlobalShadows = true
+
+	TweenService:Create(self._atmosphere, tweenInfo, {
+		Density = 0.35,
+		Color = Color3.fromRGB(4, 8, 22),
+		Decay = Color3.fromRGB(8, 20, 50),
+		Glare = 0.1,
+		Haze = 2,
+	}):Play()
+
+	TweenService:Create(self._bloom, tweenInfo, {
+		Intensity = 0.015,
+		Size = 3,
+		Threshold = 2.5,
+	}):Play()
+
+	TweenService:Create(self._raceCC, tweenInfo, {
+		Brightness = 0,
+		Contrast = 0.05,
+		Saturation = 0.1,
+		TintColor = Color3.fromRGB(200, 215, 255),
+	}):Play()
+
+	self._envZoneLerp = {
+		fogColor = Color3.fromRGB(4, 8, 22),
+		fogDecay = Color3.fromRGB(8, 20, 50),
+		ambientTint = Color3.fromRGB(10, 14, 28),
+		bloomSize = 16,
+		ccTint = Color3.fromRGB(200, 215, 255),
+	}
 end
 
 function LakelandRaceController:_saveBlockSpaceLighting()
@@ -1740,7 +1812,7 @@ function LakelandRaceController:_updateWorldScroll(dt)
 			self._cameraController:SetHyperdriveFOV(hBlend)
 		end
 
-		if self._terrainMode and not self._returnHyperActive then
+		if self._terrainMode and not self._returnHyperActive and not self._hyperdriveActive then
 			local biome = self._activeBiome or BIOMES[1]
 			local atm = biome.atmosphere
 			local cc = biome.cc
@@ -2916,7 +2988,7 @@ end
 ---------------------------------------------------------------------------
 function LakelandRaceController:_updateHyperdriveLines(dt)
 	local blend
-	if self._returnHyperActive then
+	if self._returnHyperActive or self._hyperdriveActive then
 		blend = self._hyperdriveBlend
 	elseif self._terrainMode then
 		blend = self._hyperExitBlend
@@ -2997,13 +3069,22 @@ function LakelandRaceController:_onPlayerReseated()
 	end
 
 	if self._galacticMapUI then
+		local activeBiomeIdx = self._activeBiome and table.find(BIOMES, self._activeBiome)
 		self._galacticMapUI.show(function(chosenIndex)
 			if not self._awaitingHyperjump then return end
 			self._awaitingHyperjump = false
-			self._pendingBiomeChoice = chosenIndex
 			self._galacticMapUI.hide()
+
+			if chosenIndex == LakelandGalacticMapUI.LOBBY_INDEX then
+				if self._gameController then
+					self._gameController:returnToLobby()
+				end
+				return
+			end
+
+			self._pendingBiomeChoice = chosenIndex
 			self:_triggerReturnHyperdrive()
-		end)
+		end, activeBiomeIdx, true)
 	end
 end
 
@@ -3136,11 +3217,8 @@ function LakelandRaceController:_triggerReturnHyperdrive()
 	end
 
 	self:_playWarpFlash(function()
-		clearRaceTerrainVoxels(self)
-		self:_setupDarkEnvironment()
+		self:_cleanupBlockSpace()
 
-		stopGroupLoop(self._terrainSfxEmitter)
-		self._terrainSfxEmitter = nil
 		stopGroupLoop(self._hyperSfxEmitter)
 		self._hyperSfxEmitter = startGroupLoop(SFX_HyperSpace)
 
@@ -3548,7 +3626,13 @@ function LakelandRaceController:PositionAtStart()
 	self._reentryActive = false
 	self._reentryTimer = 0
 	self._obstacleGraceTimer = 0
-	self:_setupDarkEnvironment()
+
+	local wantHyperjump = self._initialHyperjump
+	self._initialHyperjump = false
+
+	if not wantHyperjump then
+		self:_setupDarkEnvironment()
+	end
 	clearRaceTerrainVoxels(self)
 	local chosen = math.random(1, #BIOMES)
 	self._activeBiome = BIOMES[chosen]
@@ -3559,9 +3643,6 @@ function LakelandRaceController:PositionAtStart()
 	if self._cameraController then
 		self._cameraController:SetHyperdriveFOV(0)
 	end
-
-	local wantHyperjump = self._initialHyperjump
-	self._initialHyperjump = false
 
 	if wantHyperjump then
 		self:_hideHUD()
@@ -3599,15 +3680,24 @@ function LakelandRaceController:_showInitialHyperjumpButton()
 	self._awaitingHyperjump = true
 
 	if self._galacticMapUI then
+		local activeBiomeIdx = self._activeBiome and table.find(BIOMES, self._activeBiome)
 		self._galacticMapUI.show(function(chosenIndex)
 			if not self._awaitingHyperjump then return end
 			self._awaitingHyperjump = false
-			self._pendingBiomeChoice = chosenIndex
 			self._galacticMapUI.hide()
+
+			if chosenIndex == LakelandGalacticMapUI.LOBBY_INDEX then
+				if self._gameController then
+					self._gameController:returnToLobby()
+				end
+				return
+			end
+
+			self._pendingBiomeChoice = chosenIndex
 			self._obstaclesVisible = true
 			self:StartRace()
 			self:_triggerInitialHyperdrive()
-		end)
+		end, activeBiomeIdx, true)
 	end
 end
 
@@ -3787,6 +3877,16 @@ function LakelandRaceController:StopRace()
 
 	self:_hideAllPooledObjects()
 	self:_resetAtmosphere()
+end
+
+function LakelandRaceController:_cleanupBlockSpace()
+	clearRaceTerrainVoxels(self)
+	self:_hideAllPooledObjects()
+	self:_setupDarkEnvironment()
+	self._terrainMode = true
+
+	stopGroupLoop(self._terrainSfxEmitter)
+	self._terrainSfxEmitter = nil
 end
 
 function LakelandRaceController:_hideAllPooledObjects()
@@ -4337,6 +4437,8 @@ function LakelandRaceController:_updateMovement(dt)
 		end
 
 		self:_playWarpFlash(function()
+			self:_cleanupBlockSpace()
+
 			self._hyperdriveActive = true
 			self._hyperdriveTimer = 0
 
