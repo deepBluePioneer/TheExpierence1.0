@@ -54,24 +54,25 @@ function PacManDebugController:KnitStart()
 	if not Gizmo then return end
 
 	RunService.RenderStepped:Connect(function()
-		local pacman = Workspace:FindFirstChild("PacMan")
-		if not pacman then return end
+		for _, child in ipairs(Workspace:GetChildren()) do
+			if not child.Name:match("^PacMan_") then continue end
 
-		local anchor = nil
-		if pacman:IsA("Model") and pacman.PrimaryPart then
-			anchor = pacman.PrimaryPart
-		else
-			anchor = pacman:FindFirstChildWhichIsA("BasePart", true)
+			local anchor = nil
+			if child:IsA("Model") and child.PrimaryPart then
+				anchor = child.PrimaryPart
+			else
+				anchor = child:FindFirstChildWhichIsA("BasePart", true)
+			end
+			if not anchor then continue end
+
+			local origin = anchor.Position
+			local forward = anchor.CFrame.LookVector
+			local color = self:_getDirectionColor(forward)
+
+			Gizmo.PushProperty("AlwaysOnTop", true)
+			Gizmo.PushProperty("Color3", color)
+			Gizmo.Ray:Draw(origin, origin + forward * RAY_LENGTH)
 		end
-		if not anchor then return end
-
-		local origin = anchor.Position
-		local forward = anchor.CFrame.LookVector
-		local color = self:_getDirectionColor(forward)
-
-		Gizmo.PushProperty("AlwaysOnTop", true)
-		Gizmo.PushProperty("Color3", color)
-		Gizmo.Ray:Draw(origin, origin + forward * RAY_LENGTH)
 	end)
 
 	print("[PacManDebugController] Direction ray active")

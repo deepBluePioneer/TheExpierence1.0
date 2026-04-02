@@ -1,4 +1,6 @@
+local CollectionService = game:GetService("CollectionService")
 local Lighting = game:GetService("Lighting")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -40,13 +42,20 @@ local MOVE_DIRS = {
 	{ dr = 0, dc = 1 },
 }
 
-local PACMAN_MOVE_SPEED = 24
+local PACMAN_MOVE_SPEED = 48
 local PACMAN_HEIGHT = 8
+local PACMAN_COUNT = 3
 
 local LIGHT_SPACING = 2
 local LIGHT_COLOR = Color3.fromRGB(200, 160, 100)
 local LIGHT_BRIGHTNESS = 3
 local LIGHT_RANGE = 60
+
+local PELLET_TAG = "PacManPellet"
+local PELLET_SIZE = 2.5
+local PELLET_HEIGHT = 3
+local PELLET_COLOR = Color3.fromRGB(255, 255, 100)
+local PELLET_COLLECT_RANGE = 6
 
 local function dirToYAngle(dr, dc)
 	local worldX = dc
@@ -62,17 +71,17 @@ local PacManMazeService = Knit.CreateService({
 
 	_trove = nil,
 	_mazeFolder = nil,
-	_pacmanModel = nil,
+	_pacmans = {},
 	_grid = nil,
 	_gridRows = 0,
 	_gridCols = 0,
-	_pacRow = 0,
-	_pacCol = 0,
-	_pacMoving = false,
-	_pacDirR = 0,
-	_pacDirC = 1,
+	_totalPellets = 0,
+	_collectedPellets = 0,
+	_collectConn = nil,
 
 	MazeGenerated = Signal.new(),
+	PelletCollected = Signal.new(),
+	AllPelletsCollected = Signal.new(),
 })
 
 function PacManMazeService:KnitInit()
@@ -248,6 +257,13 @@ function PacManMazeService:_buildMaze(grid, gridRows, gridCols)
 	lightFolder.Name = "Lights"
 	lightFolder.Parent = folder
 
+	local pelletFolder = Instance.new("Folder")
+	pelletFolder.Name = "Pellets"
+	pelletFolder.Parent = folder
+
+	self._totalPellets = 0
+	self._collectedPellets = 0
+
 	local totalWidth = gridCols * CELL_SIZE
 	local totalDepth = gridRows * CELL_SIZE
 	local baseOrigin = ORIGIN - Vector3.new(totalWidth / 2, 0, totalDepth / 2)
@@ -292,6 +308,20 @@ function PacManMazeService:_buildMaze(grid, gridRows, gridCols)
 					pointLight.Shadows = true
 					pointLight.Parent = bulb
 				end
+
+				local pellet = Instance.new("Part")
+				pellet.Name = "Pellet_" .. r .. "_" .. c
+				pellet.Shape = Enum.PartType.Ball
+				pellet.Size = Vector3.new(PELLET_SIZE, PELLET_SIZE, PELLET_SIZE)
+				pellet.CFrame = CFrame.new(worldX, ORIGIN.Y + PELLET_HEIGHT, worldZ)
+				pellet.Anchored = true
+				pellet.CanCollide = false
+				pellet.Material = Enum.Material.Neon
+				pellet.Color = PELLET_COLOR
+				pellet.CastShadow = false
+				pellet.Parent = pelletFolder
+				CollectionService:AddTag(pellet, PELLET_TAG)
+				self._totalPellets += 1
 			else
 				local floor = Instance.new("Part")
 				floor.Name = "WallBase_" .. r .. "_" .. c
@@ -335,29 +365,31 @@ function PacManMazeService:_buildMaze(grid, gridRows, gridCols)
 	print("[PacManMazeService] Built maze: " .. gridRows .. "x" .. gridCols .. " (" .. (gridRows * gridCols) .. " cells)")
 end
 
-function PacManMazeService:_findPacManStartCell()
-	if not self._grid then return 2, 2 end
+function PacManMazeService:_findStartCells(count)
+	if not self._grid then return {} end
 
-	local centerR = math.floor(self._gridRows / 2)
-	local centerC = math.floor(self._gridCols / 2)
-	local bestR, bestC, bestDist = 2, 2, math.huge
-
+	local candidates = {}
 	for r = 2, self._gridRows - 1 do
 		for c = 2, self._gridCols - 1 do
 			if self._grid[r][c] == PATH then
-				local dist = math.abs(r - centerR) + math.abs(c - centerC)
-				if dist < bestDist then
-					bestR, bestC, bestDist = r, c, dist
-				end
+				table.insert(candidates, { r = r, c = c })
 			end
 		end
 	end
 
-	return bestR, bestC
+	self:_shuffle(candidates)
+
+	local spacing = math.max(math.floor(#candidates / (count + 1)), 1)
+	local results = {}
+	for i = 1, count do
+		local idx = math.min(i * spacing, #candidates)
+		table.insert(results, candidates[idx])
+	end
+
+	return results
 end
 
-function PacManMazeService:_setPacManCFrame(cf)
-	local clone = self._pacmanModel
+function PacManMazeService:_setCFrameOn(clone, cf)
 	if not clone then return end
 
 	if clone:IsA("Model") then
@@ -375,50 +407,61 @@ function PacManMazeService:_setPacManCFrame(cf)
 	end
 end
 
-function PacManMazeService:_spawnPacMan()
-	self:_destroyPacMan()
+function PacManMazeService:_spawnPacMans()
+	self:_destroyPacMans()
 
-	local clone = PACMAN_PREFAB:Clone()
-	clone.Name = "PacMan"
+	local starts = self:_findStartCells(PACMAN_COUNT)
 
-	local startR, startC = self:_findPacManStartCell()
-	self._pacRow = startR
-	self._pacCol = startC
+	for i, cell in ipairs(starts) do
+		local clone = PACMAN_PREFAB:Clone()
+		clone.Name = "PacMan_" .. i
 
-	local pos = self:GetCellWorldPosition(startR, startC) + Vector3.new(0, PACMAN_HEIGHT, 0)
-	local cf = CFrame.new(pos)
+		local pos = self:GetCellWorldPosition(cell.r, cell.c) + Vector3.new(0, PACMAN_HEIGHT, 0)
 
-	if clone:IsA("Model") then
-		clone:PivotTo(cf)
-	else
-		local anchor = clone:FindFirstChildWhichIsA("BasePart", true)
-		if anchor then
-			local offset = anchor.Position
-			for _, desc in ipairs(clone:GetDescendants()) do
-				if desc:IsA("BasePart") then
-					desc.CFrame = desc.CFrame - offset + pos
+		if clone:IsA("Model") then
+			clone:PivotTo(CFrame.new(pos))
+		else
+			local anchor = clone:FindFirstChildWhichIsA("BasePart", true)
+			if anchor then
+				local offset = anchor.Position
+				for _, desc in ipairs(clone:GetDescendants()) do
+					if desc:IsA("BasePart") then
+						desc.CFrame = desc.CFrame - offset + pos
+					end
 				end
 			end
 		end
+
+		clone.Parent = Workspace
+
+		local pac = {
+			model = clone,
+			row = cell.r,
+			col = cell.c,
+			dirR = 0,
+			dirC = 1,
+			moving = false,
+		}
+		table.insert(self._pacmans, pac)
+
+		print("[PacManMazeService] Spawned PacMan_" .. i .. " at cell (" .. cell.r .. ", " .. cell.c .. ")")
 	end
-
-	clone.Parent = Workspace
-	self._pacmanModel = clone
-	self._pacMoving = false
-
-	print("[PacManMazeService] Spawned PacMan at cell (" .. startR .. ", " .. startC .. ")")
 end
 
-function PacManMazeService:_destroyPacMan()
-	self:_stopPacManMovement()
+function PacManMazeService:_destroyPacMans()
+	self:_stopAllMovement()
 
-	if self._pacmanModel then
-		self._pacmanModel:Destroy()
-		self._pacmanModel = nil
+	for _, pac in ipairs(self._pacmans) do
+		if pac.model then
+			pac.model:Destroy()
+		end
 	end
-	local existing = Workspace:FindFirstChild("PacMan")
-	if existing then
-		existing:Destroy()
+	self._pacmans = {}
+
+	for _, child in ipairs(Workspace:GetChildren()) do
+		if child.Name:match("^PacMan") and child.Name ~= "PacManMaze" then
+			child:Destroy()
+		end
 	end
 end
 
@@ -441,33 +484,37 @@ function PacManMazeService:_getValidMoveDirections(r, c, excludeDr, excludeDc)
 	return valid
 end
 
-function PacManMazeService:_startPacManMovement()
-	self:_stopPacManMovement()
-	self._pacMoving = true
+function PacManMazeService:_startAllMovement()
+	self:_stopAllMovement()
 
-	task.spawn(function()
-		while self._pacMoving and self._pacmanModel do
-			self:_pacManStep()
-		end
-	end)
+	for _, pac in ipairs(self._pacmans) do
+		pac.moving = true
+		task.spawn(function()
+			while pac.moving and pac.model do
+				self:_pacStep(pac)
+			end
+		end)
+	end
 end
 
-function PacManMazeService:_stopPacManMovement()
-	self._pacMoving = false
+function PacManMazeService:_stopAllMovement()
+	for _, pac in ipairs(self._pacmans) do
+		pac.moving = false
+	end
 end
 
-function PacManMazeService:_pacManStep()
-	if not self._pacmanModel or not self._grid then
-		self._pacMoving = false
+function PacManMazeService:_pacStep(pac)
+	if not pac.model or not self._grid then
+		pac.moving = false
 		return
 	end
 
-	local r = self._pacRow
-	local c = self._pacCol
+	local r = pac.row
+	local c = pac.col
 
-	local forwardDir = { dr = self._pacDirR, dc = self._pacDirC }
-	local reverseR = -self._pacDirR
-	local reverseC = -self._pacDirC
+	local forwardDir = { dr = pac.dirR, dc = pac.dirC }
+	local reverseR = -pac.dirR
+	local reverseC = -pac.dirC
 
 	local nextDir = nil
 
@@ -494,8 +541,8 @@ function PacManMazeService:_pacManStep()
 	local newR = r + nextDir.dr
 	local newC = c + nextDir.dc
 
-	self._pacDirR = nextDir.dr
-	self._pacDirC = nextDir.dc
+	pac.dirR = nextDir.dr
+	pac.dirC = nextDir.dc
 
 	local fromPos = self:GetCellWorldPosition(r, c) + Vector3.new(0, PACMAN_HEIGHT, 0)
 	local toPos = self:GetCellWorldPosition(newR, newC) + Vector3.new(0, PACMAN_HEIGHT, 0)
@@ -509,18 +556,18 @@ function PacManMazeService:_pacManStep()
 	local stepDt = duration / steps
 
 	for i = 1, steps do
-		if not self._pacMoving then return end
+		if not pac.moving then return end
 
 		local alpha = i / steps
 		local pos = fromPos:Lerp(toPos, alpha)
 		local cf = CFrame.new(pos) * CFrame.Angles(0, yAngle, 0)
-		self:_setPacManCFrame(cf)
+		self:_setCFrameOn(pac.model, cf)
 
 		task.wait(stepDt)
 	end
 
-	self._pacRow = newR
-	self._pacCol = newC
+	pac.row = newR
+	pac.col = newC
 end
 
 function PacManMazeService:_repositionSpawnLocation()
@@ -533,21 +580,67 @@ function PacManMazeService:_repositionSpawnLocation()
 	print("[PacManMazeService] Moved SpawnLocation to " .. tostring(spawnLoc.Position))
 end
 
+function PacManMazeService:_startPelletCollection()
+	self:_stopPelletCollection()
+
+	self._collectConn = RunService.Heartbeat:Connect(function()
+		local pellets = CollectionService:GetTagged(PELLET_TAG)
+		if #pellets == 0 then return end
+
+		for _, player in ipairs(Players:GetPlayers()) do
+			local character = player.Character
+			if not character then continue end
+			local hrp = character:FindFirstChild("HumanoidRootPart")
+			if not hrp then continue end
+
+			local playerPos = hrp.Position
+
+			for _, pellet in ipairs(pellets) do
+				if not pellet.Parent then continue end
+				local dist = (pellet.Position - playerPos).Magnitude
+				if dist <= PELLET_COLLECT_RANGE then
+					CollectionService:RemoveTag(pellet, PELLET_TAG)
+					pellet:Destroy()
+					self._collectedPellets += 1
+					self.PelletCollected:Fire(player, self._collectedPellets, self._totalPellets)
+
+					if self._collectedPellets >= self._totalPellets then
+						self.AllPelletsCollected:Fire()
+						print("[PacManMazeService] All pellets collected!")
+					end
+				end
+			end
+		end
+	end)
+end
+
+function PacManMazeService:_stopPelletCollection()
+	if self._collectConn then
+		self._collectConn:Disconnect()
+		self._collectConn = nil
+	end
+end
+
 function PacManMazeService:GenerateMaze()
 	local grid, rows, cols = self:_generateGrid()
 	self:_buildMaze(grid, rows, cols)
 	self:_repositionSpawnLocation()
-	self:_spawnPacMan()
-	self:_startPacManMovement()
+	self:_spawnPacMans()
+	self:_startAllMovement()
+	self:_startPelletCollection()
 	self.MazeGenerated:Fire()
+	print("[PacManMazeService] Spawned " .. self._totalPellets .. " pellets")
 end
 
 function PacManMazeService:DestroyMaze()
-	self:_destroyPacMan()
+	self:_stopPelletCollection()
+	self:_destroyPacMans()
 	self:_clearMaze()
 	self._grid = nil
 	self._gridRows = 0
 	self._gridCols = 0
+	self._totalPellets = 0
+	self._collectedPellets = 0
 end
 
 function PacManMazeService:GetGrid()
@@ -590,6 +683,10 @@ function PacManMazeService:GetSpawnPosition()
 	return ORIGIN + Vector3.new(0, 5, 0)
 end
 
+function PacManMazeService:GetPelletCount()
+	return self._collectedPellets, self._totalPellets
+end
+
 function PacManMazeService.Client:GenerateMaze(_player)
 	self.Server:GenerateMaze()
 end
@@ -600,6 +697,10 @@ end
 
 function PacManMazeService.Client:GetSpawnPosition(_player)
 	return self.Server:GetSpawnPosition()
+end
+
+function PacManMazeService.Client:GetPelletCount(_player)
+	return self.Server:GetPelletCount()
 end
 
 return PacManMazeService
