@@ -7,13 +7,9 @@ local Packages = ReplicatedStorage.Packages
 local Knit = require(Packages.Knit)
 local Trove = require(Packages.Trove)
 
-local RESPAWN_TIME = 3
-
 local GraviBowPlayerService = Knit.CreateService({
 	Name = "GraviBowPlayerService",
-	Client = {
-		ArrowHit = Knit.CreateSignal(),
-	},
+	Client = {},
 
 	_playerTroves = {},
 })
@@ -40,30 +36,11 @@ function GraviBowPlayerService:KnitStart()
 		self:_onPlayerRemoving(player)
 	end), "Disconnect")
 
-	self.Client.ArrowHit:Connect(function(shooter, victimPlayer)
-		self:_onArrowHit(shooter, victimPlayer)
-	end)
-
 	for _, player in ipairs(Players:GetPlayers()) do
 		self:_onPlayerAdded(player)
 	end
 
 	print("[GraviBowPlayerService] Started -- Workspace.Gravity = 0")
-end
-
-function GraviBowPlayerService:_onArrowHit(shooter, victimPlayer)
-	if not victimPlayer or not victimPlayer:IsA("Player") then return end
-	if victimPlayer == shooter then return end
-
-	local character = victimPlayer.Character
-	if not character then return end
-
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if not humanoid or humanoid.Health <= 0 then return end
-
-	humanoid.Health = 0
-
-	print(string.format("[GraviBowPlayerService] %s killed %s with an arrow", shooter.Name, victimPlayer.Name))
 end
 
 function GraviBowPlayerService:_onPlayerAdded(player)
@@ -81,15 +58,6 @@ function GraviBowPlayerService:_onPlayerAdded(player)
 	if player.Character then
 		onCharacterAdded(player.Character)
 	end
-end
-
-function GraviBowPlayerService:_onPlayerDied(player)
-	print(string.format("[GraviBowPlayerService] %s died, respawning in %ds", player.Name, RESPAWN_TIME))
-	task.delay(RESPAWN_TIME, function()
-		if player.Parent then
-			player:LoadCharacter()
-		end
-	end)
 end
 
 function GraviBowPlayerService:_setupLighting()
@@ -180,17 +148,12 @@ function GraviBowPlayerService:_setupCharacter(player, character)
 		end
 	end
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, true)
-	humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
 
 	humanoid.AutoRotate = false
 	humanoid.PlatformStand = true
 	humanoid.WalkSpeed = 0
 	humanoid.JumpPower = 0
 	humanoid.JumpHeight = 0
-
-	humanoid.Died:Once(function()
-		self:_onPlayerDied(player)
-	end)
 
 	local rootJoint = hrp:FindFirstChild("RootJoint")
 		or hrp:FindFirstChildOfClass("Motor6D")
@@ -214,33 +177,8 @@ function GraviBowPlayerService:_setupCharacter(player, character)
 	vectorForce.Parent = hrp
 
 	self:_setupLeftHandGrip(character)
-	self:_autoEquipBow(player, character, humanoid)
 
 	print("[GraviBowPlayerService] Setup character constraints for " .. player.Name)
-end
-
-function GraviBowPlayerService:_autoEquipBow(player, character, humanoid)
-	local backpack = player:WaitForChild("Backpack", 10)
-	if not backpack then return end
-
-	local tool = backpack:FindFirstChildOfClass("Tool")
-	if not tool then
-		tool = character:FindFirstChildOfClass("Tool")
-	end
-
-	if tool then
-		humanoid:EquipTool(tool)
-	end
-
-	character.ChildRemoved:Connect(function(child)
-		if child:IsA("Tool") and humanoid.Health > 0 then
-			task.defer(function()
-				if child.Parent == backpack then
-					humanoid:EquipTool(child)
-				end
-			end)
-		end
-	end)
 end
 
 function GraviBowPlayerService:_setupLeftHandGrip(character)

@@ -49,10 +49,6 @@ function GraviBowGravityController:KnitStart()
 	print("[GraviBowGravityController] Started -- targeting sphere at " .. tostring(self._sphereCenter))
 end
 
-function GraviBowGravityController:GetSphereCenter()
-	return self._sphereCenter
-end
-
 function GraviBowGravityController:_updateSphereCenter()
 	local sphere = self._sphere
 	if not sphere then return end

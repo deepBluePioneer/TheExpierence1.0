@@ -31,7 +31,6 @@ local ARROW_WIDTH = 0.06
 local ARROW_COLOR = Color3.fromRGB(139, 90, 43)
 local ARROW_TIP_COLOR = Color3.fromRGB(80, 80, 80)
 local ARROW_SPEED_MAX = 250
-local FLYBY_RANGE = 30
 local MIN_DRAW_TO_FIRE = 0.3
 local ARROW_LIFETIME = 10
 local SPHERE_GRAVITY = 100
@@ -61,11 +60,8 @@ local GraviBowViewmodelController = Knit.CreateController({
 	_arrowCache = nil,
 	_castBehavior = nil,
 	_castParams = nil,
-	_gravityController = nil,
-	_playerService = nil,
+	_sphereCenter = nil,
 	_arcDots = nil,
-	_soundController = nil,
-	_drawSound = nil,
 })
 
 function GraviBowViewmodelController:KnitInit()
@@ -73,17 +69,35 @@ function GraviBowViewmodelController:KnitInit()
 	self:_setupFastCast()
 end
 
-function GraviBowViewmodelController:_getSphereCenter()
-	if self._gravityController then
-		return self._gravityController:GetSphereCenter()
-	end
-	return Vector3.zero
-end
-
 function GraviBowViewmodelController:KnitStart()
-	self._gravityController = Knit.GetController("GraviBowGravityController")
-	self._soundController = Knit.GetController("GraviBowSoundController")
-	self._playerService = Knit.GetService("GraviBowPlayerService")
+	local sphere = Workspace:WaitForChild("sphere", 30)
+	if sphere then
+		if sphere:IsA("BasePart") then
+			self._sphereCenter = sphere.Position
+		elseif sphere:IsA("Model") then
+			local primary = sphere.PrimaryPart
+			if not primary then
+				for _ = 1, 100 do
+					task.wait(0.1)
+					primary = sphere.PrimaryPart
+					if primary then break end
+				end
+			end
+			if primary then
+				self._sphereCenter = primary.Position
+			else
+				local fallback = sphere:FindFirstChildWhichIsA("BasePart")
+				self._sphereCenter = fallback and fallback.Position or Vector3.zero
+			end
+		else
+			self._sphereCenter = Vector3.zero
+		end
+	else
+		warn("[GraviBowViewmodelController] Could not find Workspace.sphere")
+		self._sphereCenter = Vector3.zero
+	end
+
+	print("[GraviBowViewmodelController] Sphere center: " .. tostring(self._sphereCenter))
 
 	self:_createViewport()
 
@@ -93,9 +107,6 @@ function GraviBowViewmodelController:KnitStart()
 			self.IsAiming = true
 		elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
 			self.IsDrawing = true
-			if self.IsAiming then
-				self:_startDrawSound()
-			end
 		end
 	end), "Disconnect")
 
@@ -103,14 +114,12 @@ function GraviBowViewmodelController:KnitStart()
 		if input.UserInputType == Enum.UserInputType.MouseButton2 then
 			self.IsAiming = false
 			self.IsDrawing = false
-			self:_stopDrawSound()
 		elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
 			if self.IsAiming and self.DrawAmount >= MIN_DRAW_TO_FIRE then
 				self:_fireArrow()
 				self.IsAiming = false
 			end
 			self.IsDrawing = false
-			self:_stopDrawSound()
 		end
 	end), "Disconnect")
 
@@ -205,47 +214,18 @@ function GraviBowViewmodelController:_setupFastCast()
 				cast.UserData.trailEnabled = true
 			end
 
-			local sphereCenter = self:_getSphereCenter()
+			local sphereCenter = self._sphereCenter or Vector3.zero
 			local toCenter = sphereCenter - newPoint
 			if toCenter.Magnitude > 0.01 then
 				cast:SetAcceleration(toCenter.Unit * SPHERE_GRAVITY)
 			end
-
-			local flybyTriggered = cast.UserData.flybyTriggered
-			for _, player in ipairs(Players:GetPlayers()) do
-				if not flybyTriggered[player] and player.Character then
-					local charHRP = player.Character:FindFirstChild("HumanoidRootPart")
-					if charHRP then
-						local dist = (newPoint - charHRP.Position).Magnitude
-						if dist < FLYBY_RANGE then
-							flybyTriggered[player] = true
-							self._soundController:PlayAtPosition("ArrowFlyby", newPoint)
-						end
-					end
-				end
-			end
 		end
 	end)
 
-	self._caster.RayHit:Connect(function(cast, result, _velocity, bullet)
+	self._caster.RayHit:Connect(function(cast, result, _velocity, _bullet)
 		if result then
 			cast.UserData.hit = true
-
-			local hitPos = result.Position
-			local hitInstance = result.Instance
-			local hitModel = hitInstance:FindFirstAncestorOfClass("Model")
-			local hitHumanoid = hitModel and hitModel:FindFirstChildOfClass("Humanoid")
-
-			if hitHumanoid then
-				self._soundController:PlayAtPosition("ArrowImpactPlayer", hitPos)
-
-				local victimPlayer = Players:GetPlayerFromCharacter(hitModel)
-				if victimPlayer and victimPlayer ~= LocalPlayer then
-					self._playerService.ArrowHit:Fire(victimPlayer)
-				end
-			else
-				self._soundController:PlayAtPosition("ArrowImpctGround", hitPos)
-			end
+			print("[GraviBowViewmodelController] Arrow hit: " .. result.Instance.Name)
 		end
 	end)
 
@@ -303,8 +283,6 @@ end
 function GraviBowViewmodelController:_onCharacterAdded(character)
 	self:_cleanBow()
 
-	local humanoid = character:WaitForChild("Humanoid", 10)
-
 	character.ChildAdded:Connect(function(child)
 		if child:IsA("Tool") then
 			task.defer(function()
@@ -318,13 +296,6 @@ function GraviBowViewmodelController:_onCharacterAdded(character)
 			self:_cleanBow()
 		end
 	end)
-
-	if humanoid then
-		humanoid.Died:Once(function()
-			self:_cleanBow()
-			self:_stopDrawSound()
-		end)
-	end
 
 	for _, child in ipairs(character:GetChildren()) do
 		if child:IsA("Tool") then
@@ -522,7 +493,7 @@ function GraviBowViewmodelController:_onBowEquipped(tool)
 				local speed = (self.DrawAmount / DRAW_MAX) * ARROW_SPEED_MAX
 				local pos = hrp.Position + aimDir * 4
 				local vel = aimDir * speed
-				local center = self:_getSphereCenter()
+				local center = self._sphereCenter or Vector3.zero
 
 				local castParams = RaycastParams.new()
 				castParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -580,7 +551,7 @@ function GraviBowViewmodelController:_fireArrow()
 
 	self._castParams.FilterDescendantsInstances = {character}
 
-	local toCenter = self:_getSphereCenter() - spawnPos
+	local toCenter = (self._sphereCenter or Vector3.zero) - spawnPos
 	local initialAccel = toCenter.Magnitude > 0.01 and toCenter.Unit * SPHERE_GRAVITY or Vector3.zero
 
 	local behavior = FastCast.newBehavior()
@@ -591,13 +562,8 @@ function GraviBowViewmodelController:_fireArrow()
 	behavior.CosmeticBulletContainer = Workspace
 	behavior.CosmeticBulletProvider = self._arrowCache
 
-	self._soundController:PlayGlobal("ArrowRelease")
-
 	local activeCast = self._caster:Fire(spawnPos, aimDir, speed, behavior)
-	activeCast.UserData = {
-		trailEnabled = false,
-		flybyTriggered = { [LocalPlayer] = true },
-	}
+	activeCast.UserData = { trailEnabled = false }
 
 	local bullet = activeCast.RayInfo.CosmeticBulletObject
 	if bullet then
@@ -614,22 +580,9 @@ function GraviBowViewmodelController:_fireArrow()
 		"[GraviBowViewmodelController] Fired arrow, speed=%d | spawn=%s | center=%s | accel=%s",
 		math.floor(speed),
 		tostring(spawnPos),
-		tostring(self:_getSphereCenter()),
+		tostring(self._sphereCenter),
 		tostring(initialAccel)
 	))
-end
-
-function GraviBowViewmodelController:_startDrawSound()
-	self:_stopDrawSound()
-	self._drawSound = self._soundController:PlayGlobal("StringPullBack")
-end
-
-function GraviBowViewmodelController:_stopDrawSound()
-	if self._drawSound then
-		self._drawSound:Stop()
-		self._drawSound:Destroy()
-		self._drawSound = nil
-	end
 end
 
 return GraviBowViewmodelController

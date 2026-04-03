@@ -112,8 +112,29 @@ function GraviBowDebugController:_drawDebug()
 	local inputWorldDir = self:_getInputWorldDir()
 	local groundNormal = self._groundController.GroundNormal
 
-	-- Gizmo lines disabled
-	local _ = charForward, camLook, inputWorldDir, groundNormal
+	Gizmo.PushProperty("AlwaysOnTop", true)
+
+	Gizmo.PushProperty("Color3", COLOR_CHAR_FORWARD)
+	Gizmo.Ray:Draw(origin, origin + charForward * RAY_LENGTH)
+
+	if inputWorldDir then
+		Gizmo.PushProperty("Color3", COLOR_INPUT_DIR)
+		Gizmo.Ray:Draw(origin, origin + inputWorldDir * RAY_LENGTH)
+	end
+
+	Gizmo.PushProperty("Color3", COLOR_GRAVITY_DIR)
+	Gizmo.Ray:Draw(origin, origin + gravityDir * (RAY_LENGTH * 0.6))
+
+	Gizmo.PushProperty("Color3", COLOR_CAMERA_LOOK)
+	Gizmo.Ray:Draw(origin, origin + camLook * (RAY_LENGTH * 0.8))
+
+	if self._lastJumpDir then
+		Gizmo.PushProperty("Color3", COLOR_JUMP_VEC)
+		Gizmo.Ray:Draw(origin, origin + self._lastJumpDir * RAY_LENGTH)
+	end
+
+	Gizmo.PushProperty("Color3", COLOR_GROUND_NORMAL)
+	Gizmo.Ray:Draw(origin, origin + groundNormal * (RAY_LENGTH * 0.5))
 
 	local sphereCenter = self._gravityController._sphereCenter
 	local offset = origin - sphereCenter
