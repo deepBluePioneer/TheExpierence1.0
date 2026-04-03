@@ -191,11 +191,21 @@ function GraviBowPlayerService:_setupCharacter(player, character)
 		rootJoint.Enabled = true
 	end
 
+	self:_setPartFriction(character)
+
 	local attachment = hrp:FindFirstChild("GravityAttachment")
 	if not attachment then
 		attachment = Instance.new("Attachment")
 		attachment.Name = "GravityAttachment"
 		attachment.Parent = hrp
+	end
+
+	local centerAttachment = hrp:FindFirstChild("CenterAttachment")
+	if not centerAttachment then
+		centerAttachment = Instance.new("Attachment")
+		centerAttachment.Name = "CenterAttachment"
+		centerAttachment.Position = Vector3.new(0, 0, 0)
+		centerAttachment.Parent = hrp
 	end
 
 	local vectorForce = Instance.new("VectorForce")
@@ -289,6 +299,20 @@ function GraviBowPlayerService:_setupLeftHandGrip(character)
 
 	character.ChildAdded:Connect(attachTool)
 	character.ChildRemoved:Connect(detachTool)
+end
+
+function GraviBowPlayerService:_setPartFriction(character)
+	for _, part in ipairs(character:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.CustomPhysicalProperties = PhysicalProperties.new(
+				0.7, -- density
+				0,   -- friction
+				0,   -- elasticity
+				100, -- frictionWeight (high to override other contacts)
+				0    -- elasticityWeight
+			)
+		end
+	end
 end
 
 function GraviBowPlayerService:_muteCharacterSounds(character)

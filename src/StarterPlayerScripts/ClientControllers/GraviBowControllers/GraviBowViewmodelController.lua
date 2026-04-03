@@ -362,6 +362,7 @@ function GraviBowViewmodelController:_onBowEquipped(tool)
 		warn("[GraviBowViewmodelController] No Handle in cloned tool")
 		return
 	end
+	clonedHandle.Transparency = 1
 
 	local partOffsets = {}
 	local handleCF = clonedHandle.CFrame
@@ -375,6 +376,13 @@ function GraviBowViewmodelController:_onBowEquipped(tool)
 
 	local topAnchor = clone:FindFirstChild("topStringAnchor", true)
 	local bottomAnchor = clone:FindFirstChild("bottomStringAnchor", true)
+
+	if topAnchor and topAnchor:IsA("BasePart") then
+		topAnchor.Transparency = 1
+	end
+	if bottomAnchor and bottomAnchor:IsA("BasePart") then
+		bottomAnchor.Transparency = 1
+	end
 
 	local topStringPart, bottomStringPart
 	if topAnchor and bottomAnchor then

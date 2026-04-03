@@ -18,7 +18,6 @@ end
 local LocalPlayer = Players.LocalPlayer
 
 local RAY_LENGTH = 8
-local LOG_INTERVAL = 0.5
 
 local COLOR_INPUT_DIR = Color3.fromRGB(0, 255, 100)
 local COLOR_CHAR_FORWARD = Color3.fromRGB(255, 80, 80)
@@ -31,7 +30,6 @@ local GraviBowDebugController = Knit.CreateController({
 	Name = "GraviBowDebugController",
 
 	_trove = nil,
-	_lastLogTime = 0,
 	_lastJumpDir = nil,
 	_jumpStartDist = nil,
 	_jumpPeakDist = nil,
@@ -67,7 +65,6 @@ function GraviBowDebugController:KnitStart()
 		self._lastJumpDir = -gravityDir
 	end), "Disconnect")
 
-	print("[GraviBowDebugController] Debug visualization active")
 end
 
 function GraviBowDebugController:_getInputWorldDir()
@@ -127,10 +124,6 @@ function GraviBowDebugController:_drawDebug()
 			self._lastJumpHeight = self._jumpPeakDist - self._jumpStartDist
 			self._lastJumpLat = self._jumpLat
 			self._lastJumpLon = self._jumpLon
-			print(string.format(
-				"[GraviBowDebug] JUMP LANDED | Height=%.2f studs | JumpLat=%.1f° JumpLon=%.1f° | CurrentLat=%.1f° CurrentLon=%.1f°",
-				self._lastJumpHeight, self._jumpLat, self._jumpLon, lat, lon
-			))
 		end
 		self._jumpStartDist = nil
 		self._jumpPeakDist = nil
@@ -151,34 +144,6 @@ function GraviBowDebugController:_drawDebug()
 
 	self._wasGrounded = isGrounded
 
-	local now = os.clock()
-	if now - self._lastLogTime >= LOG_INTERVAL then
-		self._lastLogTime = now
-
-		local vel = hrp.AssemblyLinearVelocity
-		local upVel = vel:Dot(upDir)
-		local groundDist = self._groundController.GroundDistance
-
-		local jumpHeightStr = "N/A"
-		if self._lastJumpHeight then
-			jumpHeightStr = string.format("%.2f studs @ Lat=%.1f° Lon=%.1f°", self._lastJumpHeight, self._lastJumpLat, self._lastJumpLon)
-		end
-
-		local airStr = ""
-		if not isGrounded and self._jumpPeakDist and self._jumpStartDist then
-			airStr = string.format(" | InAir peak=%.2f", self._jumpPeakDist - self._jumpStartDist)
-		end
-
-		print(string.format(
-			"[GraviBowDebug] Lat=%.1f° Lon=%.1f° Dist=%.1f | UpVel=%.2f | GndDist=%.2f | LastJump=%s%s | Grounded=%s",
-			lat, lon, dist,
-			upVel,
-			groundDist,
-			jumpHeightStr,
-			airStr,
-			tostring(isGrounded)
-		))
-	end
 end
 
 return GraviBowDebugController

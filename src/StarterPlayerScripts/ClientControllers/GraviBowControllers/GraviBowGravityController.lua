@@ -110,7 +110,7 @@ function GraviBowGravityController:_onCharacterAdded(character)
 
 	self:_teleportToSurface(hrp)
 
-	self._characterTrove:Add(RunService.Heartbeat:Connect(function(_dt)
+	self._characterTrove:Add(RunService.Stepped:Connect(function()
 		self:_updateGravity(hrp, vectorForce)
 	end), "Disconnect")
 
