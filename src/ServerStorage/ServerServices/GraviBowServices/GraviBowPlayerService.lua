@@ -13,6 +13,7 @@ local GraviBowPlayerService = Knit.CreateService({
 	Name = "GraviBowPlayerService",
 	Client = {
 		ArrowHit = Knit.CreateSignal(),
+		ArrowFired = Knit.CreateSignal(),
 	},
 
 	_playerTroves = {},
@@ -42,6 +43,14 @@ function GraviBowPlayerService:KnitStart()
 
 	self.Client.ArrowHit:Connect(function(shooter, victimPlayer)
 		self:_onArrowHit(shooter, victimPlayer)
+	end)
+
+	self.Client.ArrowFired:Connect(function(shooter, spawnPos, aimDir, speed, accel)
+		for _, player in ipairs(Players:GetPlayers()) do
+			if player ~= shooter then
+				self.Client.ArrowFired:Fire(player, shooter, spawnPos, aimDir, speed, accel)
+			end
+		end
 	end)
 
 	for _, player in ipairs(Players:GetPlayers()) do

@@ -66,6 +66,8 @@ local GraviBowViewmodelController = Knit.CreateController({
 	_arcDots = nil,
 	_soundController = nil,
 	_drawSound = nil,
+	_remoteCaster = nil,
+	_remoteArrowCache = nil,
 })
 
 function GraviBowViewmodelController:KnitInit()
@@ -122,6 +124,47 @@ function GraviBowViewmodelController:KnitStart()
 		self:_onCharacterAdded(LocalPlayer.Character)
 	end
 
+	self._playerService.ArrowFired:Connect(function(shooter, spawnPos, aimDir, speed, accel)
+		self:_onRemoteArrowFired(shooter, spawnPos, aimDir, speed, accel)
+	end)
+end
+
+function GraviBowViewmodelController:_onRemoteArrowFired(_shooter, spawnPos, aimDir, speed, accel)
+	local remoteParams = RaycastParams.new()
+	remoteParams.FilterType = Enum.RaycastFilterType.Exclude
+	remoteParams.IgnoreWater = true
+
+	local localChar = LocalPlayer.Character
+	local filterList = {}
+	if localChar then
+		table.insert(filterList, localChar)
+	end
+	if _shooter and _shooter.Character then
+		table.insert(filterList, _shooter.Character)
+	end
+	remoteParams.FilterDescendantsInstances = filterList
+
+	local behavior = FastCast.newBehavior()
+	behavior.RaycastParams = remoteParams
+	behavior.Acceleration = accel
+	behavior.MaxDistance = 1000
+	behavior.AutoIgnoreContainer = false
+	behavior.CosmeticBulletContainer = Workspace
+	behavior.CosmeticBulletProvider = self._remoteArrowCache
+
+	local activeCast = self._remoteCaster:Fire(spawnPos, aimDir, speed, behavior)
+	activeCast.UserData = {
+		trailEnabled = false,
+	}
+
+	local bullet = activeCast.RayInfo.CosmeticBulletObject
+	if bullet then
+		local arrowTrail = bullet:FindFirstChild("ArrowTrail")
+		if arrowTrail then
+			arrowTrail.Enabled = false
+			arrowTrail:Clear()
+		end
+	end
 end
 
 function GraviBowViewmodelController:_setupFastCast()
@@ -267,6 +310,72 @@ function GraviBowViewmodelController:_setupFastCast()
 	self._castParams = RaycastParams.new()
 	self._castParams.FilterType = Enum.RaycastFilterType.Exclude
 	self._castParams.IgnoreWater = true
+
+	local remoteContainer = Instance.new("Folder")
+	remoteContainer.Name = "RemoteArrowCache"
+	remoteContainer.Parent = Workspace
+	self._trove:Add(remoteContainer)
+
+	self._remoteArrowCache = partcache.new(arrowTemplate, 20, remoteContainer)
+	self._remoteCaster = FastCast.new()
+
+	self._remoteCaster.LengthChanged:Connect(function(cast, lastPoint, rayDir, displacement, _segmentVelocity, bullet)
+		if bullet then
+			local newPoint = lastPoint + (rayDir * displacement)
+			bullet.CFrame = CFrame.lookAt(newPoint, newPoint + rayDir)
+			local tip = bullet:FindFirstChild("ArrowTip")
+			if tip then
+				tip.CFrame = bullet.CFrame * CFrame.new(0, 0, -ARROW_LENGTH / 2)
+			end
+
+			local arrowTrail = bullet:FindFirstChild("ArrowTrail")
+			if arrowTrail and not cast.UserData.trailEnabled then
+				arrowTrail.Enabled = true
+				cast.UserData.trailEnabled = true
+			end
+
+			local sphereCenter = self:_getSphereCenter()
+			local toCenter = sphereCenter - newPoint
+			if toCenter.Magnitude > 0.01 then
+				cast:SetAcceleration(toCenter.Unit * SPHERE_GRAVITY)
+			end
+		end
+	end)
+
+	self._remoteCaster.CastTerminating:Connect(function(cast)
+		local bullet = cast.RayInfo.CosmeticBulletObject
+		if bullet and cast.UserData and cast.UserData.hit then
+			task.delay(ARROW_LIFETIME, function()
+				local arrowTrail = bullet:FindFirstChild("ArrowTrail")
+				if arrowTrail then
+					arrowTrail.Enabled = false
+					arrowTrail:Clear()
+				end
+				pcall(function()
+					self._remoteArrowCache:ReturnPart(bullet)
+				end)
+			end)
+		else
+			task.delay(ARROW_LIFETIME, function()
+				if bullet then
+					local arrowTrail = bullet:FindFirstChild("ArrowTrail")
+					if arrowTrail then
+						arrowTrail.Enabled = false
+						arrowTrail:Clear()
+					end
+					pcall(function()
+						self._remoteArrowCache:ReturnPart(bullet)
+					end)
+				end
+			end)
+		end
+	end)
+
+	self._remoteCaster.RayHit:Connect(function(cast, result)
+		if result then
+			cast.UserData.hit = true
+		end
+	end)
 end
 
 function GraviBowViewmodelController:_createViewport()
@@ -598,6 +707,8 @@ function GraviBowViewmodelController:_fireArrow()
 	behavior.CosmeticBulletProvider = self._arrowCache
 
 	self._soundController:PlayGlobal("ArrowRelease")
+
+	self._playerService.ArrowFired:Fire(spawnPos, aimDir, speed, initialAccel)
 
 	local activeCast = self._caster:Fire(spawnPos, aimDir, speed, behavior)
 	activeCast.UserData = {
