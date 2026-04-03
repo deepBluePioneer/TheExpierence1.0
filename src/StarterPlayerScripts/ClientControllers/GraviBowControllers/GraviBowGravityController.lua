@@ -46,7 +46,10 @@ function GraviBowGravityController:KnitStart()
 		self:_onCharacterAdded(LocalPlayer.Character)
 	end
 
-	print("[GraviBowGravityController] Started -- targeting sphere at " .. tostring(self._sphereCenter))
+end
+
+function GraviBowGravityController:GetSphereCenter()
+	return self._sphereCenter
 end
 
 function GraviBowGravityController:_updateSphereCenter()
@@ -111,7 +114,6 @@ function GraviBowGravityController:_onCharacterAdded(character)
 		self:_updateGravity(hrp, vectorForce)
 	end), "Disconnect")
 
-	print("[GraviBowGravityController] Character connected to gravity loop")
 end
 
 function GraviBowGravityController:_teleportToSurface(hrp)

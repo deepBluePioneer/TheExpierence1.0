@@ -10,7 +10,6 @@ local GraviBowTestController = Knit.CreateController {
 function GraviBowTestController:KnitInit() end
 
 function GraviBowTestController:KnitStart()
-	print("[GraviBowTestController] Hello World from GraviBow Client!")
 end
 
 return GraviBowTestController

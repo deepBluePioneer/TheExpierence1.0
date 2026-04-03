@@ -50,7 +50,6 @@ function GraviBowCharacterController:KnitStart()
 		self:_onCharacterAdded(LocalPlayer.Character)
 	end
 
-	print("[GraviBowCharacterController] Started")
 end
 
 function GraviBowCharacterController:_onCharacterAdded(character)

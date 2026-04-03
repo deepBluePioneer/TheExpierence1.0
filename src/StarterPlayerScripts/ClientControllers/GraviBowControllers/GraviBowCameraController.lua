@@ -73,7 +73,6 @@ function GraviBowCameraController:KnitStart()
 		self:_onCharacterAdded(LocalPlayer.Character)
 	end
 
-	print("[GraviBowCameraController] Started")
 end
 
 function GraviBowCameraController:_onCharacterAdded(character)

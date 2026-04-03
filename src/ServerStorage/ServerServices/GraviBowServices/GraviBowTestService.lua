@@ -7,11 +7,9 @@ local GraviBowTestService = Knit.CreateService {
 }
 
 function GraviBowTestService:KnitInit()
-	print("[GraviBowTestService] KnitInit -- GraviBowServices folder is loading correctly")
 end
 
 function GraviBowTestService:KnitStart()
-	print("[GraviBowTestService] Hello World from GraviBow Server!")
 end
 
 return GraviBowTestService

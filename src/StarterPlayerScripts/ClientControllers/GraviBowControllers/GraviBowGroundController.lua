@@ -9,7 +9,7 @@ local Trove = require(Packages.Trove)
 
 local LocalPlayer = Players.LocalPlayer
 
-local FEET_OFFSET = 2.5
+local FEET_OFFSET = 0.5
 local CAST_RADIUS = 1.0
 local CAST_RANGE = 3.0
 
@@ -41,7 +41,6 @@ function GraviBowGroundController:KnitStart()
 		self:_onCharacterAdded(LocalPlayer.Character)
 	end
 
-	print("[GraviBowGroundController] Started")
 end
 
 function GraviBowGroundController:_onCharacterAdded(character)

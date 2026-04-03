@@ -7,9 +7,13 @@ local Packages = ReplicatedStorage.Packages
 local Knit = require(Packages.Knit)
 local Trove = require(Packages.Trove)
 
+local RESPAWN_TIME = 3
+
 local GraviBowPlayerService = Knit.CreateService({
 	Name = "GraviBowPlayerService",
-	Client = {},
+	Client = {
+		ArrowHit = Knit.CreateSignal(),
+	},
 
 	_playerTroves = {},
 })
@@ -36,11 +40,26 @@ function GraviBowPlayerService:KnitStart()
 		self:_onPlayerRemoving(player)
 	end), "Disconnect")
 
+	self.Client.ArrowHit:Connect(function(shooter, victimPlayer)
+		self:_onArrowHit(shooter, victimPlayer)
+	end)
+
 	for _, player in ipairs(Players:GetPlayers()) do
 		self:_onPlayerAdded(player)
 	end
+end
 
-	print("[GraviBowPlayerService] Started -- Workspace.Gravity = 0")
+function GraviBowPlayerService:_onArrowHit(shooter, victimPlayer)
+	if not victimPlayer or not victimPlayer:IsA("Player") then return end
+	if victimPlayer == shooter then return end
+
+	local character = victimPlayer.Character
+	if not character then return end
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then return end
+
+	humanoid.Health = 0
 end
 
 function GraviBowPlayerService:_onPlayerAdded(player)
@@ -58,6 +77,14 @@ function GraviBowPlayerService:_onPlayerAdded(player)
 	if player.Character then
 		onCharacterAdded(player.Character)
 	end
+end
+
+function GraviBowPlayerService:_onPlayerDied(player)
+	task.delay(RESPAWN_TIME, function()
+		if player.Parent then
+			player:LoadCharacter()
+		end
+	end)
 end
 
 function GraviBowPlayerService:_setupLighting()
@@ -120,8 +147,6 @@ function GraviBowPlayerService:_setupLighting()
 	sunRays.Intensity = 0.15
 	sunRays.Spread = 0.8
 	sunRays.Parent = Lighting
-
-	print("[GraviBowPlayerService] Space lighting profile applied")
 end
 
 function GraviBowPlayerService:_onPlayerRemoving(player)
@@ -148,12 +173,17 @@ function GraviBowPlayerService:_setupCharacter(player, character)
 		end
 	end
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, true)
+	humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
 
 	humanoid.AutoRotate = false
 	humanoid.PlatformStand = true
 	humanoid.WalkSpeed = 0
 	humanoid.JumpPower = 0
 	humanoid.JumpHeight = 0
+
+	humanoid.Died:Once(function()
+		self:_onPlayerDied(player)
+	end)
 
 	local rootJoint = hrp:FindFirstChild("RootJoint")
 		or hrp:FindFirstChildOfClass("Motor6D")
@@ -177,8 +207,31 @@ function GraviBowPlayerService:_setupCharacter(player, character)
 	vectorForce.Parent = hrp
 
 	self:_setupLeftHandGrip(character)
+	self:_autoEquipBow(player, character, humanoid)
+end
 
-	print("[GraviBowPlayerService] Setup character constraints for " .. player.Name)
+function GraviBowPlayerService:_autoEquipBow(player, character, humanoid)
+	local backpack = player:WaitForChild("Backpack", 10)
+	if not backpack then return end
+
+	local tool = backpack:FindFirstChildOfClass("Tool")
+	if not tool then
+		tool = character:FindFirstChildOfClass("Tool")
+	end
+
+	if tool then
+		humanoid:EquipTool(tool)
+	end
+
+	character.ChildRemoved:Connect(function(child)
+		if child:IsA("Tool") and humanoid.Health > 0 then
+			task.defer(function()
+				if child.Parent == backpack then
+					humanoid:EquipTool(child)
+				end
+			end)
+		end
+	end)
 end
 
 function GraviBowPlayerService:_setupLeftHandGrip(character)
@@ -221,8 +274,6 @@ function GraviBowPlayerService:_setupLeftHandGrip(character)
 		weld.C0 = CFrame.Angles(0, math.rad(90), math.rad(-90)) * CFrame.Angles(0, 0, math.rad(20))
 		weld.C1 = tool.Grip
 			weld.Parent = leftHand
-
-			print("[GraviBowPlayerService] Attached tool '" .. tool.Name .. "' to left hand")
 		end)
 	end
 
@@ -275,12 +326,10 @@ local DEFAULT_SCRIPTS = {
 }
 
 function GraviBowPlayerService:_stripDefaultScripts(character)
-	local removed = {}
 	for _, scriptName in ipairs(DEFAULT_SCRIPTS) do
 		local child = character:FindFirstChild(scriptName)
 		if child then
 			child:Destroy()
-			table.insert(removed, scriptName)
 		end
 	end
 
@@ -293,13 +342,8 @@ function GraviBowPlayerService:_stripDefaultScripts(character)
 			end
 			if not dominated and desc.Parent == character then
 				desc:Destroy()
-				table.insert(removed, name)
 			end
 		end
-	end
-
-	if #removed > 0 then
-		print("[GraviBowPlayerService] Stripped default scripts: " .. table.concat(removed, ", "))
 	end
 end
 
