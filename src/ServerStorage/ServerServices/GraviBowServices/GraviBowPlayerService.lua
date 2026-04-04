@@ -2,6 +2,7 @@ local CollectionService = game:GetService("CollectionService")
 local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Packages = ReplicatedStorage.Packages
@@ -11,23 +12,27 @@ local Trove = require(Packages.Trove)
 local ZoneRoot = CustomPackages:WaitForChild("ZoneRoot")
 local Zone = require(ZoneRoot:WaitForChild("Zone"))
 
-local RESPAWN_TIME = 3
 local PLANET_TAG = "planet"
+local HUB_PLANET_TAG = "planetHub"
 local GRAVITY_ZONE_MULTIPLIER = 1.8
 local ZONE_TRANSPARENCY = 0.85
 local ZONE_COLOR = Color3.fromRGB(100, 150, 255)
+local HUB_ZONE_COLOR = Color3.fromRGB(100, 255, 150)
 
 local GraviBowPlayerService = Knit.CreateService({
 	Name = "GraviBowPlayerService",
 	Client = {
 		ArrowHit = Knit.CreateSignal(),
 		ArrowFired = Knit.CreateSignal(),
+		HomingArrowFired = Knit.CreateSignal(),
 		ActivePlanetChanged = Knit.CreateSignal(),
 	},
 
 	_playerTroves = {},
 	_planets = {},
+	_hubPlanets = {},
 	_playerActivePlanets = {},
+	_playerBowEnabled = {},
 	_zoneFolder = nil,
 })
 
@@ -45,6 +50,9 @@ function GraviBowPlayerService:KnitStart()
 
 	self:_setupLighting()
 	self:_setupPlanetZones()
+	self:_setupHubPlanetZones()
+
+	self._matchService = Knit.GetService("GraviBowMatchService")
 
 	self._trove:Add(Players.PlayerAdded:Connect(function(player)
 		self:_onPlayerAdded(player)
@@ -66,6 +74,14 @@ function GraviBowPlayerService:KnitStart()
 		end
 	end)
 
+	self.Client.HomingArrowFired:Connect(function(shooter, spawnPos, upDir, targetPositions)
+		for _, player in ipairs(Players:GetPlayers()) do
+			if player ~= shooter then
+				self.Client.HomingArrowFired:Fire(player, shooter, spawnPos, upDir, targetPositions)
+			end
+		end
+	end)
+
 	for _, player in ipairs(Players:GetPlayers()) do
 		self:_onPlayerAdded(player)
 	end
@@ -75,13 +91,25 @@ function GraviBowPlayerService:_onArrowHit(shooter, victimPlayer)
 	if not victimPlayer or not victimPlayer:IsA("Player") then return end
 	if victimPlayer == shooter then return end
 
+	if self._matchService and self._matchService:GetPhase() ~= "GAME_ACTIVE" then
+		return
+	end
+
 	local character = victimPlayer.Character
 	if not character then return end
 
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	if not humanoid or humanoid.Health <= 0 then return end
 
+	if self._matchService then
+		self._matchService:RecordHit(shooter)
+	end
+
 	humanoid.Health = 0
+
+	if self._matchService then
+		self._matchService:RecordKill(shooter, victimPlayer)
+	end
 end
 
 function GraviBowPlayerService:_onPlayerAdded(player)
@@ -101,11 +129,19 @@ function GraviBowPlayerService:_onPlayerAdded(player)
 	end
 end
 
+local SPECTATE_TIME = 3
+
 function GraviBowPlayerService:_onPlayerDied(player)
-	task.delay(RESPAWN_TIME, function()
-		if player.Parent then
-			player:LoadCharacter()
-		end
+	local phase = self._matchService and self._matchService:GetPhase()
+	local duringGame = phase == "GAME_ACTIVE" or phase == "GAME_OVER"
+
+	if duringGame then
+		self:SetBowEnabled(player, false)
+	end
+
+	task.delay(SPECTATE_TIME, function()
+		if not player.Parent then return end
+		player:LoadCharacter()
 	end)
 end
 
@@ -169,6 +205,7 @@ function GraviBowPlayerService:_setupLighting()
 	sunRays.Intensity = 0.15
 	sunRays.Spread = 0.8
 	sunRays.Parent = Lighting
+
 end
 
 function GraviBowPlayerService:_onPlayerRemoving(player)
@@ -178,6 +215,7 @@ function GraviBowPlayerService:_onPlayerRemoving(player)
 		self._playerTroves[player] = nil
 	end
 	self._playerActivePlanets[player] = nil
+	self._playerBowEnabled[player] = nil
 end
 
 function GraviBowPlayerService:_setupCharacter(player, character)
@@ -240,7 +278,15 @@ function GraviBowPlayerService:_setupCharacter(player, character)
 	vectorForce.Parent = hrp
 
 	self:_setupLeftHandGrip(character)
-	self:_autoEquipBow(player, character, humanoid)
+
+	local hubPlanet = self:GetHubPlanet()
+	if hubPlanet then
+		self:TeleportPlayerToPlanet(player, hubPlanet)
+	end
+
+	if self._playerBowEnabled[player] then
+		self:_autoEquipBow(player, character, humanoid)
+	end
 end
 
 function GraviBowPlayerService:_autoEquipBow(player, character, humanoid)
@@ -257,7 +303,7 @@ function GraviBowPlayerService:_autoEquipBow(player, character, humanoid)
 	end
 
 	character.ChildRemoved:Connect(function(child)
-		if child:IsA("Tool") and humanoid.Health > 0 then
+		if child:IsA("Tool") and humanoid.Health > 0 and self._playerBowEnabled[player] then
 			task.defer(function()
 				if child.Parent == backpack then
 					humanoid:EquipTool(child)
@@ -443,6 +489,166 @@ function GraviBowPlayerService:_unregisterPlanet(model)
 	end
 
 	self._planets[model] = nil
+end
+
+function GraviBowPlayerService:_setupHubPlanetZones()
+	local tagged = CollectionService:GetTagged(HUB_PLANET_TAG)
+	print("[GraviBowPlayerService] Found", #tagged, "instances with tag '" .. HUB_PLANET_TAG .. "'")
+	for i, instance in ipairs(tagged) do
+		print("[GraviBowPlayerService]  ", i, instance:GetFullName(), "IsA:", instance.ClassName)
+		self:_registerHubPlanet(instance)
+	end
+
+	CollectionService:GetInstanceAddedSignal(HUB_PLANET_TAG):Connect(function(instance)
+		print("[GraviBowPlayerService] Hub tag added to:", instance:GetFullName())
+		self:_registerHubPlanet(instance)
+	end)
+end
+
+function GraviBowPlayerService:_registerHubPlanet(model)
+	if self._hubPlanets[model] then return end
+
+	local part = self:_getPlanetPart(model)
+	if not part then
+		task.spawn(function()
+			while model.Parent and not self:_getPlanetPart(model) do
+				local desc = model.DescendantAdded:Wait()
+				if desc:IsA("BasePart") then break end
+			end
+			if model.Parent and not self._hubPlanets[model] then
+				self:_registerHubPlanet(model)
+			end
+		end)
+		return
+	end
+
+	local center = part.Position
+	local radius = math.max(part.Size.X, part.Size.Y, part.Size.Z) / 2
+	print("[GraviBowPlayerService] Registered hub planet:", model.Name, "center:", center, "radius:", radius)
+
+	local zoneRadius = radius * GRAVITY_ZONE_MULTIPLIER
+	local zoneDiameter = zoneRadius * 2
+
+	local zonePart = Instance.new("Part")
+	zonePart.Name = model.Name .. "_HubGravityZone"
+	zonePart.Shape = Enum.PartType.Ball
+	zonePart.Size = Vector3.new(zoneDiameter, zoneDiameter, zoneDiameter)
+	zonePart.Position = center
+	zonePart.Anchored = true
+	zonePart.CanCollide = false
+	zonePart.CanQuery = true
+	zonePart.CanTouch = true
+	zonePart.Transparency = ZONE_TRANSPARENCY
+	zonePart.Color = HUB_ZONE_COLOR
+	zonePart.Material = Enum.Material.ForceField
+	zonePart.Parent = self._zoneFolder
+
+	local zone = Zone.new(zonePart)
+
+	local planetData = {
+		model = model,
+		center = center,
+		radius = radius,
+		zonePart = zonePart,
+		zone = zone,
+	}
+
+	self._hubPlanets[model] = planetData
+
+	zone.playerEntered:Connect(function(player)
+		print("[GraviBowPlayerService] Player", player.Name, "entered hub zone:", model.Name)
+		self._playerActivePlanets[player] = planetData
+		self.Client.ActivePlanetChanged:Fire(player, model)
+	end)
+
+	zone.playerExited:Connect(function(player)
+		print("[GraviBowPlayerService] Player", player.Name, "exited hub zone:", model.Name)
+		if self._playerActivePlanets[player] == planetData then
+			self._playerActivePlanets[player] = nil
+			self.Client.ActivePlanetChanged:Fire(player, nil)
+		end
+	end)
+end
+
+function GraviBowPlayerService:GetHubPlanet()
+	local _, data = next(self._hubPlanets)
+	return data
+end
+
+function GraviBowPlayerService:GetGamePlanets()
+	local list = {}
+	for _, data in pairs(self._planets) do
+		table.insert(list, data)
+	end
+	return list
+end
+
+function GraviBowPlayerService:SetBowEnabled(player, enabled)
+	self._playerBowEnabled[player] = enabled
+
+	local character = player.Character
+	if not character then return end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then return end
+
+	if enabled then
+		local backpack = player:FindFirstChild("Backpack")
+		local tool = nil
+		if backpack then
+			tool = backpack:FindFirstChildOfClass("Tool")
+		end
+		if not tool then
+			tool = character:FindFirstChildOfClass("Tool")
+		end
+		if tool and tool.Parent ~= character then
+			humanoid:EquipTool(tool)
+		end
+	else
+		local tool = character:FindFirstChildOfClass("Tool")
+		if tool then
+			humanoid:UnequipTools()
+		end
+	end
+end
+
+function GraviBowPlayerService:TeleportPlayerToPlanet(player, planetData)
+	local character = player.Character
+	if not character then return end
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+
+	local center = planetData.center
+	local radius = planetData.radius
+
+	local angle = math.random() * math.pi * 2
+	local phi = math.acos(2 * math.random() - 1)
+	local upDir = Vector3.new(
+		math.sin(phi) * math.cos(angle),
+		math.cos(phi),
+		math.sin(phi) * math.sin(angle)
+	).Unit
+
+	local surfacePos = center + upDir * (radius + 5)
+	local lookDir = upDir:Cross(Vector3.new(0, 0, 1))
+	if lookDir.Magnitude < 0.01 then
+		lookDir = upDir:Cross(Vector3.new(1, 0, 0))
+	end
+	lookDir = lookDir.Unit
+
+	hrp.CFrame = CFrame.lookAt(surfacePos, surfacePos + lookDir, upDir)
+	hrp.AssemblyLinearVelocity = Vector3.zero
+	hrp.AssemblyAngularVelocity = Vector3.zero
+
+	self.Client.ActivePlanetChanged:Fire(player, planetData.model)
+end
+
+function GraviBowPlayerService:TeleportPlayerToHub(player)
+	local hubPlanet = self:GetHubPlanet()
+	if not hubPlanet then
+		warn("[GraviBowPlayerService] No hub planet found for teleport")
+		return
+	end
+	self:TeleportPlayerToPlanet(player, hubPlanet)
 end
 
 function GraviBowPlayerService:_setPartFriction(character)

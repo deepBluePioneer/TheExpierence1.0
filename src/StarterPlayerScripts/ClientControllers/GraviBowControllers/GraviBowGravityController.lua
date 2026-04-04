@@ -12,8 +12,11 @@ local Signal = require(Packages.Signal)
 local LocalPlayer = Players.LocalPlayer
 
 local PLANET_TAG = "planet"
+local HUB_PLANET_TAG = "planetHub"
 local GRAVITY_FORCE = 40
 local GRAVITY_DIR_SMOOTH_RAD_PER_SEC = 4.2
+local HUB_ZONE_MULTIPLIER = 1.8
+local HUB_BARRIER_PUSH_FORCE = 120
 
 local function smoothUnitToward(current, target, dt, maxRadPerSec)
 	local c = current.Unit
@@ -40,6 +43,7 @@ local GraviBowGravityController = Knit.CreateController({
 	_trove = nil,
 	_characterTrove = nil,
 	_planets = {},
+	_hubPlanets = {},
 	_activePlanet = nil,
 	_cachedMass = 0,
 	_planetRegistered = Signal.new(),
@@ -52,6 +56,7 @@ end
 
 function GraviBowGravityController:KnitStart()
 	self._playerService = Knit.GetService("GraviBowPlayerService")
+	self._matchController = Knit.GetController("GraviBowMatchController")
 
 	for _, instance in ipairs(CollectionService:GetTagged(PLANET_TAG)) do
 		self:_registerPlanet(instance)
@@ -65,12 +70,29 @@ function GraviBowGravityController:KnitStart()
 		self:_unregisterPlanet(instance)
 	end), "Disconnect")
 
+	for _, instance in ipairs(CollectionService:GetTagged(HUB_PLANET_TAG)) do
+		self:_registerHubPlanet(instance)
+	end
+
+	self._trove:Add(CollectionService:GetInstanceAddedSignal(HUB_PLANET_TAG):Connect(function(instance)
+		self:_registerHubPlanet(instance)
+	end), "Disconnect")
+
 	self._playerService.ActivePlanetChanged:Connect(function(planetModel)
 		if planetModel then
 			local planetData = self._planets[planetModel]
+			if not planetData then
+				for _ = 1, 20 do
+					task.wait(0.25)
+					planetData = self._planets[planetModel]
+					if planetData then break end
+				end
+			end
 			if planetData then
 				print("[GraviBowGravityController] Server set active planet:", planetModel.Name)
 				self._activePlanet = planetData
+			else
+				warn("[GraviBowGravityController] Could not find planet data for:", planetModel:GetFullName())
 			end
 		else
 			print("[GraviBowGravityController] Server cleared active planet, using nearest")
@@ -187,6 +209,47 @@ function GraviBowGravityController:_unregisterPlanet(model)
 	end
 end
 
+function GraviBowGravityController:_registerHubPlanet(model)
+	if self._hubPlanets[model] then return end
+
+	local center = self:_getPlanetCenter(model)
+	if not center then
+		task.spawn(function()
+			while model.Parent and not self:_getPlanetPart(model) do
+				local desc = model.DescendantAdded:Wait()
+				if desc:IsA("BasePart") then break end
+			end
+			if model.Parent and not self._hubPlanets[model] then
+				self:_registerHubPlanet(model)
+			end
+		end)
+		return
+	end
+
+	local radius = self:_getPlanetRadius(model)
+	local planetData = {
+		model = model,
+		center = center,
+		radius = radius,
+	}
+	self._hubPlanets[model] = planetData
+	self._planets[model] = planetData
+	self._planetRegistered:Fire(planetData)
+end
+
+function GraviBowGravityController:_getHubPlanet()
+	local _, data = next(self._hubPlanets)
+	return data
+end
+
+function GraviBowGravityController:GetHubPlanet()
+	return self:_getHubPlanet()
+end
+
+function GraviBowGravityController:GetHubZoneMultiplier()
+	return HUB_ZONE_MULTIPLIER
+end
+
 function GraviBowGravityController:_findNearestPlanet(position)
 	if not position then
 		local character = LocalPlayer.Character
@@ -244,7 +307,22 @@ function GraviBowGravityController:_onCharacterAdded(character)
 		end
 	end
 
-	self:_teleportToSurface(hrp)
+	if not self._activePlanet then
+		local hubPlanet = self:_getHubPlanet()
+		if hubPlanet then
+			self._activePlanet = hubPlanet
+		else
+			local nearest = self:_findNearestPlanet(hrp.Position)
+			if nearest then
+				self._activePlanet = nearest
+			else
+				local registered = self._planetRegistered:Wait()
+				if registered then
+					self._activePlanet = registered
+				end
+			end
+		end
+	end
 
 	self._smoothedGravityDir = nil
 
@@ -254,7 +332,10 @@ function GraviBowGravityController:_onCharacterAdded(character)
 end
 
 function GraviBowGravityController:_teleportToSurface(hrp)
-	local planet = self._activePlanet or self:_findNearestPlanet(hrp.Position)
+	local planet = self:_getHubPlanet()
+	if not planet then
+		planet = self._activePlanet or self:_findNearestPlanet(hrp.Position)
+	end
 	if not planet then
 		local anyPlanet = next(self._planets)
 		if anyPlanet then
@@ -314,7 +395,29 @@ function GraviBowGravityController:_updateGravity(hrp, vectorForce, dt)
 
 	self.GravityChanged:Fire(gravityDir)
 
-	vectorForce.Force = gravityDir * GRAVITY_FORCE * self._cachedMass
+	local totalForce = gravityDir * GRAVITY_FORCE * self._cachedMass
+
+	local phase = self._matchController and self._matchController.Phase
+	if phase == "HUB_WAITING" or phase == "HUB_COUNTDOWN" then
+		local hubPlanet = self:_getHubPlanet()
+		if hubPlanet then
+			local hubCenter = hubPlanet.center
+			local zoneRadius = hubPlanet.radius * HUB_ZONE_MULTIPLIER
+			local offset = playerPos - hubCenter
+			local dist = offset.Magnitude
+			if dist > zoneRadius * 0.85 then
+				local pushDir = (hubCenter - playerPos).Unit
+				local overshoot = math.clamp((dist - zoneRadius * 0.85) / (zoneRadius * 0.15), 0, 1)
+				totalForce = totalForce + pushDir * HUB_BARRIER_PUSH_FORCE * overshoot * self._cachedMass
+
+				if dist > zoneRadius then
+					hrp.AssemblyLinearVelocity = hrp.AssemblyLinearVelocity * 0.5
+				end
+			end
+		end
+	end
+
+	vectorForce.Force = totalForce
 end
 
 return GraviBowGravityController

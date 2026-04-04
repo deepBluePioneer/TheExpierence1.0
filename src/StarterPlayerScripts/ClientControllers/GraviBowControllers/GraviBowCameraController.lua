@@ -7,6 +7,7 @@ local Workspace = game:GetService("Workspace")
 local Packages = ReplicatedStorage.Packages
 local Knit = require(Packages.Knit)
 local Trove = require(Packages.Trove)
+local Shake = require(Packages.Shake)
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -30,6 +31,10 @@ local GraviBowCameraController = Knit.CreateController({
 	_distance = FIRST_PERSON_DISTANCE,
 	_prevUp = Vector3.new(0, 1, 0),
 	_refForward = Vector3.new(0, 0, -1),
+	_shaker = nil,
+	_shakeActive = false,
+	_shakeOffset = CFrame.new(),
+	_spectatingDeath = false,
 })
 
 function GraviBowCameraController:KnitInit()
@@ -76,6 +81,8 @@ function GraviBowCameraController:KnitStart()
 end
 
 function GraviBowCameraController:_onCharacterAdded(character)
+	if self._spectatingDeath then return end
+
 	if self._characterTrove then
 		self._characterTrove:Clean()
 	end
@@ -83,6 +90,7 @@ function GraviBowCameraController:_onCharacterAdded(character)
 
 	local hrp = character:WaitForChild("HumanoidRootPart", 10)
 	local head = character:WaitForChild("Head", 10)
+	local humanoid = character:WaitForChild("Humanoid", 10)
 	if not hrp then return end
 
 	local camera = Workspace.CurrentCamera
@@ -100,6 +108,7 @@ function GraviBowCameraController:_onCharacterAdded(character)
 
 	local CAM_RENDER_NAME = "GraviBowCamera"
 	RunService:BindToRenderStep(CAM_RENDER_NAME, Enum.RenderPriority.Camera.Value, function(_dt)
+		camera.CameraType = Enum.CameraType.Scriptable
 		self:_updateCamera(hrp, head, camera)
 	end)
 
@@ -108,6 +117,18 @@ function GraviBowCameraController:_onCharacterAdded(character)
 		camera.CameraType = Enum.CameraType.Custom
 		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 	end)
+
+	if humanoid then
+		self._characterTrove:Add(humanoid.Died:Connect(function()
+			self._spectatingDeath = true
+			task.delay(3, function()
+				self._spectatingDeath = false
+				if LocalPlayer.Character and LocalPlayer.Character ~= character then
+					self:_onCharacterAdded(LocalPlayer.Character)
+				end
+			end)
+		end), "Disconnect")
+	end
 end
 
 function GraviBowCameraController:_fromToRotation(from, to)
@@ -176,12 +197,37 @@ function GraviBowCameraController:_updateCamera(hrp, head, camera)
 		end
 	end
 
-	camera.CFrame = CFrame.fromMatrix(eyePos, camRight, camUp, -camForward)
+	self._shakeOffset = CFrame.new()
+	if self._shaker and self._shakeActive then
+		local pos, rot, completed = self._shaker:Update()
+		if pos then
+			self._shakeOffset = CFrame.new(pos) * CFrame.Angles(rot.X, rot.Y, rot.Z)
+		end
+		if completed then
+			self._shakeActive = false
+		end
+	end
+
+	camera.CFrame = CFrame.fromMatrix(eyePos, camRight, camUp, -camForward) * self._shakeOffset
 	camera.Focus = CFrame.new(focusPos)
 
 	self.CameraLookOnSurface = (rotatedForward - upDir * rotatedForward:Dot(upDir)).Unit
 	self.CameraRightOnSurface = (rotatedRight - upDir * rotatedRight:Dot(upDir)).Unit
 	self.Pitch = self._pitch
+end
+
+function GraviBowCameraController:TriggerShake(amplitude, duration)
+	local shaker = Shake.new()
+	shaker.Amplitude = amplitude or 0.6
+	shaker.Frequency = 0.1
+	shaker.FadeInTime = 0
+	shaker.FadeOutTime = duration or 0.4
+	shaker.PositionInfluence = Vector3.new(0.3, 0.3, 0.3)
+	shaker.RotationInfluence = Vector3.new(0.08, 0.08, 0.08)
+
+	self._shaker = shaker
+	self._shakeActive = true
+	shaker:Start()
 end
 
 return GraviBowCameraController

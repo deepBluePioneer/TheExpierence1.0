@@ -54,9 +54,29 @@ local CRATER_RING_COUNT = 16
 local CRATER_BASE_RADIUS = 2.35
 local CRATER_DEBRIS_COUNT = 14
 
+local HOMING_DURATION = 5
+local HOMING_MARK_INTERVAL = 0.4
+local HOMING_MAX_TARGETS = 12
+local HOMING_FLIGHT_DURATION = 1.6
+local HOMING_NOISE_FREQ = 2.5
+local HOMING_NOISE_AMP = 10
+local HOMING_STAGGER_MAX = 0.15
+local HOMING_MARKER_COLOR = Color3.fromRGB(255, 60, 60)
+
+local function cubicBezier(P0, P1, P2, P3, t)
+	local u = 1 - t
+	return u*u*u*P0 + 3*u*u*t*P1 + 3*u*t*t*P2 + t*t*t*P3
+end
+
+local function cubicBezierDeriv(P0, P1, P2, P3, t)
+	local u = 1 - t
+	return 3*u*u*(P1-P0) + 6*u*t*(P2-P1) + 3*t*t*(P3-P2)
+end
+
 local GraviBowViewmodelController = Knit.CreateController({
 	Name = "GraviBowViewmodelController",
 
+	ArrowMode = "Normal",
 	DrawAmount = 0,
 	IsAiming = false,
 	IsDrawing = false,
@@ -86,11 +106,31 @@ local GraviBowViewmodelController = Knit.CreateController({
 	_craterFolder = nil,
 	_fovTween = nil,
 	_fovStored = nil,
+	_homingTargets = {},
+	_homingTimer = 0,
+	_homingMarkAccum = 0,
+	_isTargeting = false,
+	_homingMarkerFolder = nil,
+	_homingArrowCache = nil,
 })
 
 function GraviBowViewmodelController:KnitInit()
 	self._trove = Trove.new()
 	self:_setupFastCast()
+end
+
+function GraviBowViewmodelController:_isBowAllowed()
+	if self._matchController and self._matchController.Phase ~= "GAME_ACTIVE" then
+		return false
+	end
+	return true
+end
+
+function GraviBowViewmodelController:_isInsideHubZone(position)
+	local hubPlanet = self._gravityController:GetHubPlanet()
+	if not hubPlanet then return false end
+	local zoneRadius = hubPlanet.radius * self._gravityController:GetHubZoneMultiplier()
+	return (position - hubPlanet.center).Magnitude < zoneRadius
 end
 
 function GraviBowViewmodelController:_getSphereCenter()
@@ -255,9 +295,54 @@ function GraviBowViewmodelController:_spawnArrowImpactCrater(hitPosition, hitNor
 	end)
 end
 
+local IMPACT_BURST_COUNT = 12
+local IMPACT_BURST_COLOR = Color3.fromRGB(100, 200, 255)
+local IMPACT_BURST_SPEED_MIN = 8
+local IMPACT_BURST_SPEED_MAX = 20
+local IMPACT_BURST_SIZE = 0.4
+local IMPACT_BURST_LIFETIME = 0.6
+
+function GraviBowViewmodelController:_spawnHomingImpactBurst(position, normal)
+	for _ = 1, IMPACT_BURST_COUNT do
+		local sphere = Instance.new("Part")
+		sphere.Shape = Enum.PartType.Ball
+		sphere.Size = Vector3.one * IMPACT_BURST_SIZE
+		sphere.Material = Enum.Material.Neon
+		sphere.Color = IMPACT_BURST_COLOR
+		sphere.Anchored = false
+		sphere.CanCollide = false
+		sphere.CanQuery = false
+		sphere.CanTouch = false
+		sphere.CastShadow = false
+		sphere.Position = position
+
+		local dir = (normal + Vector3.new(
+			(math.random() - 0.5) * 2,
+			(math.random() - 0.5) * 2,
+			(math.random() - 0.5) * 2
+		)).Unit
+		local speed = IMPACT_BURST_SPEED_MIN + math.random() * (IMPACT_BURST_SPEED_MAX - IMPACT_BURST_SPEED_MIN)
+		sphere.AssemblyLinearVelocity = dir * speed
+
+		sphere.Parent = Workspace
+
+		TweenService:Create(sphere, TweenInfo.new(IMPACT_BURST_LIFETIME, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			Size = Vector3.zero,
+			Transparency = 1,
+		}):Play()
+
+		task.delay(IMPACT_BURST_LIFETIME + 0.05, function()
+			sphere:Destroy()
+		end)
+	end
+end
+
 function GraviBowViewmodelController:KnitStart()
 	self._gravityController = Knit.GetController("GraviBowGravityController")
 	self._soundController = Knit.GetController("GraviBowSoundController")
+	self._cameraController = Knit.GetController("GraviBowCameraController")
+	self._crosshairController = Knit.GetController("GraviBowCrosshairController")
+	self._matchController = Knit.GetController("GraviBowMatchController")
 	self._playerService = Knit.GetService("GraviBowPlayerService")
 
 	local craterFolder = Instance.new("Folder")
@@ -266,17 +351,30 @@ function GraviBowViewmodelController:KnitStart()
 	self._trove:Add(craterFolder)
 	self._craterFolder = craterFolder
 
+	local markerFolder = Instance.new("Folder")
+	markerFolder.Name = "HomingMarkers"
+	markerFolder.Parent = Workspace
+	self._trove:Add(markerFolder)
+	self._homingMarkerFolder = markerFolder
+
+
 	self:_createViewport()
 
 	self._trove:Add(UserInputService.InputBegan:Connect(function(input, processed)
 		if processed then return end
-		if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		if not self:_isBowAllowed() then return end
+		if input.KeyCode == Enum.KeyCode.Q and not self._isTargeting then
+			self.ArrowMode = self.ArrowMode == "Normal" and "Homing" or "Normal"
+		elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
 			self.IsAiming = true
 		elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
 			self.IsDrawing = true
 			if self.IsAiming then
 				self:_startDrawSound()
 				self:_beginDrawFov()
+				if self.ArrowMode == "Homing" then
+					self:_beginTargeting()
+				end
 			end
 		end
 	end), "Disconnect")
@@ -287,10 +385,15 @@ function GraviBowViewmodelController:KnitStart()
 			self.IsDrawing = false
 			self:_stopDrawSound()
 			self:_endDrawFov()
+			self:_cancelTargeting()
 		elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
-			if self.IsAiming and self.DrawAmount >= MIN_DRAW_TO_FIRE then
-				self:_fireArrow()
-				self.IsAiming = false
+			if self.ArrowMode == "Normal" then
+				if self.IsAiming and self.DrawAmount >= MIN_DRAW_TO_FIRE then
+					if self:_isBowAllowed() then
+						self:_fireArrow()
+					end
+					self.IsAiming = false
+				end
 			end
 			self.IsDrawing = false
 			self:_stopDrawSound()
@@ -309,6 +412,11 @@ function GraviBowViewmodelController:KnitStart()
 	self._playerService.ArrowFired:Connect(function(shooter, spawnPos, aimDir, speed, accel)
 		self:_onRemoteArrowFired(shooter, spawnPos, aimDir, speed, accel)
 	end)
+
+	self._playerService.HomingArrowFired:Connect(function(_shooter, spawnPos, upDir, targetPositions)
+		self:_onRemoteHomingSalvo(spawnPos, upDir, targetPositions)
+	end)
+
 end
 
 function GraviBowViewmodelController:_onRemoteArrowFired(_shooter, spawnPos, aimDir, speed, accel)
@@ -353,6 +461,38 @@ function GraviBowViewmodelController:_onRemoteArrowFired(_shooter, spawnPos, aim
 	end
 end
 
+function GraviBowViewmodelController:_onRemoteHomingSalvo(spawnPos, upDir, targetPositions)
+	for i, td in ipairs(targetPositions) do
+		local delay = math.random() * HOMING_STAGGER_MAX
+		task.delay(delay, function()
+			local arrow = self._homingArrowCache:GetPart()
+			if not arrow then return end
+
+			local P0 = spawnPos
+			local P3 = td.position
+			local dist = (P3 - P0).Magnitude
+			local launchSpread = upDir * (8 + math.random() * 6)
+			local tangentSpread = Vector3.new(
+				(math.random() - 0.5) * dist * 0.2,
+				(math.random() - 0.5) * dist * 0.2,
+				(math.random() - 0.5) * dist * 0.2
+			)
+			local P1 = P0 + (P3 - P0).Unit * (dist * 0.3) + launchSpread + tangentSpread
+			local approachNormal = td.normal or upDir
+			local P2 = P3 + approachNormal * (dist * 0.25) + Vector3.new(
+				(math.random() - 0.5) * dist * 0.1,
+				(math.random() - 0.5) * dist * 0.1,
+				(math.random() - 0.5) * dist * 0.1
+			)
+
+			local seedX = math.random() * 1000
+			local seedY = math.random() * 1000
+
+			self:_flyHomingArrow(arrow, P0, P1, P2, P3, HOMING_FLIGHT_DURATION, seedX, seedY, false)
+		end)
+	end
+end
+
 function GraviBowViewmodelController:_setupFastCast()
 	FastCast.VisualizeCasts = false
 
@@ -391,21 +531,25 @@ function GraviBowViewmodelController:_setupFastCast()
 	trail.Name = "ArrowTrail"
 	trail.Attachment0 = trailAttach0
 	trail.Attachment1 = trailAttach1
-	trail.Lifetime = 1.2
-	trail.MinLength = 0.05
+	trail.Lifetime = 0.8
+	trail.MinLength = 0.02
 	trail.FaceCamera = true
-	trail.LightEmission = 0.3
+	trail.LightEmission = 0.5
+	trail.LightInfluence = 0
 	trail.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.3),
+		NumberSequenceKeypoint.new(0, 0.15),
+		NumberSequenceKeypoint.new(0.4, 0.5),
 		NumberSequenceKeypoint.new(1, 1),
 	})
 	trail.WidthScale = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(0, 0.6),
+		NumberSequenceKeypoint.new(0.3, 0.3),
 		NumberSequenceKeypoint.new(1, 0),
 	})
 	trail.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 200, 100)),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 120, 50)),
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 210, 130)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(240, 150, 60)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(180, 80, 30)),
 	})
 	trail.Parent = arrowTemplate
 
@@ -415,6 +559,50 @@ function GraviBowViewmodelController:_setupFastCast()
 	self._trove:Add(arrowContainer)
 
 	self._arrowCache = partcache.new(arrowTemplate, 20, arrowContainer)
+
+	local homingTemplate = arrowTemplate:Clone()
+	homingTemplate.Material = Enum.Material.Neon
+	homingTemplate.Color = Color3.fromRGB(120, 200, 255)
+	local homingTip = homingTemplate:FindFirstChild("ArrowTip")
+	if homingTip then
+		homingTip.Material = Enum.Material.Neon
+		homingTip.Color = Color3.fromRGB(80, 180, 255)
+	end
+
+	local pointLight = Instance.new("PointLight")
+	pointLight.Range = 8
+	pointLight.Brightness = 1.5
+	pointLight.Color = Color3.fromRGB(100, 200, 255)
+	pointLight.Parent = homingTemplate
+
+	local homingTrail = homingTemplate:FindFirstChild("ArrowTrail")
+	if homingTrail then
+		homingTrail.Lifetime = 1.0
+		homingTrail.LightEmission = 0.8
+		homingTrail.LightInfluence = 0
+		homingTrail.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.05),
+			NumberSequenceKeypoint.new(0.3, 0.3),
+			NumberSequenceKeypoint.new(0.7, 0.7),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		homingTrail.WidthScale = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.45),
+			NumberSequenceKeypoint.new(0.2, 0.25),
+			NumberSequenceKeypoint.new(1, 0),
+		})
+		homingTrail.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 200, 255)),
+			ColorSequenceKeypoint.new(0.4, Color3.fromRGB(60, 140, 255)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(30, 60, 180)),
+		})
+	end
+
+	local homingContainer = Instance.new("Folder")
+	homingContainer.Name = "HomingArrowCache"
+	homingContainer.Parent = Workspace
+	self._trove:Add(homingContainer)
+	self._homingArrowCache = partcache.new(homingTemplate, 20, homingContainer)
 
 	self._caster = FastCast.new()
 
@@ -431,6 +619,11 @@ function GraviBowViewmodelController:_setupFastCast()
 			if arrowTrail and not cast.UserData.trailEnabled then
 				arrowTrail.Enabled = true
 				cast.UserData.trailEnabled = true
+			end
+
+			if self:_isInsideHubZone(newPoint) then
+				task.defer(cast.Terminate, cast)
+				return
 			end
 
 			local nearestCenter = self._gravityController:GetNearestPlanetCenter(newPoint)
@@ -522,6 +715,11 @@ function GraviBowViewmodelController:_setupFastCast()
 			if arrowTrail and not cast.UserData.trailEnabled then
 				arrowTrail.Enabled = true
 				cast.UserData.trailEnabled = true
+			end
+
+			if self:_isInsideHubZone(newPoint) then
+				task.defer(cast.Terminate, cast)
+				return
 			end
 
 			local nearestCenter = self._gravityController:GetNearestPlanetCenter(newPoint)
@@ -649,6 +847,7 @@ function GraviBowViewmodelController:_cleanBow()
 	self._arrowShaft = nil
 	self._arrowTip = nil
 	self._lastDrawPos = nil
+	self:_cancelTargeting()
 end
 
 function GraviBowViewmodelController:_onBowEquipped(tool)
@@ -854,7 +1053,9 @@ function GraviBowViewmodelController:_onBowEquipped(tool)
 			arrowTip.CFrame = CFrame.lookAt(nockPos + aimDir * ARROW_LENGTH, nockPos + aimDir * (ARROW_LENGTH + 0.1))
 		end
 
-		local showArc = self.IsAiming and self.IsDrawing and self.DrawAmount >= MIN_DRAW_TO_FIRE
+		self:_updateTargeting(dt)
+
+		local showArc = self.IsAiming and self.IsDrawing and self.DrawAmount >= MIN_DRAW_TO_FIRE and self.ArrowMode == "Normal"
 		local arcAtts = self._arcAttachments
 		local arcBeams = self._arcBeams
 		if showArc then
@@ -914,6 +1115,371 @@ function GraviBowViewmodelController:_onBowEquipped(tool)
 		RunService:UnbindFromRenderStep(RENDER_NAME)
 	end)
 
+end
+
+function GraviBowViewmodelController:_beginTargeting()
+	self._homingTargets = {}
+	self._homingTimer = HOMING_DURATION
+	self._homingMarkAccum = HOMING_MARK_INTERVAL
+	self._isTargeting = true
+	if self._homingMarkerFolder then
+		self._homingMarkerFolder:ClearAllChildren()
+	end
+end
+
+function GraviBowViewmodelController:_cancelTargeting()
+	if not self._isTargeting then return end
+	self._isTargeting = false
+	self._homingTargets = {}
+	self._homingTimer = 0
+	if self._homingMarkerFolder then
+		self._homingMarkerFolder:ClearAllChildren()
+	end
+end
+
+function GraviBowViewmodelController:_spawnTargetMarker(position, index)
+	if not self._homingMarkerFolder then return end
+
+	local part = Instance.new("Part")
+	part.Name = "TargetMarker_" .. index
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false
+	part.Transparency = 1
+	part.Size = Vector3.new(0.5, 0.5, 0.5)
+	part.Position = position
+	part.Parent = self._homingMarkerFolder
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "MarkerGui"
+	billboard.Size = UDim2.fromOffset(48, 48)
+	billboard.AlwaysOnTop = true
+	billboard.Adornee = part
+	billboard.Parent = part
+
+	local diamond = Instance.new("TextLabel")
+	diamond.Name = "Diamond"
+	diamond.Size = UDim2.fromScale(1, 1)
+	diamond.BackgroundTransparency = 1
+	diamond.Text = "\u{25C7}"
+	diamond.TextColor3 = HOMING_MARKER_COLOR
+	diamond.TextSize = 36
+	diamond.Font = Enum.Font.GothamBold
+	diamond.TextStrokeTransparency = 0.4
+	diamond.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	diamond.Parent = billboard
+
+	local indexLabel = Instance.new("TextLabel")
+	indexLabel.Name = "Index"
+	indexLabel.Size = UDim2.fromScale(1, 1)
+	indexLabel.BackgroundTransparency = 1
+	indexLabel.Text = tostring(index)
+	indexLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	indexLabel.TextSize = 14
+	indexLabel.Font = Enum.Font.GothamBold
+	indexLabel.Parent = billboard
+
+	local spawnSize = UDim2.fromOffset(80, 80)
+	billboard.Size = spawnSize
+	TweenService:Create(billboard, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Size = UDim2.fromOffset(48, 48),
+	}):Play()
+
+	task.spawn(function()
+		while part.Parent do
+			TweenService:Create(billboard, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+				Size = UDim2.fromOffset(54, 54),
+			}):Play()
+			task.wait(0.5)
+			if not part.Parent then break end
+			TweenService:Create(billboard, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+				Size = UDim2.fromOffset(44, 44),
+			}):Play()
+			task.wait(0.5)
+		end
+	end)
+
+end
+
+function GraviBowViewmodelController:_updateTargeting(dt)
+	if not self._isTargeting then return end
+
+	self._homingTimer = self._homingTimer - dt
+	self._homingMarkAccum = self._homingMarkAccum + dt
+
+	if self._homingMarkAccum >= HOMING_MARK_INTERVAL and #self._homingTargets < HOMING_MAX_TARGETS then
+		self._homingMarkAccum = 0
+
+		local cam = Workspace.CurrentCamera
+		if cam then
+			local character = LocalPlayer.Character
+			local rayParams = RaycastParams.new()
+			rayParams.FilterType = Enum.RaycastFilterType.Exclude
+			local filterList = {}
+			if character then
+				table.insert(filterList, character)
+			end
+			local gzFolder = Workspace:FindFirstChild("GravityZones")
+			if gzFolder then
+				table.insert(filterList, gzFolder)
+			end
+			if self._homingMarkerFolder then
+				table.insert(filterList, self._homingMarkerFolder)
+			end
+			rayParams.FilterDescendantsInstances = filterList
+
+			local origin = cam.CFrame.Position
+			local direction = cam.CFrame.LookVector * 1000
+			local result = Workspace:Raycast(origin, direction, rayParams)
+			if result then
+				local targetData = {
+					position = result.Position,
+					normal = result.Normal,
+					part = result.Instance,
+				}
+				table.insert(self._homingTargets, targetData)
+				self:_spawnTargetMarker(result.Position, #self._homingTargets)
+			end
+		end
+	end
+
+	if self._homingTimer <= 0 then
+		self._isTargeting = false
+		if #self._homingTargets > 0 then
+			self:_fireHomingSalvo()
+		end
+		self.IsDrawing = false
+		self:_stopDrawSound()
+		self:_endDrawFov()
+		self.DrawAmount = 0
+	end
+end
+
+function GraviBowViewmodelController:_flyHomingArrow(arrow, P0, P1, P2, P3, duration, seedX, seedY, isLocal)
+	local prevTangent = (P1 - P0).Unit
+	local perp = prevTangent:Cross(Vector3.yAxis)
+	if perp.Magnitude < 1e-4 then
+		perp = prevTangent:Cross(Vector3.xAxis)
+	end
+	local prevNormal = perp.Unit
+	local prevPos = P0
+
+	local arrowTrail = arrow:FindFirstChild("ArrowTrail")
+	if arrowTrail then
+		arrowTrail.Enabled = false
+		arrowTrail:Clear()
+	end
+
+	local startTime = os.clock()
+
+	local heartbeatConn
+	heartbeatConn = RunService.RenderStepped:Connect(function()
+		local elapsed = os.clock() - startTime
+		local t = math.clamp(elapsed / duration, 0, 1)
+
+		local basePos = cubicBezier(P0, P1, P2, P3, t)
+		local rawDeriv = cubicBezierDeriv(P0, P1, P2, P3, t)
+		local tangent = rawDeriv.Magnitude > 1e-4 and rawDeriv.Unit or prevTangent
+
+		local v1 = basePos - prevPos
+		local c1 = v1:Dot(v1)
+		if c1 > 1e-8 then
+			local n0_l = prevNormal - (2 / c1) * v1:Dot(prevNormal) * v1
+			local t0_l = prevTangent - (2 / c1) * v1:Dot(prevTangent) * v1
+			local v2 = tangent - t0_l
+			local c2 = v2:Dot(v2)
+			if c2 > 1e-8 then
+				prevNormal = n0_l - (2 / c2) * v2:Dot(n0_l) * v2
+			end
+		end
+
+		prevTangent = tangent
+		prevPos = basePos
+
+		local frameRight = tangent:Cross(prevNormal)
+		if frameRight.Magnitude < 1e-4 then
+			frameRight = tangent:Cross(Vector3.yAxis)
+			if frameRight.Magnitude < 1e-4 then
+				frameRight = tangent:Cross(Vector3.xAxis)
+			end
+		end
+		frameRight = frameRight.Unit
+		local frameUp = frameRight:Cross(tangent).Unit
+
+		local envelope = 1 - (1 - 2 * t) * (1 - 2 * t)
+		local noiseX = HOMING_NOISE_AMP * envelope * math.noise(seedX, HOMING_NOISE_FREQ * elapsed)
+		local noiseY = HOMING_NOISE_AMP * envelope * math.noise(seedY, HOMING_NOISE_FREQ * elapsed)
+		local finalPos = basePos + frameRight * noiseX + frameUp * noiseY
+
+		if self:_isInsideHubZone(finalPos) then
+			heartbeatConn:Disconnect()
+			if arrowTrail then
+				arrowTrail.Enabled = false
+				arrowTrail:Clear()
+			end
+			pcall(function()
+				self._homingArrowCache:ReturnPart(arrow)
+			end)
+			return
+		end
+
+		arrow.CFrame = CFrame.lookAt(finalPos, finalPos + tangent)
+		local tip = arrow:FindFirstChild("ArrowTip")
+		if tip then
+			tip.CFrame = arrow.CFrame * CFrame.new(0, 0, -ARROW_LENGTH / 2)
+		end
+
+		if arrowTrail and not arrowTrail.Enabled and t > 0.02 then
+			arrowTrail.Enabled = true
+		end
+
+		if t >= 1 then
+			heartbeatConn:Disconnect()
+
+			local hitParams = RaycastParams.new()
+			hitParams.FilterType = Enum.RaycastFilterType.Exclude
+			local filterList = {}
+			local character = LocalPlayer.Character
+			if character then
+				table.insert(filterList, character)
+			end
+			local gzFolder = Workspace:FindFirstChild("GravityZones")
+			if gzFolder then
+				table.insert(filterList, gzFolder)
+			end
+			hitParams.FilterDescendantsInstances = filterList
+
+			local impactDir = tangent * 4
+			local rayResult = Workspace:Raycast(finalPos - tangent * 2, impactDir, hitParams)
+			if rayResult then
+				local hitInstance = rayResult.Instance
+				local hitModel = hitInstance:FindFirstAncestorOfClass("Model")
+				local hitHumanoid = hitModel and hitModel:FindFirstChildOfClass("Humanoid")
+
+			if hitHumanoid then
+				self._soundController:PlayAtPosition("ArrowImpactPlayer", rayResult.Position)
+				if isLocal then
+					local victimPlayer = Players:GetPlayerFromCharacter(hitModel)
+					if victimPlayer and victimPlayer ~= LocalPlayer then
+						self._playerService.ArrowHit:Fire(victimPlayer)
+					end
+				end
+			else
+					self._soundController:PlayAtPosition("ArrowImpctGround", rayResult.Position)
+					if self:_shouldSpawnArrowCrater(hitInstance) then
+						self:_spawnArrowImpactCrater(rayResult.Position, rayResult.Normal, hitInstance)
+					end
+					self:_spawnHomingImpactBurst(rayResult.Position, rayResult.Normal)
+				end
+
+				task.delay(ARROW_LIFETIME, function()
+					if arrowTrail then
+						arrowTrail.Enabled = false
+						arrowTrail:Clear()
+					end
+					pcall(function()
+						self._homingArrowCache:ReturnPart(arrow)
+					end)
+				end)
+			else
+				if arrowTrail then
+					arrowTrail.Enabled = false
+					arrowTrail:Clear()
+				end
+				pcall(function()
+					self._homingArrowCache:ReturnPart(arrow)
+				end)
+			end
+		end
+	end)
+end
+
+function GraviBowViewmodelController:_fireHomingSalvo()
+	local character = LocalPlayer.Character
+	if not character then return end
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+
+	local gravityDir = self._gravityController.GravityDirection
+	local upDir = -gravityDir
+
+	local worldCam = Workspace.CurrentCamera
+	local aimDir = worldCam and worldCam.CFrame.LookVector or hrp.CFrame.LookVector
+	local spawnPos
+	if self._lastDrawPos then
+		spawnPos = self._lastDrawPos + aimDir * ARROW_LENGTH
+	else
+		spawnPos = hrp.Position + aimDir * 4
+	end
+
+	local targets = self._homingTargets
+	local targetPositions = {}
+	for _, td in ipairs(targets) do
+		table.insert(targetPositions, { position = td.position, normal = td.normal })
+	end
+
+	self._playerService.HomingArrowFired:Fire(spawnPos, upDir, targetPositions)
+
+	self._cameraController:TriggerShake(0.6, 0.4)
+	self._crosshairController:FlashSalvo()
+
+	local camRight = worldCam and worldCam.CFrame.RightVector or Vector3.xAxis
+	local totalTargets = #targets
+
+	for i, targetData in ipairs(targets) do
+		local stagger = math.random() * HOMING_STAGGER_MAX
+		task.delay(stagger, function()
+			local arrow = self._homingArrowCache:GetPart()
+			if not arrow then return end
+
+			local currentUp = -self._gravityController.GravityDirection
+			local cam = Workspace.CurrentCamera
+			local currentAim = cam and cam.CFrame.LookVector or hrp.CFrame.LookVector
+			local currentRight = cam and cam.CFrame.RightVector or camRight
+			local P0
+			if self._lastDrawPos then
+				P0 = self._lastDrawPos + currentAim * ARROW_LENGTH
+			else
+				P0 = hrp.Position + currentAim * 4
+			end
+
+			local fanT = totalTargets > 1 and ((i - 1) / (totalTargets - 1) - 0.5) * 2 or 0
+			P0 = P0 + currentRight * fanT * 1.8
+
+			local P3 = targetData.position
+			local dist = (P3 - P0).Magnitude
+			local launchSpread = currentUp * (8 + math.random() * 6)
+			local tangentSpread = Vector3.new(
+				(math.random() - 0.5) * dist * 0.2,
+				(math.random() - 0.5) * dist * 0.2,
+				(math.random() - 0.5) * dist * 0.2
+			)
+			local P1 = P0 + (P3 - P0).Unit * (dist * 0.3) + launchSpread + tangentSpread
+			local approachNormal = targetData.normal or currentUp
+			local P2 = P3 + approachNormal * (dist * 0.25) + Vector3.new(
+				(math.random() - 0.5) * dist * 0.1,
+				(math.random() - 0.5) * dist * 0.1,
+				(math.random() - 0.5) * dist * 0.1
+			)
+
+			local seedX = math.random() * 1000
+			local seedY = math.random() * 1000
+
+			self._soundController:PlayGlobal("ArrowRelease")
+			self:_flyHomingArrow(arrow, P0, P1, P2, P3, HOMING_FLIGHT_DURATION, seedX, seedY, true)
+		end)
+	end
+
+	self._homingTargets = {}
+	if self._homingMarkerFolder then
+		task.delay(0.5, function()
+			if self._homingMarkerFolder then
+				self._homingMarkerFolder:ClearAllChildren()
+			end
+		end)
+	end
 end
 
 function GraviBowViewmodelController:_fireArrow()
