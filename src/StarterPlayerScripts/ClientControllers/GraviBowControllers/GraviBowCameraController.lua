@@ -89,7 +89,7 @@ function GraviBowCameraController:_onCharacterAdded(character)
 	camera.CameraType = Enum.CameraType.Scriptable
 	UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
 
-	local initUp = -self._gravityController.GravityDirection
+	local initUp = -self._gravityController:GetSmoothedGravityDirection()
 	self._prevUp = initUp
 	local initForward = hrp.CFrame.LookVector
 	initForward = (initForward - initUp * initForward:Dot(initUp))
@@ -130,7 +130,7 @@ function GraviBowCameraController:_fromToRotation(from, to)
 end
 
 function GraviBowCameraController:_updateCamera(hrp, head, camera)
-	local gravityDir = self._gravityController.GravityDirection
+	local gravityDir = self._gravityController:GetSmoothedGravityDirection()
 	local upDir = -gravityDir
 
 	local deltaRot = self:_fromToRotation(self._prevUp, upDir)

@@ -184,7 +184,8 @@ function GraviBowCharacterController:_update(hrp, dt)
 	local isMoving = moveDirection.Magnitude > 0.01
 
 	self:_updateMovementForces(moveDirection, isMoving, isGrounded, tangentUnit, tangentSpeed)
-	self:_updateAutoRotate(hrp, moveDirection, isMoving, upDir)
+	local orientUpDir = -self._gravityController:GetSmoothedGravityDirection()
+	self:_updateAutoRotate(hrp, moveDirection, isMoving, orientUpDir)
 	self:_updateFreeFall(hrp, upDir, dt)
 	self:_updateStateMachine(isMoving, isGrounded, tangentSpeed)
 

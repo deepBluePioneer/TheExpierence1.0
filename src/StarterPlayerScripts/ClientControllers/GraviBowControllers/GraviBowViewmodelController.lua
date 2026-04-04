@@ -1,6 +1,8 @@
+local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
@@ -33,13 +35,24 @@ local ARROW_TIP_COLOR = Color3.fromRGB(80, 80, 80)
 local ARROW_SPEED_MAX = 250
 local FLYBY_RANGE = 30
 local MIN_DRAW_TO_FIRE = 0.3
+local FOV_DRAW_ZOOM = 7
+local FOV_TWEEN_IN = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local FOV_TWEEN_OUT = TweenInfo.new(0.32, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
 local ARROW_LIFETIME = 10
 local SPHERE_GRAVITY = 100
 
-local ARC_POINTS = 150
+local ARC_SEGMENTS = 60
 local ARC_TIME_STEP = 0.05
-local ARC_DOT_SIZE = 0.2
-local ARC_COLOR = Color3.fromRGB(255, 200, 100)
+local ARC_WIDTH = 0.35
+local ARC_COLOR_START = Color3.fromRGB(255, 220, 120)
+local ARC_COLOR_END = Color3.fromRGB(255, 100, 30)
+local ARC_LIGHT_EMISSION = 0.6
+
+local PLANET_TAG = "planet"
+local CRATER_LIFETIME = 50
+local CRATER_RING_COUNT = 16
+local CRATER_BASE_RADIUS = 2.35
+local CRATER_DEBRIS_COUNT = 14
 
 local GraviBowViewmodelController = Knit.CreateController({
 	Name = "GraviBowViewmodelController",
@@ -63,11 +76,16 @@ local GraviBowViewmodelController = Knit.CreateController({
 	_castParams = nil,
 	_gravityController = nil,
 	_playerService = nil,
-	_arcDots = nil,
+	_arcHost = nil,
+	_arcAttachments = nil,
+	_arcBeams = nil,
 	_soundController = nil,
 	_drawSound = nil,
 	_remoteCaster = nil,
 	_remoteArrowCache = nil,
+	_craterFolder = nil,
+	_fovTween = nil,
+	_fovStored = nil,
 })
 
 function GraviBowViewmodelController:KnitInit()
@@ -82,10 +100,171 @@ function GraviBowViewmodelController:_getSphereCenter()
 	return Vector3.zero
 end
 
+function GraviBowViewmodelController:_cancelFovTween()
+	if self._fovTween then
+		self._fovTween:Cancel()
+		self._fovTween = nil
+	end
+end
+
+function GraviBowViewmodelController:_tweenCameraFovTo(targetFov, tweenInfo)
+	local cam = Workspace.CurrentCamera
+	if not cam then return end
+	self:_cancelFovTween()
+	self._fovTween = TweenService:Create(cam, tweenInfo, { FieldOfView = targetFov })
+	self._fovTween.Completed:Once(function()
+		self._fovTween = nil
+	end)
+	self._fovTween:Play()
+end
+
+function GraviBowViewmodelController:_beginDrawFov()
+	local cam = Workspace.CurrentCamera
+	if not cam then return end
+	self._fovStored = cam.FieldOfView
+	self:_tweenCameraFovTo(self._fovStored - FOV_DRAW_ZOOM, FOV_TWEEN_IN)
+end
+
+function GraviBowViewmodelController:_endDrawFov()
+	if self._fovStored == nil then return end
+	local restore = self._fovStored
+	self._fovStored = nil
+	self:_tweenCameraFovTo(restore, FOV_TWEEN_OUT)
+end
+
+local function surfaceFrameFromNormal(position, outwardNormal)
+	local up = outwardNormal.Unit
+	local tangent = up:Cross(Vector3.yAxis)
+	if tangent.Magnitude < 1e-3 then
+		tangent = up:Cross(Vector3.xAxis)
+	end
+	tangent = tangent.Unit
+	local forward = tangent:Cross(up).Unit
+	return CFrame.fromMatrix(position, tangent, up, -forward)
+end
+
+function GraviBowViewmodelController:_shouldSpawnArrowCrater(hitInstance)
+	if not hitInstance then
+		return false
+	end
+	if hitInstance:IsA("Terrain") then
+		return true
+	end
+	local current = hitInstance
+	while current do
+		if current:IsA("Model") and CollectionService:HasTag(current, PLANET_TAG) then
+			return true
+		end
+		current = current.Parent
+	end
+	return false
+end
+
+function GraviBowViewmodelController:_spawnArrowImpactCrater(hitPosition, hitNormal, hitPart)
+	if not self._craterFolder then return end
+
+	local baseColor = Color3.fromRGB(88, 72, 58)
+	if hitPart:IsA("BasePart") then
+		baseColor = hitPart.Color:Lerp(Color3.fromRGB(45, 38, 32), 0.4)
+	end
+
+	local sunk = hitPosition - hitNormal.Unit * 0.1
+	local baseCF = surfaceFrameFromNormal(sunk, hitNormal)
+
+	local model = Instance.new("Model")
+	model.Name = "ArrowImpactCrater"
+	model.Parent = self._craterFolder
+
+	local function addPitCylinder(name, diameter, thickness, localY, color, material)
+		local pit = Instance.new("Part")
+		pit.Name = name
+		pit.Shape = Enum.PartType.Cylinder
+		pit.Size = Vector3.new(thickness, diameter, diameter)
+		pit.Color = color
+		pit.Material = material
+		pit.Anchored = true
+		pit.CanCollide = false
+		pit.CanQuery = false
+		pit.CastShadow = true
+		pit.CFrame = baseCF * CFrame.new(0, localY, 0) * CFrame.Angles(0, 0, math.rad(90))
+		pit.Parent = model
+		return pit
+	end
+
+	addPitCylinder("CraterPitOuter", 4.2, 0.16, -0.02, baseColor:Lerp(Color3.fromRGB(55, 46, 38), 0.35), Enum.Material.Sand)
+	addPitCylinder("CraterPitMid", 3.0, 0.14, -0.08, baseColor:Lerp(Color3.fromRGB(42, 36, 30), 0.5), Enum.Material.Slate)
+	addPitCylinder("CraterPitInner", 1.85, 0.22, -0.16, Color3.fromRGB(28, 24, 21), Enum.Material.Slate)
+
+	local wedgeLayers = {
+		{ radiusMul = 0.5, yOff = -0.12, sizeMul = 0.95, tiltDeg = 24, count = CRATER_RING_COUNT },
+		{ radiusMul = 0.92, yOff = -0.03, sizeMul = 1.15, tiltDeg = 22, count = CRATER_RING_COUNT },
+		{ radiusMul = 1.35, yOff = 0.06, sizeMul = 1.35, tiltDeg = 20, count = CRATER_RING_COUNT },
+		{ radiusMul = 1.85, yOff = 0.14, sizeMul = 1.5, tiltDeg = 16, count = 20 },
+	}
+
+	local baseWedge = Vector3.new(0.78, 0.28, 0.9)
+	for _, layer in ipairs(wedgeLayers) do
+		local ringRadius = CRATER_BASE_RADIUS * layer.radiusMul
+		local wx = baseWedge.X * layer.sizeMul
+		local wy = baseWedge.Y * layer.sizeMul
+		local wz = baseWedge.Z * layer.sizeMul
+		local count = layer.count
+		for i = 1, count do
+			local ang = (i / count) * math.pi * 2
+			local lx = math.cos(ang) * ringRadius
+			local lz = math.sin(ang) * ringRadius
+			local rim = Instance.new("WedgePart")
+			rim.Name = "CraterRim"
+			rim.Size = Vector3.new(wx, wy, wz)
+			rim.Color = baseColor:Lerp(Color3.fromRGB(118, 98, 78), ((i + count) % 5) * 0.08)
+			rim.Material = Enum.Material.Sand
+			rim.Anchored = true
+			rim.CanCollide = false
+			rim.CanQuery = false
+			rim.CastShadow = true
+			rim.CFrame = baseCF * CFrame.new(lx, layer.yOff, lz) * CFrame.Angles(0, -ang, math.rad(layer.tiltDeg)) * CFrame.Angles(math.rad(-26), 0, 0)
+			rim.Parent = model
+		end
+	end
+
+	for i = 1, CRATER_DEBRIS_COUNT do
+		local ang = math.random() * math.pi * 2
+		local radMul = 0.28 + math.random() * 0.72
+		local rad = CRATER_BASE_RADIUS * radMul
+		local lx = math.cos(ang) * rad
+		local lz = math.sin(ang) * rad
+		local s = 0.32 + math.random() * 0.38
+		local chunk = Instance.new("Part")
+		chunk.Name = "CraterDebris"
+		chunk.Size = Vector3.new(s, s * 0.65, s * 0.9)
+		chunk.Color = baseColor:Lerp(Color3.fromRGB(72, 60, 50), math.random())
+		chunk.Material = Enum.Material.Rock
+		chunk.Anchored = true
+		chunk.CanCollide = false
+		chunk.CanQuery = false
+		chunk.CastShadow = true
+		local lift = 0.05 + math.random() * 0.14
+		chunk.CFrame = baseCF * CFrame.new(lx, lift, lz) * CFrame.Angles(math.rad(math.random(-45, 45)), math.rad(math.random(0, 360)), math.rad(math.random(-35, 35)))
+		chunk.Parent = model
+	end
+
+	task.delay(CRATER_LIFETIME, function()
+		if model.Parent then
+			model:Destroy()
+		end
+	end)
+end
+
 function GraviBowViewmodelController:KnitStart()
 	self._gravityController = Knit.GetController("GraviBowGravityController")
 	self._soundController = Knit.GetController("GraviBowSoundController")
 	self._playerService = Knit.GetService("GraviBowPlayerService")
+
+	local craterFolder = Instance.new("Folder")
+	craterFolder.Name = "ArrowImpactCraters"
+	craterFolder.Parent = Workspace
+	self._trove:Add(craterFolder)
+	self._craterFolder = craterFolder
 
 	self:_createViewport()
 
@@ -97,6 +276,7 @@ function GraviBowViewmodelController:KnitStart()
 			self.IsDrawing = true
 			if self.IsAiming then
 				self:_startDrawSound()
+				self:_beginDrawFov()
 			end
 		end
 	end), "Disconnect")
@@ -106,6 +286,7 @@ function GraviBowViewmodelController:KnitStart()
 			self.IsAiming = false
 			self.IsDrawing = false
 			self:_stopDrawSound()
+			self:_endDrawFov()
 		elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
 			if self.IsAiming and self.DrawAmount >= MIN_DRAW_TO_FIRE then
 				self:_fireArrow()
@@ -113,6 +294,7 @@ function GraviBowViewmodelController:KnitStart()
 			end
 			self.IsDrawing = false
 			self:_stopDrawSound()
+			self:_endDrawFov()
 		end
 	end), "Disconnect")
 
@@ -142,12 +324,16 @@ function GraviBowViewmodelController:_onRemoteArrowFired(_shooter, spawnPos, aim
 	if _shooter and _shooter.Character then
 		table.insert(filterList, _shooter.Character)
 	end
+	local gravityZones = Workspace:FindFirstChild("GravityZones")
+	if gravityZones then
+		table.insert(filterList, gravityZones)
+	end
 	remoteParams.FilterDescendantsInstances = filterList
 
 	local behavior = FastCast.newBehavior()
 	behavior.RaycastParams = remoteParams
 	behavior.Acceleration = accel
-	behavior.MaxDistance = 1000
+	behavior.MaxDistance = 50000
 	behavior.AutoIgnoreContainer = false
 	behavior.CosmeticBulletContainer = Workspace
 	behavior.CosmeticBulletProvider = self._remoteArrowCache
@@ -247,8 +433,8 @@ function GraviBowViewmodelController:_setupFastCast()
 				cast.UserData.trailEnabled = true
 			end
 
-			local sphereCenter = self:_getSphereCenter()
-			local toCenter = sphereCenter - newPoint
+			local nearestCenter = self._gravityController:GetNearestPlanetCenter(newPoint)
+			local toCenter = nearestCenter - newPoint
 			if toCenter.Magnitude > 0.01 then
 				cast:SetAcceleration(toCenter.Unit * SPHERE_GRAVITY)
 			end
@@ -287,24 +473,28 @@ function GraviBowViewmodelController:_setupFastCast()
 				end
 			else
 				self._soundController:PlayAtPosition("ArrowImpctGround", hitPos)
+				if self:_shouldSpawnArrowCrater(hitInstance) then
+					self:_spawnArrowImpactCrater(hitPos, result.Normal, hitInstance)
+				end
 			end
 		end
 	end)
 
 	self._caster.CastTerminating:Connect(function(cast)
 		local bullet = cast.RayInfo.CosmeticBulletObject
-		if bullet and cast.UserData and cast.UserData.hit then
-			task.delay(ARROW_LIFETIME, function()
-				local arrowTrail = bullet:FindFirstChild("ArrowTrail")
-				if arrowTrail then
-					arrowTrail.Enabled = false
-					arrowTrail:Clear()
-				end
-				pcall(function()
-					self._arrowCache:ReturnPart(bullet)
-				end)
+		if not bullet then return end
+
+		local lifetime = (cast.UserData and cast.UserData.hit) and ARROW_LIFETIME or 0
+		task.delay(lifetime, function()
+			local arrowTrail = bullet:FindFirstChild("ArrowTrail")
+			if arrowTrail then
+				arrowTrail.Enabled = false
+				arrowTrail:Clear()
+			end
+			pcall(function()
+				self._arrowCache:ReturnPart(bullet)
 			end)
-		end
+		end)
 	end)
 
 	self._castParams = RaycastParams.new()
@@ -334,8 +524,8 @@ function GraviBowViewmodelController:_setupFastCast()
 				cast.UserData.trailEnabled = true
 			end
 
-			local sphereCenter = self:_getSphereCenter()
-			local toCenter = sphereCenter - newPoint
+			local nearestCenter = self._gravityController:GetNearestPlanetCenter(newPoint)
+			local toCenter = nearestCenter - newPoint
 			if toCenter.Magnitude > 0.01 then
 				cast:SetAcceleration(toCenter.Unit * SPHERE_GRAVITY)
 			end
@@ -372,8 +562,13 @@ function GraviBowViewmodelController:_setupFastCast()
 	end)
 
 	self._remoteCaster.RayHit:Connect(function(cast, result)
-		if result then
-			cast.UserData.hit = true
+		if not result then return end
+		cast.UserData.hit = true
+		local hitInstance = result.Instance
+		local hitModel = hitInstance:FindFirstAncestorOfClass("Model")
+		local hitHumanoid = hitModel and hitModel:FindFirstChildOfClass("Humanoid")
+		if not hitHumanoid and self:_shouldSpawnArrowCrater(hitInstance) then
+			self:_spawnArrowImpactCrater(result.Position, result.Normal, hitInstance)
 		end
 	end)
 end
@@ -542,25 +737,55 @@ function GraviBowViewmodelController:_onBowEquipped(tool)
 	self._bowTrove:Add(arrowTip)
 	self._arrowTip = arrowTip
 
-	local arcDots = {}
-	for i = 1, ARC_POINTS do
-		local dot = Instance.new("Part")
-		dot.Name = "ArcDot_" .. i
-		dot.Shape = Enum.PartType.Ball
-		dot.Size = Vector3.new(ARC_DOT_SIZE, ARC_DOT_SIZE, ARC_DOT_SIZE)
-		dot.Material = Enum.Material.Neon
-		dot.Color = ARC_COLOR
-		dot.Anchored = true
-		dot.CanCollide = false
-		dot.CanQuery = false
-		dot.CanTouch = false
-		dot.CastShadow = false
-		dot.Transparency = 1
-		dot.Parent = Workspace
-		self._bowTrove:Add(dot)
-		arcDots[i] = dot
+	local arcHost = Instance.new("Part")
+	arcHost.Name = "ArcHost"
+	arcHost.Anchored = true
+	arcHost.CanCollide = false
+	arcHost.CanQuery = false
+	arcHost.CanTouch = false
+	arcHost.CastShadow = false
+	arcHost.Transparency = 1
+	arcHost.Size = Vector3.new(1, 1, 1)
+	arcHost.Position = Vector3.zero
+	arcHost.Parent = Workspace
+	self._bowTrove:Add(arcHost)
+	self._arcHost = arcHost
+
+	local arcAttachments = {}
+	for i = 0, ARC_SEGMENTS do
+		local att = Instance.new("Attachment")
+		att.Name = "ArcAtt_" .. i
+		att.Parent = arcHost
+		arcAttachments[i] = att
 	end
-	self._arcDots = arcDots
+	self._arcAttachments = arcAttachments
+
+	local arcBeams = {}
+	for i = 0, ARC_SEGMENTS - 1 do
+		local beam = Instance.new("Beam")
+		beam.Name = "ArcBeam_" .. i
+		beam.Attachment0 = arcAttachments[i]
+		beam.Attachment1 = arcAttachments[i + 1]
+		beam.FaceCamera = true
+		beam.LightEmission = ARC_LIGHT_EMISSION
+		beam.LightInfluence = 0
+		beam.Segments = 1
+		beam.TextureMode = Enum.TextureMode.Stretch
+
+		local t = i / ARC_SEGMENTS
+		beam.Color = ColorSequence.new(ARC_COLOR_START:Lerp(ARC_COLOR_END, t), ARC_COLOR_START:Lerp(ARC_COLOR_END, math.min(t + 1 / ARC_SEGMENTS, 1)))
+		beam.Transparency = NumberSequence.new(t * 0.5, math.min(t + 1 / ARC_SEGMENTS, 1) * 0.5 + 0.2)
+
+		local widthStart = ARC_WIDTH * (1 - t * 0.6)
+		local widthEnd = ARC_WIDTH * (1 - math.min(t + 1 / ARC_SEGMENTS, 1) * 0.6)
+		beam.Width0 = widthStart
+		beam.Width1 = widthEnd
+
+		beam.Enabled = false
+		beam.Parent = arcHost
+		arcBeams[i] = beam
+	end
+	self._arcBeams = arcBeams
 
 	self.DrawAmount = 0
 	self._aimAlpha = 0
@@ -630,6 +855,8 @@ function GraviBowViewmodelController:_onBowEquipped(tool)
 		end
 
 		local showArc = self.IsAiming and self.IsDrawing and self.DrawAmount >= MIN_DRAW_TO_FIRE
+		local arcAtts = self._arcAttachments
+		local arcBeams = self._arcBeams
 		if showArc then
 			local character = LocalPlayer.Character
 			local hrp = character and character:FindFirstChild("HumanoidRootPart")
@@ -638,14 +865,20 @@ function GraviBowViewmodelController:_onBowEquipped(tool)
 				local speed = (self.DrawAmount / DRAW_MAX) * ARROW_SPEED_MAX
 				local pos = hrp.Position + aimDir * 4
 				local vel = aimDir * speed
-				local center = self:_getSphereCenter()
-
 				local castParams = RaycastParams.new()
 				castParams.FilterType = Enum.RaycastFilterType.Exclude
-				castParams.FilterDescendantsInstances = {character}
+				local arcFilterList = {character, self._arcHost}
+				local gzFolder = Workspace:FindFirstChild("GravityZones")
+				if gzFolder then
+					table.insert(arcFilterList, gzFolder)
+				end
+				castParams.FilterDescendantsInstances = arcFilterList
 
-				local hitIndex = ARC_POINTS
-				for i = 1, ARC_POINTS do
+				arcAtts[0].WorldPosition = pos
+				local lastActive = -1
+
+				for i = 1, ARC_SEGMENTS do
+					local center = self._gravityController:GetNearestPlanetCenter(pos)
 					local toCenter = center - pos
 					local accel = toCenter.Magnitude > 0.01 and toCenter.Unit * SPHERE_GRAVITY or Vector3.zero
 					vel = vel + accel * ARC_TIME_STEP
@@ -653,24 +886,27 @@ function GraviBowViewmodelController:_onBowEquipped(tool)
 
 					local ray = Workspace:Raycast(pos, nextPos - pos, castParams)
 					if ray then
-						arcDots[i].Position = ray.Position
-						arcDots[i].Transparency = 0
-						hitIndex = i
+						arcAtts[i].WorldPosition = ray.Position
+						lastActive = i
 						break
 					end
 
-					arcDots[i].Position = nextPos
-					arcDots[i].Transparency = 0
+					arcAtts[i].WorldPosition = nextPos
+					lastActive = i
 					pos = nextPos
 				end
 
-				for i = hitIndex + 1, ARC_POINTS do
-					arcDots[i].Transparency = 1
+				for i = 0, ARC_SEGMENTS - 1 do
+					arcBeams[i].Enabled = (i < lastActive)
+				end
+			else
+				for i = 0, ARC_SEGMENTS - 1 do
+					arcBeams[i].Enabled = false
 				end
 			end
 		else
-			for i = 1, ARC_POINTS do
-				arcDots[i].Transparency = 1
+			for i = 0, ARC_SEGMENTS - 1 do
+				arcBeams[i].Enabled = false
 			end
 		end
 	end)
@@ -693,15 +929,21 @@ function GraviBowViewmodelController:_fireArrow()
 	local speed = (self.DrawAmount / DRAW_MAX) * ARROW_SPEED_MAX
 	local spawnPos = hrp.Position + aimDir * 4
 
-	self._castParams.FilterDescendantsInstances = {character}
+	local gravityZones = Workspace:FindFirstChild("GravityZones")
+	local filterList = {character}
+	if gravityZones then
+		table.insert(filterList, gravityZones)
+	end
+	self._castParams.FilterDescendantsInstances = filterList
 
-	local toCenter = self:_getSphereCenter() - spawnPos
+	local nearestCenter = self._gravityController:GetNearestPlanetCenter(spawnPos)
+	local toCenter = nearestCenter - spawnPos
 	local initialAccel = toCenter.Magnitude > 0.01 and toCenter.Unit * SPHERE_GRAVITY or Vector3.zero
 
 	local behavior = FastCast.newBehavior()
 	behavior.RaycastParams = self._castParams
 	behavior.Acceleration = initialAccel
-	behavior.MaxDistance = 1000
+	behavior.MaxDistance = 50000
 	behavior.AutoIgnoreContainer = false
 	behavior.CosmeticBulletContainer = Workspace
 	behavior.CosmeticBulletProvider = self._arrowCache

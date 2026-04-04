@@ -112,7 +112,7 @@ function GraviBowDebugController:_drawDebug()
 	-- Gizmo lines disabled
 	local _ = charForward, camLook, inputWorldDir, groundNormal
 
-	local sphereCenter = self._gravityController._sphereCenter
+	local sphereCenter = self._gravityController:GetSphereCenter()
 	local offset = origin - sphereCenter
 	local dist = offset.Magnitude
 	local lat = math.deg(math.asin(math.clamp(offset.Y / math.max(dist, 0.001), -1, 1)))

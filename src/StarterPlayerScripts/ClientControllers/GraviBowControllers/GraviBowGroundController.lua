@@ -83,7 +83,12 @@ function GraviBowGroundController:_onCharacterAdded(character)
 	self._hipHeight = self:_computeHipHeight(character, hrp)
 
 	self._rayParams = RaycastParams.new()
-	self._rayParams.FilterDescendantsInstances = { character }
+	local groundFilterList = { character }
+	local gravityZones = Workspace:FindFirstChild("GravityZones")
+	if gravityZones then
+		table.insert(groundFilterList, gravityZones)
+	end
+	self._rayParams.FilterDescendantsInstances = groundFilterList
 	self._rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 	self:_createRayAttachments(hrp)

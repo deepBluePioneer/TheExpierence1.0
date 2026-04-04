@@ -1,3 +1,4 @@
+local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -10,7 +11,25 @@ local Signal = require(Packages.Signal)
 
 local LocalPlayer = Players.LocalPlayer
 
+local PLANET_TAG = "planet"
 local GRAVITY_FORCE = 40
+local GRAVITY_DIR_SMOOTH_RAD_PER_SEC = 4.2
+
+local function smoothUnitToward(current, target, dt, maxRadPerSec)
+	local c = current.Unit
+	local t = target.Unit
+	local dot = math.clamp(c:Dot(t), -1, 1)
+	local omega = math.acos(dot)
+	if omega < 1e-5 then
+		return t
+	end
+	local step = math.min(omega, math.max(maxRadPerSec * dt, 0))
+	local sinO = math.sin(omega)
+	if sinO < 1e-5 then
+		return t
+	end
+	return (c * math.sin(omega - step) + t * math.sin(step)) / sinO
+end
 
 local GraviBowGravityController = Knit.CreateController({
 	Name = "GraviBowGravityController",
@@ -20,8 +39,11 @@ local GraviBowGravityController = Knit.CreateController({
 
 	_trove = nil,
 	_characterTrove = nil,
-	_sphereCenter = Vector3.zero,
+	_planets = {},
+	_activePlanet = nil,
 	_cachedMass = 0,
+	_planetRegistered = Signal.new(),
+	_smoothedGravityDir = nil,
 })
 
 function GraviBowGravityController:KnitInit()
@@ -29,14 +51,32 @@ function GraviBowGravityController:KnitInit()
 end
 
 function GraviBowGravityController:KnitStart()
-	local sphere = Workspace:WaitForChild("sphere", 30)
-	if not sphere then
-		warn("[GraviBowGravityController] Could not find Workspace.sphere")
-		return
+	self._playerService = Knit.GetService("GraviBowPlayerService")
+
+	for _, instance in ipairs(CollectionService:GetTagged(PLANET_TAG)) do
+		self:_registerPlanet(instance)
 	end
 
-	self._sphere = sphere
-	self:_updateSphereCenter()
+	self._trove:Add(CollectionService:GetInstanceAddedSignal(PLANET_TAG):Connect(function(instance)
+		self:_registerPlanet(instance)
+	end), "Disconnect")
+
+	self._trove:Add(CollectionService:GetInstanceRemovedSignal(PLANET_TAG):Connect(function(instance)
+		self:_unregisterPlanet(instance)
+	end), "Disconnect")
+
+	self._playerService.ActivePlanetChanged:Connect(function(planetModel)
+		if planetModel then
+			local planetData = self._planets[planetModel]
+			if planetData then
+				print("[GraviBowGravityController] Server set active planet:", planetModel.Name)
+				self._activePlanet = planetData
+			end
+		else
+			print("[GraviBowGravityController] Server cleared active planet, using nearest")
+			self._activePlanet = self:_findNearestPlanet()
+		end
+	end)
 
 	self._trove:Add(LocalPlayer.CharacterAdded:Connect(function(character)
 		self:_onCharacterAdded(character)
@@ -45,45 +85,141 @@ function GraviBowGravityController:KnitStart()
 	if LocalPlayer.Character then
 		self:_onCharacterAdded(LocalPlayer.Character)
 	end
-
 end
 
 function GraviBowGravityController:GetSphereCenter()
-	return self._sphereCenter
+	local planet = self._activePlanet or self:_findNearestPlanet()
+	if planet then
+		return planet.center
+	end
+	return Vector3.zero
 end
 
-function GraviBowGravityController:_updateSphereCenter()
-	local sphere = self._sphere
-	if not sphere then return end
-
-	if sphere:IsA("Model") and sphere.PrimaryPart then
-		self._sphereCenter = sphere.PrimaryPart.Position
-	elseif sphere:IsA("BasePart") then
-		self._sphereCenter = sphere.Position
-	else
-		local rootPart = sphere:FindFirstChildWhichIsA("BasePart")
-		if rootPart then
-			self._sphereCenter = rootPart.Position
-		end
+function GraviBowGravityController:GetNearestPlanetCenter(position)
+	local planet = self:_findNearestPlanet(position)
+	if planet then
+		return planet.center
 	end
+	return self:GetSphereCenter()
 end
 
 function GraviBowGravityController:GetSphereRadius()
-	local sphere = self._sphere
-	if not sphere then return 100 end
-
-	local part = nil
-	if sphere:IsA("Model") and sphere.PrimaryPart then
-		part = sphere.PrimaryPart
-	elseif sphere:IsA("BasePart") then
-		part = sphere
-	else
-		part = sphere:FindFirstChildWhichIsA("BasePart")
+	local planet = self._activePlanet or self:_findNearestPlanet()
+	if planet then
+		return planet.radius
 	end
+	return 100
+end
+
+function GraviBowGravityController:GetSmoothedGravityDirection()
+	return self._smoothedGravityDir or self.GravityDirection
+end
+
+function GraviBowGravityController:_getPlanetPart(model)
+	if model:IsA("BasePart") then
+		return model
+	end
+	if model:IsA("Model") and model.PrimaryPart then
+		return model.PrimaryPart
+	end
+	return model:FindFirstChildWhichIsA("BasePart", true)
+end
+
+function GraviBowGravityController:_getPlanetCenter(model)
+	local part = self:_getPlanetPart(model)
+	if part then
+		return part.Position
+	end
+	return nil
+end
+
+function GraviBowGravityController:_getPlanetRadius(model)
+	local part = self:_getPlanetPart(model)
 	if part then
 		return math.max(part.Size.X, part.Size.Y, part.Size.Z) / 2
 	end
 	return 100
+end
+
+function GraviBowGravityController:_registerPlanet(model)
+	if self._planets[model] then return end
+
+	local center = self:_getPlanetCenter(model)
+	if not center then
+		task.spawn(function()
+			while model.Parent and not self:_getPlanetPart(model) do
+				local desc = model.DescendantAdded:Wait()
+				if desc:IsA("BasePart") then
+					break
+				end
+			end
+			if model.Parent and not self._planets[model] then
+				self:_registerPlanet(model)
+			end
+		end)
+		return
+	end
+
+	local radius = self:_getPlanetRadius(model)
+
+	local planetData = {
+		model = model,
+		center = center,
+		radius = radius,
+	}
+
+	self._planets[model] = planetData
+	self._planetRegistered:Fire(planetData)
+end
+
+function GraviBowGravityController:_unregisterPlanet(model)
+	local planetData = self._planets[model]
+	if not planetData then return end
+
+	if self._activePlanet == planetData then
+		self._activePlanet = nil
+	end
+
+	self._planets[model] = nil
+
+	if not self._activePlanet then
+		self._activePlanet = self:_findNearestPlanet()
+	end
+end
+
+function GraviBowGravityController:_findNearestPlanet(position)
+	if not position then
+		local character = LocalPlayer.Character
+		if character then
+			local hrp = character:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				position = hrp.Position
+			end
+		end
+	end
+	if not position then return nil end
+
+	local nearest = nil
+	local nearestDist = math.huge
+
+	for _, planetData in pairs(self._planets) do
+		local dist = (planetData.center - position).Magnitude
+		if dist < nearestDist then
+			nearestDist = dist
+			nearest = planetData
+		end
+	end
+
+	return nearest
+end
+
+function GraviBowGravityController:_updatePlanetCenters()
+	for _, planetData in pairs(self._planets) do
+		local newCenter = self:_getPlanetCenter(planetData.model)
+		if newCenter then
+			planetData.center = newCenter
+		end
+	end
 end
 
 function GraviBowGravityController:_onCharacterAdded(character)
@@ -110,18 +246,39 @@ function GraviBowGravityController:_onCharacterAdded(character)
 
 	self:_teleportToSurface(hrp)
 
-	self._characterTrove:Add(RunService.Stepped:Connect(function()
-		self:_updateGravity(hrp, vectorForce)
-	end), "Disconnect")
+	self._smoothedGravityDir = nil
 
+	self._characterTrove:Add(RunService.Stepped:Connect(function(_, dt)
+		self:_updateGravity(hrp, vectorForce, dt)
+	end), "Disconnect")
 end
 
 function GraviBowGravityController:_teleportToSurface(hrp)
-	self:_updateSphereCenter()
-	local center = self._sphereCenter
-	local radius = self:GetSphereRadius()
+	local planet = self._activePlanet or self:_findNearestPlanet(hrp.Position)
+	if not planet then
+		local anyPlanet = next(self._planets)
+		if anyPlanet then
+			planet = self._planets[anyPlanet]
+		end
+	end
+	if not planet then
+		planet = self._planetRegistered:Wait()
+	end
+	if not planet then
+		return
+	end
 
-	local upDir = Vector3.new(0, 1, 0)
+	self._activePlanet = planet
+
+	local center = planet.center
+	local radius = planet.radius
+
+	local upDir = (hrp.Position - center)
+	if upDir.Magnitude < 0.01 then
+		upDir = Vector3.new(0, 1, 0)
+	end
+	upDir = upDir.Unit
+
 	local surfacePos = center + upDir * (radius + 5)
 	local lookDir = upDir:Cross(Vector3.new(0, 0, 1))
 	if lookDir.Magnitude < 0.01 then
@@ -135,15 +292,26 @@ function GraviBowGravityController:_teleportToSurface(hrp)
 	hrp.AssemblyAngularVelocity = Vector3.zero
 end
 
-function GraviBowGravityController:_updateGravity(hrp, vectorForce)
-	self:_updateSphereCenter()
+function GraviBowGravityController:_updateGravity(hrp, vectorForce, dt)
+	self:_updatePlanetCenters()
+
+	local planet = self._activePlanet or self:_findNearestPlanet(hrp.Position)
+
+	if not planet then return end
 
 	local playerPos = hrp.Position
-	local toCenter = self._sphereCenter - playerPos
+	local toCenter = planet.center - playerPos
 	if toCenter.Magnitude < 0.001 then return end
 
 	local gravityDir = toCenter.Unit
 	self.GravityDirection = gravityDir
+
+	if not self._smoothedGravityDir then
+		self._smoothedGravityDir = gravityDir
+	else
+		self._smoothedGravityDir = smoothUnitToward(self._smoothedGravityDir, gravityDir, dt, GRAVITY_DIR_SMOOTH_RAD_PER_SEC)
+	end
+
 	self.GravityChanged:Fire(gravityDir)
 
 	vectorForce.Force = gravityDir * GRAVITY_FORCE * self._cachedMass
