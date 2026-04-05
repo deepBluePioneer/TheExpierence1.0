@@ -6,16 +6,11 @@ local Packages = ReplicatedStorage.Packages
 local Knit = require(Packages.Knit)
 local Trove = require(Packages.Trove)
 
+local ItemRegistry = require(ReplicatedStorage.Source.GraviBowItemRegistry)
+
 local LocalPlayer = Players.LocalPlayer
 
-local RADIAL_OPTIONS = {
-	{ name = "None",      icon = "🚫", cost = 0 },
-	{ name = "Harvester", icon = "⛏️",  cost = 1 },
-	{ name = "Wall",      icon = "🧱", cost = 0 },
-	{ name = "Floor",     icon = "🟫", cost = 0 },
-	{ name = "Ramp",      icon = "📐", cost = 0 },
-	{ name = "Turret",    icon = "🔫", cost = 0 },
-}
+local RADIAL_OPTIONS = ItemRegistry
 
 local RADIAL_RING_RADIUS = 120
 local RADIAL_SEGMENT_SIZE = 80

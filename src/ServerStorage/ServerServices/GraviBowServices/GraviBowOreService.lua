@@ -5,10 +5,18 @@ local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
 local Knit = require(Packages.Knit)
 
 local ReplicaService = require(CustomPackages.Replica.ReplicaService)
+local ItemRegistry = require(ReplicatedStorage.Source.GraviBowItemRegistry)
 
-local ITEM_COSTS = {
-	Harvester = 1,
-}
+local ITEM_COSTS = {}
+local ITEM_PLACEMENT = {}
+for _, item in ipairs(ItemRegistry) do
+	if item.cost and item.cost > 0 then
+		ITEM_COSTS[item.name] = item.cost
+	end
+	if item.placement then
+		ITEM_PLACEMENT[item.name] = item.placement
+	end
+end
 
 local GraviBowOreService = Knit.CreateService({
 	Name = "GraviBowOreService",
@@ -28,6 +36,7 @@ end
 
 function GraviBowOreService:KnitStart()
 	self._harvesterService = Knit.GetService("GraviBowHarvesterService")
+	self._buildService = Knit.GetService("GraviBowBuildService")
 
 	self.Client.CrystalMined:Connect(function(player)
 		self:OnCrystalMined(player)
@@ -68,6 +77,15 @@ function GraviBowOreService:GetPlayerOre(player)
 	return replica and replica.Data.ore or 0
 end
 
+function GraviBowOreService:RefundOre(player, amount)
+	if amount <= 0 then return end
+	local replica = self._oreReplicas[player]
+	if not replica then return end
+	local current = replica.Data.ore or 0
+	replica:SetValue({"ore"}, current + amount)
+	print("[GraviBowOreService] Refunded", amount, "ore to", player.Name)
+end
+
 function GraviBowOreService:_onPurchaseItem(player, itemName)
 	if type(itemName) ~= "string" then return end
 
@@ -87,16 +105,16 @@ function GraviBowOreService:_onPurchaseItem(player, itemName)
 	if not replica then return end
 	replica:SetValue({"ore"}, currentOre - cost)
 
-	if itemName == "Harvester" then
-		local harvester = self._harvesterService:SpawnHarvester(player)
-		if harvester then
-			self.Client.ItemPurchased:Fire(player, itemName, harvester)
-			print("[GraviBowOreService] Player", player.Name, "purchased Harvester - ore left:", currentOre - cost)
-			return
-		end
+	local placement = ITEM_PLACEMENT[itemName]
+	local spawnedModel = nil
+
+	if placement == "drop" then
+		spawnedModel = self._harvesterService:SpawnHarvester(player)
+	elseif placement == "snap" then
+		spawnedModel = self._buildService:SpawnBuildable(player, itemName)
 	end
 
-	self.Client.ItemPurchased:Fire(player, itemName, nil)
+	self.Client.ItemPurchased:Fire(player, itemName, spawnedModel)
 	print("[GraviBowOreService] Player", player.Name, "purchased", itemName, "- ore left:", currentOre - cost)
 end
 
