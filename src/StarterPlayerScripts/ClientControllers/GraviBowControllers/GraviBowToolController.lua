@@ -39,6 +39,7 @@ function GraviBowToolController:KnitStart()
 	self._radialMenuController = Knit.GetController("GraviBowRadialMenuController")
 	self._harvesterController = Knit.GetController("GraviBowHarvesterController")
 	self._buildController = Knit.GetController("GraviBowBuildController")
+	self._jetpackController = Knit.GetController("GraviBowJetpackController")
 	self._toolService = Knit.GetService("GraviBowToolService")
 
 	self._toolService.ToolPickedUp:Connect(function(toolName)
@@ -145,6 +146,10 @@ function GraviBowToolController:_switchToSlot(slot)
 			self:_equipTool(scannerTool)
 		end
 		self._scannerController:Show()
+	elseif toolName == "jetpack" then
+		self._viewmodelController:HideBow()
+		self._scannerController:Hide()
+		self._jetpackController:Activate()
 	else
 		self._viewmodelController:HideBow()
 		self._scannerController:Hide()
@@ -160,6 +165,8 @@ function GraviBowToolController:_equipTool(tool)
 end
 
 function GraviBowToolController:_unequipCurrentTool()
+	self._jetpackController:Deactivate()
+
 	local character = LocalPlayer.Character
 	if not character then return end
 	local humanoid = character:FindFirstChildOfClass("Humanoid")

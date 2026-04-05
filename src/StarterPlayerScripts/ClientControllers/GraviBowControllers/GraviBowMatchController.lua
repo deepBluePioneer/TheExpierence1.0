@@ -194,8 +194,7 @@ function GraviBowMatchController:_createUI()
 	local timeRemaining = self._timeRemaining
 
 	local showTimer = Computed(function()
-		local p = phase:get()
-		return p == "HUB_COUNTDOWN" or p == "GAME_ACTIVE" or p == "RESULTS"
+		return false
 	end)
 
 	local timerText = Computed(function()
@@ -226,8 +225,7 @@ function GraviBowMatchController:_createUI()
 	end)
 
 	local showPhaseLabel = Computed(function()
-		local p = phase:get()
-		return p ~= "GAME_ACTIVE" or timeRemaining:get() > 27
+		return false
 	end)
 
 	local phaseLabelAlpha = Spring(Computed(function()
@@ -239,7 +237,7 @@ function GraviBowMatchController:_createUI()
 	end), 10)
 
 	local showResults = Computed(function()
-		return phase:get() == "RESULTS"
+		return false
 	end)
 
 	local resultsAlpha = Spring(Computed(function()

@@ -432,25 +432,7 @@ function GraviBowGravityController:_updateGravity(hrp, vectorForce, dt)
 
 	local totalForce = gravityDir * GRAVITY_FORCE * self._cachedMass
 
-	local phase = self._matchController and self._matchController.Phase
-	if phase == "HUB_WAITING" or phase == "HUB_COUNTDOWN" then
-		local hubPlanet = self:_getHubPlanet()
-		if hubPlanet then
-			local hubCenter = hubPlanet.center
-			local zoneRadius = hubPlanet.radius * HUB_ZONE_MULTIPLIER
-			local offset = playerPos - hubCenter
-			local dist = offset.Magnitude
-			if dist > zoneRadius * 0.85 then
-				local pushDir = (hubCenter - playerPos).Unit
-				local overshoot = math.clamp((dist - zoneRadius * 0.85) / (zoneRadius * 0.15), 0, 1)
-				totalForce = totalForce + pushDir * HUB_BARRIER_PUSH_FORCE * overshoot * self._cachedMass
-
-				if dist > zoneRadius then
-					hrp.AssemblyLinearVelocity = hrp.AssemblyLinearVelocity * 0.5
-				end
-			end
-		end
-	end
+	-- Hub containment barrier disabled
 
 	vectorForce.Force = totalForce
 end

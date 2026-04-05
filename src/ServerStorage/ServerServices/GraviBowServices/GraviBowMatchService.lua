@@ -161,21 +161,7 @@ function GraviBowMatchService:_isGameInSession()
 end
 
 function GraviBowMatchService:_checkPlayerCount()
-	if self:_isGameInSession() then return end
-
-	local count = #Players:GetPlayers()
-
-	if self._phase == PHASES.HUB_WAITING then
-		if count >= MIN_PLAYERS then
-			self:_startHubCountdown()
-		end
-	elseif self._phase == PHASES.HUB_COUNTDOWN then
-		if count < MIN_PLAYERS then
-			self:_stopTimer()
-			self:_setPhase(PHASES.HUB_WAITING)
-			self:_setTimeRemaining(0)
-		end
-	end
+	return
 end
 
 function GraviBowMatchService:_startHubCountdown()

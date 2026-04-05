@@ -33,9 +33,53 @@ end
 function GraviBowToolService:SetBowEnabled(_player, _enabled)
 end
 
+function GraviBowToolService:_buildJetpackStructure(tool)
+	local visual = tool:FindFirstChild("jetPackVisual")
+	if not visual then
+		warn("[GraviBowToolService] Jetpack tool missing 'jetPackVisual' child")
+		return
+	end
+
+	local handle = Instance.new("Part")
+	handle.Name = "Handle"
+	handle.Size = Vector3.new(1, 1, 1)
+	handle.Transparency = 1
+	handle.CanCollide = false
+	handle.Massless = true
+	handle.CFrame = visual.CFrame
+	handle.Parent = tool
+
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = handle
+	weld.Part1 = visual
+	weld.Parent = handle
+
+	local accessory = Instance.new("Accessory")
+	accessory.Name = "JetpackAccessory"
+	accessory.AccessoryType = Enum.AccessoryType.Back
+
+	local accHandle = visual:Clone()
+	accHandle.Name = "Handle"
+	accHandle.Anchored = false
+	accHandle.CanCollide = false
+
+	local attachment = Instance.new("Attachment")
+	attachment.Name = "BodyBackAttachment"
+	attachment.Parent = accHandle
+
+	accHandle.Parent = accessory
+	accessory.Parent = tool
+
+	print("[GraviBowToolService] Built jetpack structure for:", tool:GetFullName())
+end
+
 function GraviBowToolService:_setupToolPickups()
 	local function setupPrompt(tool)
 		if not tool:IsA("Tool") then return end
+
+		if tool.Name:lower() == "jetpack" then
+			self:_buildJetpackStructure(tool)
+		end
 
 		local handle = tool:WaitForChild("Handle", 5)
 		if not handle then

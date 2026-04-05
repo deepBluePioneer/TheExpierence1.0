@@ -15,6 +15,7 @@ local WALK_SPEED = 24
 local XZ_DRAG_FACTOR = 3
 local FLAT_FRICTION = 500
 local AIR_CONTROL = 0.15
+local JETPACK_AIR_CONTROL = 0.5
 local AIR_DRAG_FACTOR = 0.5
 local STOP_DAMPING = 60
 local JUMP_POWER = 1000
@@ -62,6 +63,7 @@ function GraviBowCharacterController:KnitStart()
 	self._gravityController = Knit.GetController("GraviBowGravityController")
 	self._groundController = Knit.GetController("GraviBowGroundController")
 	self._cameraController = Knit.GetController("GraviBowCameraController")
+	self._jetpackController = Knit.GetController("GraviBowJetpackController")
 
 	self._trove:Add(UserInputService.JumpRequest:Connect(function()
 		self:_onJumpRequest()
@@ -290,9 +292,14 @@ function GraviBowCharacterController:_updateMovementForces(moveDirection, isMovi
 			totalDrag += -tangentUnit * (tangentSpeed ^ 2) * AIR_DRAG_FACTOR
 		end
 
+		local airControl = AIR_CONTROL
+		if self._jetpackController and self._jetpackController:IsThrusting() then
+			airControl = JETPACK_AIR_CONTROL
+		end
+
 		if isMoving then
 			local groundForce = (WALK_SPEED ^ 2) * XZ_DRAG_FACTOR + FLAT_FRICTION
-			self._movementForce.Force = moveDirection * groundForce * AIR_CONTROL
+			self._movementForce.Force = moveDirection * groundForce * airControl
 		else
 			self._movementForce.Force = Vector3.zero
 		end
