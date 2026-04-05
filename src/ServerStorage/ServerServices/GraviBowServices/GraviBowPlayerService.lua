@@ -13,24 +13,10 @@ local Zone = require(ZoneRoot:WaitForChild("Zone"))
 
 local PLANET_TAG = "planet"
 local HUB_PLANET_TAG = "planetHub"
-local TOOL_TAG = "tool"
 local GRAVITY_ZONE_MULTIPLIER = 1.8
 local ZONE_TRANSPARENCY = 0.85
 local ZONE_COLOR = Color3.fromRGB(100, 150, 255)
 local HUB_ZONE_COLOR = Color3.fromRGB(100, 255, 150)
-
-local ReplicaService = require(CustomPackages.Replica.ReplicaService)
-
-local ITEM_COSTS = {
-	Harvester = 1,
-}
-
-local HARVESTER_TAG = "harvester"
-local HARVESTER_POLL_INTERVAL = 0.4
-local HARVESTER_ARRIVE_DIST = 12
-local HARVESTER_MINE_DURATION = 3
-local HARVESTER_SEARCH_RADIUS = 500
-local HARVESTER_BEAM_COLOR = ColorSequence.new(Color3.fromRGB(255, 200, 50), Color3.fromRGB(255, 100, 20))
 
 local GraviBowPlayerService = Knit.CreateService({
 	Name = "GraviBowPlayerService",
@@ -39,25 +25,13 @@ local GraviBowPlayerService = Knit.CreateService({
 		ArrowFired = Knit.CreateSignal(),
 		HomingArrowFired = Knit.CreateSignal(),
 		ActivePlanetChanged = Knit.CreateSignal(),
-		ToolPickedUp = Knit.CreateSignal(),
-		CrystalMined = Knit.CreateSignal(),
-		PurchaseItem = Knit.CreateSignal(),
-		ItemPurchased = Knit.CreateSignal(),
-		DropHarvester = Knit.CreateSignal(),
-		HarvesterTarget = Knit.CreateSignal(),
-		HarvesterMining = Knit.CreateSignal(),
 	},
 
 	_playerTroves = {},
 	_planets = {},
 	_hubPlanets = {},
 	_playerActivePlanets = {},
-	_playerInventory = {},
 	_zoneFolder = nil,
-	_oreClassToken = nil,
-	_oreReplicas = {},
-	_playerHarvesters = {},
-	_claimedCrystals = {},
 })
 
 function GraviBowPlayerService:KnitInit()
@@ -75,10 +49,10 @@ function GraviBowPlayerService:KnitStart()
 	self:_setupLighting()
 	self:_setupPlanetZones()
 	self:_setupHubPlanetZones()
-	self:_setupToolPickups()
-	self:_initOreReplica()
 
 	self._matchService = Knit.GetService("GraviBowMatchService")
+	self._oreService = Knit.GetService("GraviBowOreService")
+	self._toolService = Knit.GetService("GraviBowToolService")
 
 	self._trove:Add(Players.PlayerAdded:Connect(function(player)
 		self:_onPlayerAdded(player)
@@ -106,18 +80,6 @@ function GraviBowPlayerService:KnitStart()
 				self.Client.HomingArrowFired:Fire(player, shooter, spawnPos, upDir, targetPositions)
 			end
 		end
-	end)
-
-	self.Client.CrystalMined:Connect(function(player)
-		self:_onCrystalMined(player)
-	end)
-
-	self.Client.PurchaseItem:Connect(function(player, itemName)
-		self:_onPurchaseItem(player, itemName)
-	end)
-
-	self.Client.DropHarvester:Connect(function(player, harvester, dropPos, lookDir)
-		self:_onDropHarvester(player, harvester, dropPos, lookDir)
 	end)
 
 	for _, player in ipairs(Players:GetPlayers()) do
@@ -151,7 +113,7 @@ function GraviBowPlayerService:_onArrowHit(shooter, victimPlayer)
 end
 
 function GraviBowPlayerService:_onPlayerAdded(player)
-	self:_createOreReplica(player)
+	self._oreService:CreateOreReplica(player)
 
 	local function onCharacterAdded(character)
 		self:_setupCharacter(player, character)
@@ -238,7 +200,6 @@ function GraviBowPlayerService:_setupLighting()
 	sunRays.Intensity = 0.15
 	sunRays.Spread = 0.8
 	sunRays.Parent = Lighting
-
 end
 
 function GraviBowPlayerService:_onPlayerRemoving(player)
@@ -248,8 +209,8 @@ function GraviBowPlayerService:_onPlayerRemoving(player)
 		self._playerTroves[player] = nil
 	end
 	self._playerActivePlanets[player] = nil
-	self._playerInventory[player] = nil
-	self:_destroyOreReplica(player)
+	self._toolService:ClearPlayerInventory(player)
+	self._oreService:DestroyOreReplica(player)
 end
 
 function GraviBowPlayerService:_setupCharacter(player, character)
@@ -591,89 +552,6 @@ function GraviBowPlayerService:GetGamePlanets()
 	return list
 end
 
-function GraviBowPlayerService:SetBowEnabled(_player, _enabled)
-	-- Legacy no-op; tool availability is now managed by the pickup/inventory system
-end
-
-function GraviBowPlayerService:_setupToolPickups()
-	local function setupPrompt(tool)
-		if not tool:IsA("Tool") then return end
-
-		local handle = tool:WaitForChild("Handle", 5)
-		if not handle then
-			warn("[GraviBowPlayerService] Tool", tool.Name, "has no Handle, skipping prompt")
-			return
-		end
-
-		handle.CanTouch = false
-
-		local toolName = tool.Name:lower()
-
-		local prompt = Instance.new("ProximityPrompt")
-		prompt.ActionText = "Pick Up"
-		prompt.ObjectText = tool.Name
-		prompt.KeyboardKeyCode = Enum.KeyCode.E
-		prompt.HoldDuration = 0.3
-		prompt.MaxActivationDistance = 12
-		prompt.RequiresLineOfSight = false
-		prompt.Parent = handle
-
-		prompt.Triggered:Connect(function(player)
-			if not self._playerInventory[player] then
-				self._playerInventory[player] = {}
-			end
-
-			for _, existing in ipairs(self._playerInventory[player]) do
-				if existing == toolName then
-					return
-				end
-			end
-
-			local backpack = player:FindFirstChild("Backpack")
-			if not backpack then return end
-
-			local clone = tool:Clone()
-			for _, desc in ipairs(clone:GetDescendants()) do
-				if desc:IsA("ProximityPrompt") then
-					desc:Destroy()
-				end
-			end
-			clone.Parent = backpack
-
-			table.insert(self._playerInventory[player], toolName)
-			self.Client.ToolPickedUp:Fire(player, toolName)
-
-			tool:Destroy()
-
-			for _, otherTool in ipairs(CollectionService:GetTagged(TOOL_TAG)) do
-				if otherTool:IsA("Tool") and otherTool.Name:lower() == toolName then
-					local otherHandle = otherTool:FindFirstChild("Handle")
-					if otherHandle then
-						local otherPrompt = otherHandle:FindFirstChildOfClass("ProximityPrompt")
-						if otherPrompt then
-							otherPrompt.Enabled = false
-						end
-					end
-				end
-			end
-
-			print("[GraviBowPlayerService] Player", player.Name, "picked up:", toolName)
-		end)
-	end
-
-	for _, instance in ipairs(CollectionService:GetTagged(TOOL_TAG)) do
-		setupPrompt(instance)
-	end
-
-	CollectionService:GetInstanceAddedSignal(TOOL_TAG):Connect(function(instance)
-		setupPrompt(instance)
-	end)
-end
-
-function GraviBowPlayerService:GetPlayerInventory(player)
-	return self._playerInventory[player] or {}
-end
-
 local DROP_HEIGHT = 50
 
 function GraviBowPlayerService:_dropPlayerOnPlanet(player, planetData)
@@ -775,7 +653,7 @@ function GraviBowPlayerService:_setPartFriction(character)
 				0.7, -- density
 				0,   -- friction
 				0,   -- elasticity
-				100, -- frictionWeight (high to override other contacts)
+				100, -- frictionWeight
 				0    -- elasticityWeight
 			)
 		end
@@ -836,514 +714,6 @@ function GraviBowPlayerService:_stripDefaultScripts(character)
 			end
 		end
 	end
-end
-
-function GraviBowPlayerService:_initOreReplica()
-	self._oreClassToken = ReplicaService.NewClassToken("GraviBowOreState")
-	self._oreReplicas = {}
-end
-
-function GraviBowPlayerService:_createOreReplica(player)
-	if self._oreReplicas[player] then return end
-	local replica = ReplicaService.NewReplica({
-		ClassToken = self._oreClassToken,
-		Data = { ore = 0 },
-		Replication = { [player] = true },
-	})
-	self._oreReplicas[player] = replica
-end
-
-function GraviBowPlayerService:_destroyOreReplica(player)
-	local replica = self._oreReplicas[player]
-	if replica then
-		replica:Destroy()
-		self._oreReplicas[player] = nil
-	end
-end
-
-function GraviBowPlayerService:_onCrystalMined(player)
-	local replica = self._oreReplicas[player]
-	if not replica then return end
-	local current = replica.Data.ore or 0
-	replica:SetValue({"ore"}, current + 1)
-end
-
-function GraviBowPlayerService:GetPlayerOre(player)
-	local replica = self._oreReplicas[player]
-	return replica and replica.Data.ore or 0
-end
-
-function GraviBowPlayerService:_onPurchaseItem(player, itemName)
-	if type(itemName) ~= "string" then return end
-
-	local cost = ITEM_COSTS[itemName]
-	if not cost then
-		warn("[GraviBowPlayerService] Unknown item:", itemName)
-		return
-	end
-
-	local currentOre = self:GetPlayerOre(player)
-	if currentOre < cost then
-		warn("[GraviBowPlayerService] Not enough ore for", itemName, "- has", currentOre, "needs", cost)
-		return
-	end
-
-	local replica = self._oreReplicas[player]
-	if not replica then return end
-	replica:SetValue({"ore"}, currentOre - cost)
-
-	if itemName == "Harvester" then
-		local harvester = self:_spawnHarvester(player)
-		if harvester then
-			self.Client.ItemPurchased:Fire(player, itemName, harvester)
-			print("[GraviBowPlayerService] Player", player.Name, "purchased Harvester - ore left:", currentOre - cost)
-			return
-		end
-	end
-
-	self.Client.ItemPurchased:Fire(player, itemName, nil)
-	print("[GraviBowPlayerService] Player", player.Name, "purchased", itemName, "- ore left:", currentOre - cost)
-end
-
-function GraviBowPlayerService:_findHarvesterPrefab()
-	local prefabsFolder = ReplicatedStorage:FindFirstChild("prefabs")
-	if not prefabsFolder then return nil end
-
-	for _, child in ipairs(prefabsFolder:GetDescendants()) do
-		if CollectionService:HasTag(child, HARVESTER_TAG) then
-			return child
-		end
-	end
-	for _, child in ipairs(prefabsFolder:GetChildren()) do
-		if child.Name:lower() == "harvester" then
-			return child
-		end
-	end
-	return nil
-end
-
-function GraviBowPlayerService:_spawnHarvester(player)
-	local prefab = self:_findHarvesterPrefab()
-	if not prefab then
-		warn("[GraviBowPlayerService] Could not find harvester prefab")
-		return nil
-	end
-
-	local clone = prefab:Clone()
-
-	local parts = {}
-	if clone:IsA("BasePart") then table.insert(parts, clone) end
-	for _, desc in ipairs(clone:GetDescendants()) do
-		if desc:IsA("BasePart") then table.insert(parts, desc) end
-	end
-	for _, part in ipairs(parts) do
-		part.Anchored = true
-		part.CanCollide = false
-		part.CanTouch = false
-		part.CanQuery = false
-	end
-
-	local character = player.Character
-	if character then
-		local hrp = character:FindFirstChild("HumanoidRootPart")
-		if hrp then
-			local spawnPos = hrp.CFrame:PointToWorldSpace(Vector3.new(0, 0, -8))
-			if clone:IsA("Model") then
-				clone:PivotTo(CFrame.new(spawnPos))
-			else
-				clone.CFrame = CFrame.new(spawnPos)
-			end
-		end
-	end
-
-	clone.Parent = Workspace
-
-	for _, part in ipairs(parts) do
-		pcall(function()
-			part:SetNetworkOwner(player)
-		end)
-	end
-
-	self._playerHarvesters[player] = clone
-	return clone
-end
-
-function GraviBowPlayerService:_onDropHarvester(player, harvester, dropPos, lookDir)
-	if not harvester or not harvester.Parent then return end
-	if self._playerHarvesters[player] ~= harvester then return end
-	if typeof(dropPos) ~= "Vector3" then return end
-	if typeof(lookDir) ~= "Vector3" then return end
-
-	local rootPart
-	if harvester:IsA("Model") then
-		rootPart = harvester.PrimaryPart or harvester:FindFirstChildWhichIsA("BasePart")
-	elseif harvester:IsA("BasePart") then
-		rootPart = harvester
-	end
-	if not rootPart then return end
-
-	local planetCenter = self:_getNearestPlanetCenter(dropPos)
-	local upDir = (dropPos - planetCenter)
-	upDir = upDir.Magnitude > 0.01 and upDir.Unit or Vector3.new(0, 1, 0)
-
-	local projLook = lookDir - upDir * lookDir:Dot(upDir)
-	if projLook.Magnitude < 0.01 then
-		projLook = upDir:Cross(Vector3.new(0, 0, 1))
-		if projLook.Magnitude < 0.01 then
-			projLook = upDir:Cross(Vector3.new(1, 0, 0))
-		end
-	end
-	projLook = projLook.Unit
-
-	local orientedCF = CFrame.lookAt(dropPos, dropPos + projLook, upDir)
-	if harvester:IsA("Model") then
-		harvester:PivotTo(orientedCF)
-	else
-		rootPart.CFrame = orientedCF
-	end
-
-	local parts = {}
-	if harvester:IsA("BasePart") then table.insert(parts, harvester) end
-	for _, desc in ipairs(harvester:GetDescendants()) do
-		if desc:IsA("BasePart") then table.insert(parts, desc) end
-	end
-	for _, part in ipairs(parts) do
-		part.Anchored = false
-		part.CanCollide = true
-		part.CanTouch = true
-		part.CanQuery = true
-		part.CustomPhysicalProperties = PhysicalProperties.new(
-			0.7,  -- density
-			0.05, -- friction
-			0.2,  -- elasticity
-			1,    -- frictionWeight
-			1     -- elasticityWeight
-		)
-	end
-
-	task.defer(function()
-		for _, part in ipairs(parts) do
-			pcall(function() part:SetNetworkOwner(player) end)
-		end
-	end)
-
-	self:_startHarvesterBehavior(harvester, rootPart, player)
-	print("[GraviBowPlayerService] Harvester dropped by", player.Name)
-end
-
-function GraviBowPlayerService:_getNearestPlanetCenter(pos)
-	local bestDist = math.huge
-	local bestCenter = Vector3.zero
-
-	for _, data in pairs(self._planets) do
-		local dist = (data.center - pos).Magnitude
-		if dist < bestDist then
-			bestDist = dist
-			bestCenter = data.center
-		end
-	end
-	for _, data in pairs(self._hubPlanets) do
-		local dist = (data.center - pos).Magnitude
-		if dist < bestDist then
-			bestDist = dist
-			bestCenter = data.center
-		end
-	end
-
-	return bestCenter
-end
-
-function GraviBowPlayerService:_findNearestCrystal(pos)
-	local crystalFolder = Workspace:FindFirstChild("CrystalPatches")
-	if not crystalFolder then return nil, math.huge end
-
-	local planetCenter = self:_getNearestPlanetCenter(pos)
-	local planetDist = (pos - planetCenter).Magnitude
-
-	local bestDist = HARVESTER_SEARCH_RADIUS
-	local bestCrystal = nil
-
-	for _, child in ipairs(crystalFolder:GetChildren()) do
-		local crystalPos
-		if child:IsA("Model") and child.PrimaryPart then
-			crystalPos = child.PrimaryPart.Position
-		elseif child:IsA("BasePart") then
-			crystalPos = child.Position
-		end
-		if crystalPos and not self._claimedCrystals[child] then
-			local crystalPlanetDist = (crystalPos - planetCenter).Magnitude
-			if math.abs(crystalPlanetDist - planetDist) < planetDist * 0.5 then
-				local dist = (crystalPos - pos).Magnitude
-				if dist < bestDist then
-					bestDist = dist
-					bestCrystal = child
-				end
-			end
-		end
-	end
-
-	return bestCrystal, bestDist
-end
-
-function GraviBowPlayerService:_getCrystalPosition(crystal)
-	if crystal:IsA("Model") and crystal.PrimaryPart then
-		return crystal.PrimaryPart.Position
-	elseif crystal:IsA("BasePart") then
-		return crystal.Position
-	end
-	return nil
-end
-
-function GraviBowPlayerService:_setCrystalTransparency(crystalModel, progress)
-	local t = math.clamp(progress, 0, 1)
-	if crystalModel:IsA("BasePart") then
-		crystalModel.Transparency = t
-	else
-		local primary = crystalModel:IsA("Model") and crystalModel.PrimaryPart or nil
-		for _, desc in ipairs(crystalModel:GetDescendants()) do
-			if desc:IsA("BasePart") and desc ~= primary and desc.Name ~= "harvestPoint" then
-				desc.Transparency = t
-			end
-		end
-	end
-end
-
-function GraviBowPlayerService:_destroyCrystalWithEffect(crystal)
-	if not crystal or not crystal.Parent then return end
-
-	local pos
-	if crystal:IsA("Model") and crystal.PrimaryPart then
-		pos = crystal.PrimaryPart.Position
-	elseif crystal:IsA("BasePart") then
-		pos = crystal.Position
-	else
-		crystal:Destroy()
-		return
-	end
-
-	local burstPart = Instance.new("Part")
-	burstPart.Size = Vector3.new(0.5, 0.5, 0.5)
-	burstPart.Transparency = 1
-	burstPart.Anchored = true
-	burstPart.CanCollide = false
-	burstPart.CanQuery = false
-	burstPart.CanTouch = false
-	burstPart.Position = pos
-	burstPart.Parent = Workspace
-
-	local burst = Instance.new("ParticleEmitter")
-	burst.Color = ColorSequence.new(Color3.fromRGB(255, 220, 80), Color3.fromRGB(255, 100, 20))
-	burst.Size = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.5),
-		NumberSequenceKeypoint.new(0.5, 0.2),
-		NumberSequenceKeypoint.new(1, 0),
-	})
-	burst.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0),
-		NumberSequenceKeypoint.new(0.5, 0.4),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	burst.Lifetime = NumberRange.new(0.4, 0.8)
-	burst.Speed = NumberRange.new(5, 15)
-	burst.SpreadAngle = Vector2.new(180, 180)
-	burst.LightEmission = 1
-	burst.LightInfluence = 0
-	burst.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-	burst.Parent = burstPart
-
-	burst:Emit(30)
-	burst.Enabled = false
-
-	task.delay(1, function()
-		burstPart:Destroy()
-	end)
-
-	crystal:Destroy()
-end
-
-function GraviBowPlayerService:_startHarvesterBehavior(obj, rootPart, ownerPlayer)
-	local groundRayParams = RaycastParams.new()
-	groundRayParams.FilterType = Enum.RaycastFilterType.Exclude
-	local groundFilterList = { obj }
-	local gzFolder = Workspace:FindFirstChild("GravityZones")
-	if gzFolder then table.insert(groundFilterList, gzFolder) end
-	local tpFolder = Workspace:FindFirstChild("TerrainPlanets")
-	if tpFolder then table.insert(groundFilterList, tpFolder) end
-	local cpFolder = Workspace:FindFirstChild("CrystalPatches")
-	if cpFolder then table.insert(groundFilterList, cpFolder) end
-	groundRayParams.FilterDescendantsInstances = groundFilterList
-
-	self.Client.HarvesterTarget:Fire(ownerPlayer, obj, nil)
-
-	task.spawn(function()
-		self:_harvesterBehaviorLoop(obj, rootPart, ownerPlayer, groundRayParams)
-	end)
-end
-
-function GraviBowPlayerService:_harvesterBehaviorLoop(obj, rootPart, ownerPlayer, groundRayParams)
-	local beamInstances = {}
-
-	local function cleanBeam()
-		for _, inst in ipairs(beamInstances) do
-			if inst and inst.Parent then
-				inst:Destroy()
-			end
-		end
-		beamInstances = {}
-	end
-
-	local function createBeam(fromPart, toCrystal)
-		cleanBeam()
-
-		local targetPart
-		if toCrystal:IsA("Model") then
-			targetPart = toCrystal:FindFirstChild("harvestPoint")
-				or toCrystal.PrimaryPart
-		end
-		if not targetPart and toCrystal:IsA("BasePart") then
-			targetPart = toCrystal
-		end
-		if not targetPart then return end
-
-		local a0 = Instance.new("Attachment")
-		a0.Name = "BeamStart"
-		a0.Parent = fromPart
-		table.insert(beamInstances, a0)
-
-		local a1 = Instance.new("Attachment")
-		a1.Name = "BeamEnd"
-		local halfSize = targetPart.Size * 0.5
-		a1.Position = Vector3.new(
-			(math.random() - 0.5) * halfSize.X,
-			(math.random() - 0.5) * halfSize.Y,
-			(math.random() - 0.5) * halfSize.Z
-		)
-		a1.Parent = targetPart
-		table.insert(beamInstances, a1)
-
-		local beam = Instance.new("Beam")
-		beam.Name = "MineBeam"
-		beam.Attachment0 = a0
-		beam.Attachment1 = a1
-		beam.Color = HARVESTER_BEAM_COLOR
-		beam.Width0 = 0.3
-		beam.Width1 = 0.15
-		beam.LightEmission = 0.8
-		beam.LightInfluence = 0.2
-		beam.FaceCamera = true
-		beam.Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0),
-			NumberSequenceKeypoint.new(0.8, 0.3),
-			NumberSequenceKeypoint.new(1, 0.6),
-		})
-		beam.Parent = fromPart
-		table.insert(beamInstances, beam)
-
-		local emitter = Instance.new("ParticleEmitter")
-		emitter.Name = "HarvesterMineParticles"
-		emitter.Color = ColorSequence.new(Color3.fromRGB(255, 200, 50), Color3.fromRGB(255, 120, 20))
-		emitter.Size = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0.25),
-			NumberSequenceKeypoint.new(0.5, 0.12),
-			NumberSequenceKeypoint.new(1, 0),
-		})
-		emitter.Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0),
-			NumberSequenceKeypoint.new(0.7, 0.3),
-			NumberSequenceKeypoint.new(1, 1),
-		})
-		emitter.Lifetime = NumberRange.new(0.3, 0.5)
-		emitter.Rate = 40
-		emitter.Speed = NumberRange.new(1, 3)
-		emitter.SpreadAngle = Vector2.new(30, 30)
-		emitter.LightEmission = 0.8
-		emitter.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-		emitter.Parent = targetPart
-		table.insert(beamInstances, emitter)
-	end
-
-	print("[Harvester] Behavior loop started, waiting 1s to settle")
-	task.wait(1)
-
-	while rootPart and rootPart.Parent do
-		local pos = rootPart.Position
-
-		local crystal, dist = self:_findNearestCrystal(pos)
-
-		if not crystal or not crystal.Parent then
-			self.Client.HarvesterTarget:Fire(ownerPlayer, obj, nil)
-			task.wait(1)
-			continue
-		end
-
-		self._claimedCrystals[crystal] = true
-
-		local targetPos = self:_getCrystalPosition(crystal)
-		if not targetPos then
-			self._claimedCrystals[crystal] = nil
-			task.wait(0.5)
-			continue
-		end
-
-		print("[Harvester] Targeting crystal, dist:", string.format("%.1f", dist), "target:", targetPos)
-		self.Client.HarvesterTarget:Fire(ownerPlayer, obj, targetPos)
-
-		while crystal and crystal.Parent and rootPart and rootPart.Parent do
-			targetPos = self:_getCrystalPosition(crystal)
-			if not targetPos then break end
-
-			local harvPos = rootPart.Position
-			local flatDist = (targetPos - harvPos).Magnitude
-
-			if flatDist <= HARVESTER_ARRIVE_DIST then
-				print("[Harvester] Arrived at crystal, dist:", string.format("%.1f", flatDist))
-				self.Client.HarvesterTarget:Fire(ownerPlayer, obj, nil)
-				break
-			end
-
-			self.Client.HarvesterTarget:Fire(ownerPlayer, obj, targetPos)
-			task.wait(HARVESTER_POLL_INTERVAL)
-		end
-
-		if not crystal or not crystal.Parent then
-			self._claimedCrystals[crystal] = nil
-			continue
-		end
-		if not rootPart or not rootPart.Parent then
-			self._claimedCrystals[crystal] = nil
-			break
-		end
-
-		self.Client.HarvesterTarget:Fire(ownerPlayer, obj, nil)
-
-		createBeam(rootPart, crystal)
-		for _, p in ipairs(Players:GetPlayers()) do
-			self.Client.HarvesterMining:Fire(p, obj, true)
-		end
-
-		local elapsed = 0
-		while elapsed < HARVESTER_MINE_DURATION and crystal and crystal.Parent and rootPart and rootPart.Parent do
-			elapsed = elapsed + task.wait()
-			local progress = math.clamp(elapsed / HARVESTER_MINE_DURATION, 0, 1)
-			self:_setCrystalTransparency(crystal, progress)
-		end
-
-		for _, p in ipairs(Players:GetPlayers()) do
-			self.Client.HarvesterMining:Fire(p, obj, false)
-		end
-		cleanBeam()
-
-		if crystal and crystal.Parent then
-			self:_onCrystalMined(ownerPlayer)
-			self:_destroyCrystalWithEffect(crystal)
-		end
-
-		self._claimedCrystals[crystal] = nil
-		task.wait(0.5)
-	end
-
-	self.Client.HarvesterTarget:Fire(ownerPlayer, obj, nil)
-	cleanBeam()
 end
 
 return GraviBowPlayerService

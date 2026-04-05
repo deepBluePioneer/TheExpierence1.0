@@ -1,0 +1,111 @@
+local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Packages = ReplicatedStorage.Packages
+local Knit = require(Packages.Knit)
+
+local TOOL_TAG = "tool"
+
+local GraviBowToolService = Knit.CreateService({
+	Name = "GraviBowToolService",
+	Client = {
+		ToolPickedUp = Knit.CreateSignal(),
+	},
+
+	_playerInventory = {},
+})
+
+function GraviBowToolService:KnitInit()
+end
+
+function GraviBowToolService:KnitStart()
+	self:_setupToolPickups()
+end
+
+function GraviBowToolService:GetPlayerInventory(player)
+	return self._playerInventory[player] or {}
+end
+
+function GraviBowToolService:ClearPlayerInventory(player)
+	self._playerInventory[player] = nil
+end
+
+function GraviBowToolService:SetBowEnabled(_player, _enabled)
+end
+
+function GraviBowToolService:_setupToolPickups()
+	local function setupPrompt(tool)
+		if not tool:IsA("Tool") then return end
+
+		local handle = tool:WaitForChild("Handle", 5)
+		if not handle then
+			warn("[GraviBowToolService] Tool", tool.Name, "has no Handle, skipping prompt")
+			return
+		end
+
+		handle.CanTouch = false
+
+		local toolName = tool.Name:lower()
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Pick Up"
+		prompt.ObjectText = tool.Name
+		prompt.KeyboardKeyCode = Enum.KeyCode.E
+		prompt.HoldDuration = 0.3
+		prompt.MaxActivationDistance = 12
+		prompt.RequiresLineOfSight = false
+		prompt.Parent = handle
+
+		prompt.Triggered:Connect(function(player)
+			if not self._playerInventory[player] then
+				self._playerInventory[player] = {}
+			end
+
+			for _, existing in ipairs(self._playerInventory[player]) do
+				if existing == toolName then
+					return
+				end
+			end
+
+			local backpack = player:FindFirstChild("Backpack")
+			if not backpack then return end
+
+			local clone = tool:Clone()
+			for _, desc in ipairs(clone:GetDescendants()) do
+				if desc:IsA("ProximityPrompt") then
+					desc:Destroy()
+				end
+			end
+			clone.Parent = backpack
+
+			table.insert(self._playerInventory[player], toolName)
+			self.Client.ToolPickedUp:Fire(player, toolName)
+
+			tool:Destroy()
+
+			for _, otherTool in ipairs(CollectionService:GetTagged(TOOL_TAG)) do
+				if otherTool:IsA("Tool") and otherTool.Name:lower() == toolName then
+					local otherHandle = otherTool:FindFirstChild("Handle")
+					if otherHandle then
+						local otherPrompt = otherHandle:FindFirstChildOfClass("ProximityPrompt")
+						if otherPrompt then
+							otherPrompt.Enabled = false
+						end
+					end
+				end
+			end
+
+			print("[GraviBowToolService] Player", player.Name, "picked up:", toolName)
+		end)
+	end
+
+	for _, instance in ipairs(CollectionService:GetTagged(TOOL_TAG)) do
+		setupPrompt(instance)
+	end
+
+	CollectionService:GetInstanceAddedSignal(TOOL_TAG):Connect(function(instance)
+		setupPrompt(instance)
+	end)
+end
+
+return GraviBowToolService
