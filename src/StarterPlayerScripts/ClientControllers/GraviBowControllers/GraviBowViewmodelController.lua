@@ -112,6 +112,7 @@ local GraviBowViewmodelController = Knit.CreateController({
 	_isTargeting = false,
 	_homingMarkerFolder = nil,
 	_homingArrowCache = nil,
+	_bowActive = false,
 })
 
 function GraviBowViewmodelController:KnitInit()
@@ -120,13 +121,14 @@ function GraviBowViewmodelController:KnitInit()
 end
 
 function GraviBowViewmodelController:_isBowAllowed()
-	if self._matchController and self._matchController.Phase ~= "GAME_ACTIVE" then
-		return false
-	end
-	return true
+	return self._bowActive
 end
 
 function GraviBowViewmodelController:_isInsideHubZone(position)
+	local phase = self._matchController and self._matchController.Phase
+	if phase ~= "GAME_ACTIVE" and phase ~= "GAME_OVER" then
+		return false
+	end
 	local hubPlanet = self._gravityController:GetHubPlanet()
 	if not hubPlanet then return false end
 	local zoneRadius = hubPlanet.radius * self._gravityController:GetHubZoneMultiplier()
@@ -435,6 +437,10 @@ function GraviBowViewmodelController:_onRemoteArrowFired(_shooter, spawnPos, aim
 	local gravityZones = Workspace:FindFirstChild("GravityZones")
 	if gravityZones then
 		table.insert(filterList, gravityZones)
+	end
+	local crystalPatches0 = Workspace:FindFirstChild("CrystalPatches")
+	if crystalPatches0 then
+		table.insert(filterList, crystalPatches0)
 	end
 	remoteParams.FilterDescendantsInstances = filterList
 
@@ -801,37 +807,52 @@ function GraviBowViewmodelController:_createViewport()
 	self._worldModel = worldModel
 end
 
+function GraviBowViewmodelController:ShowBow(toolModel)
+	if self._bowActive then return end
+	self._bowActive = true
+
+	if toolModel then
+		self:_onBowEquipped(toolModel)
+		return
+	end
+
+	local character = LocalPlayer.Character
+	if not character then return end
+
+	local tool = character:FindFirstChildOfClass("Tool")
+	if tool then
+		self:_onBowEquipped(tool)
+		return
+	end
+
+	local backpack = LocalPlayer:FindFirstChild("Backpack")
+	if backpack then
+		tool = backpack:FindFirstChildOfClass("Tool")
+	end
+	if tool then
+		self:_onBowEquipped(tool)
+	end
+end
+
+function GraviBowViewmodelController:HideBow()
+	self._bowActive = false
+	self:_cleanBow()
+	self:_stopDrawSound()
+	self:_endDrawFov()
+end
+
 function GraviBowViewmodelController:_onCharacterAdded(character)
 	self:_cleanBow()
+	self._bowActive = false
 
 	local humanoid = character:WaitForChild("Humanoid", 10)
-
-	character.ChildAdded:Connect(function(child)
-		if child:IsA("Tool") then
-			task.defer(function()
-				self:_onBowEquipped(child)
-			end)
-		end
-	end)
-
-	character.ChildRemoved:Connect(function(child)
-		if child:IsA("Tool") then
-			self:_cleanBow()
-		end
-	end)
 
 	if humanoid then
 		humanoid.Died:Once(function()
 			self:_cleanBow()
 			self:_stopDrawSound()
+			self._bowActive = false
 		end)
-	end
-
-	for _, child in ipairs(character:GetChildren()) do
-		if child:IsA("Tool") then
-			self:_onBowEquipped(child)
-			break
-		end
 	end
 end
 
@@ -1073,6 +1094,10 @@ function GraviBowViewmodelController:_onBowEquipped(tool)
 				if gzFolder then
 					table.insert(arcFilterList, gzFolder)
 				end
+				local cpFolder = Workspace:FindFirstChild("CrystalPatches")
+				if cpFolder then
+					table.insert(arcFilterList, cpFolder)
+				end
 				castParams.FilterDescendantsInstances = arcFilterList
 
 				arcAtts[0].WorldPosition = pos
@@ -1225,6 +1250,10 @@ function GraviBowViewmodelController:_updateTargeting(dt)
 			if gzFolder then
 				table.insert(filterList, gzFolder)
 			end
+			local cpFolder1 = Workspace:FindFirstChild("CrystalPatches")
+			if cpFolder1 then
+				table.insert(filterList, cpFolder1)
+			end
 			if self._homingMarkerFolder then
 				table.insert(filterList, self._homingMarkerFolder)
 			end
@@ -1348,6 +1377,10 @@ function GraviBowViewmodelController:_flyHomingArrow(arrow, P0, P1, P2, P3, dura
 			local gzFolder = Workspace:FindFirstChild("GravityZones")
 			if gzFolder then
 				table.insert(filterList, gzFolder)
+			end
+			local cpFolder2 = Workspace:FindFirstChild("CrystalPatches")
+			if cpFolder2 then
+				table.insert(filterList, cpFolder2)
 			end
 			hitParams.FilterDescendantsInstances = filterList
 
@@ -1499,6 +1532,10 @@ function GraviBowViewmodelController:_fireArrow()
 	local filterList = {character}
 	if gravityZones then
 		table.insert(filterList, gravityZones)
+	end
+	local crystalPatches3 = Workspace:FindFirstChild("CrystalPatches")
+	if crystalPatches3 then
+		table.insert(filterList, crystalPatches3)
 	end
 	self._castParams.FilterDescendantsInstances = filterList
 

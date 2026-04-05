@@ -10,7 +10,7 @@ local Replica = CustomPackages.Replica
 local ReplicaService = require(Replica.ReplicaService)
 
 local MIN_PLAYERS = 1
-local HUB_COUNTDOWN_TIME = 15
+local HUB_COUNTDOWN_TIME = 60
 local GAME_TIME = 300
 local RESULTS_TIME = 10
 
@@ -210,7 +210,6 @@ function GraviBowMatchService:_startTeleporting()
 			local planetIndex = ((i - 1) % #gamePlanets) + 1
 			local planet = gamePlanets[planetIndex]
 			self._playerService:TeleportPlayerToPlanet(player, planet)
-			self._playerService:SetBowEnabled(player, true)
 		end
 	end
 
@@ -241,10 +240,6 @@ function GraviBowMatchService:_startGameOver()
 	self:_setPhase(PHASES.GAME_OVER)
 	self:_setTimeRemaining(0)
 
-	for _, player in ipairs(Players:GetPlayers()) do
-		self._playerService:SetBowEnabled(player, false)
-	end
-
 	task.delay(1, function()
 		self:_startResults()
 	end)
@@ -271,7 +266,6 @@ end
 function GraviBowMatchService:_returnToHub()
 	for _, player in ipairs(Players:GetPlayers()) do
 		self._playerService:TeleportPlayerToHub(player)
-		self._playerService:SetBowEnabled(player, false)
 	end
 
 	self:_setPhase(PHASES.HUB_WAITING)

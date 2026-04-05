@@ -14,10 +14,25 @@ local Zone = require(ZoneRoot:WaitForChild("Zone"))
 
 local PLANET_TAG = "planet"
 local HUB_PLANET_TAG = "planetHub"
+local TOOL_TAG = "tool"
 local GRAVITY_ZONE_MULTIPLIER = 1.8
 local ZONE_TRANSPARENCY = 0.85
 local ZONE_COLOR = Color3.fromRGB(100, 150, 255)
 local HUB_ZONE_COLOR = Color3.fromRGB(100, 255, 150)
+
+local ReplicaService = require(CustomPackages.Replica.ReplicaService)
+
+local ITEM_COSTS = {
+	Harvester = 1,
+}
+
+local HARVESTER_TAG = "harvester"
+local HARVESTER_GRAVITY = 40
+local HARVESTER_MOVE_FORCE = 150
+local HARVESTER_ARRIVE_DIST = 12
+local HARVESTER_MINE_DURATION = 3
+local HARVESTER_SEARCH_RADIUS = 500
+local HARVESTER_BEAM_COLOR = ColorSequence.new(Color3.fromRGB(255, 200, 50), Color3.fromRGB(255, 100, 20))
 
 local GraviBowPlayerService = Knit.CreateService({
 	Name = "GraviBowPlayerService",
@@ -26,14 +41,23 @@ local GraviBowPlayerService = Knit.CreateService({
 		ArrowFired = Knit.CreateSignal(),
 		HomingArrowFired = Knit.CreateSignal(),
 		ActivePlanetChanged = Knit.CreateSignal(),
+		ToolPickedUp = Knit.CreateSignal(),
+		CrystalMined = Knit.CreateSignal(),
+		PurchaseItem = Knit.CreateSignal(),
+		ItemPurchased = Knit.CreateSignal(),
+		DropHarvester = Knit.CreateSignal(),
 	},
 
 	_playerTroves = {},
 	_planets = {},
 	_hubPlanets = {},
 	_playerActivePlanets = {},
-	_playerBowEnabled = {},
+	_playerInventory = {},
 	_zoneFolder = nil,
+	_oreClassToken = nil,
+	_oreReplicas = {},
+	_playerHarvesters = {},
+	_claimedCrystals = {},
 })
 
 function GraviBowPlayerService:KnitInit()
@@ -51,6 +75,8 @@ function GraviBowPlayerService:KnitStart()
 	self:_setupLighting()
 	self:_setupPlanetZones()
 	self:_setupHubPlanetZones()
+	self:_setupToolPickups()
+	self:_initOreReplica()
 
 	self._matchService = Knit.GetService("GraviBowMatchService")
 
@@ -80,6 +106,18 @@ function GraviBowPlayerService:KnitStart()
 				self.Client.HomingArrowFired:Fire(player, shooter, spawnPos, upDir, targetPositions)
 			end
 		end
+	end)
+
+	self.Client.CrystalMined:Connect(function(player)
+		self:_onCrystalMined(player)
+	end)
+
+	self.Client.PurchaseItem:Connect(function(player, itemName)
+		self:_onPurchaseItem(player, itemName)
+	end)
+
+	self.Client.DropHarvester:Connect(function(player, harvester, dropPos, lookDir)
+		self:_onDropHarvester(player, harvester, dropPos, lookDir)
 	end)
 
 	for _, player in ipairs(Players:GetPlayers()) do
@@ -113,6 +151,8 @@ function GraviBowPlayerService:_onArrowHit(shooter, victimPlayer)
 end
 
 function GraviBowPlayerService:_onPlayerAdded(player)
+	self:_createOreReplica(player)
+
 	local function onCharacterAdded(character)
 		self:_setupCharacter(player, character)
 	end
@@ -132,13 +172,6 @@ end
 local SPECTATE_TIME = 3
 
 function GraviBowPlayerService:_onPlayerDied(player)
-	local phase = self._matchService and self._matchService:GetPhase()
-	local duringGame = phase == "GAME_ACTIVE" or phase == "GAME_OVER"
-
-	if duringGame then
-		self:SetBowEnabled(player, false)
-	end
-
 	task.delay(SPECTATE_TIME, function()
 		if not player.Parent then return end
 		player:LoadCharacter()
@@ -215,7 +248,8 @@ function GraviBowPlayerService:_onPlayerRemoving(player)
 		self._playerTroves[player] = nil
 	end
 	self._playerActivePlanets[player] = nil
-	self._playerBowEnabled[player] = nil
+	self._playerInventory[player] = nil
+	self:_destroyOreReplica(player)
 end
 
 function GraviBowPlayerService:_setupCharacter(player, character)
@@ -280,37 +314,18 @@ function GraviBowPlayerService:_setupCharacter(player, character)
 	self:_setupLeftHandGrip(character)
 
 	local hubPlanet = self:GetHubPlanet()
-	if hubPlanet then
-		self:TeleportPlayerToPlanet(player, hubPlanet)
-	end
-
-	if self._playerBowEnabled[player] then
-		self:_autoEquipBow(player, character, humanoid)
-	end
-end
-
-function GraviBowPlayerService:_autoEquipBow(player, character, humanoid)
-	local backpack = player:WaitForChild("Backpack", 10)
-	if not backpack then return end
-
-	local tool = backpack:FindFirstChildOfClass("Tool")
-	if not tool then
-		tool = character:FindFirstChildOfClass("Tool")
-	end
-
-	if tool then
-		humanoid:EquipTool(tool)
-	end
-
-	character.ChildRemoved:Connect(function(child)
-		if child:IsA("Tool") and humanoid.Health > 0 and self._playerBowEnabled[player] then
-			task.defer(function()
-				if child.Parent == backpack then
-					humanoid:EquipTool(child)
-				end
-			end)
+	if not hubPlanet then
+		for _ = 1, 120 do
+			task.wait(0.25)
+			hubPlanet = self:GetHubPlanet()
+			if hubPlanet then break end
 		end
-	end)
+	end
+	if hubPlanet then
+		self:_dropPlayerOnPlanet(player, hubPlanet)
+	else
+		warn("[GraviBowPlayerService] Hub planet never registered; cannot teleport", player.Name)
+	end
 end
 
 function GraviBowPlayerService:_setupLeftHandGrip(character)
@@ -318,19 +333,12 @@ function GraviBowPlayerService:_setupLeftHandGrip(character)
 	local rightHand = character:FindFirstChild("RightHand", true)
 	if not leftHand or not rightHand then return end
 
-	local function killRightGrip(child)
-		if child:IsA("Motor6D") and child.Name == "RightGrip" then
-			child:Destroy()
-		end
-	end
-
-	rightHand.ChildAdded:Connect(killRightGrip)
-	for _, child in ipairs(rightHand:GetChildren()) do
-		killRightGrip(child)
+	local function isBowTool(tool)
+		return tool:IsA("Tool") and tool.Name:lower() == "bow"
 	end
 
 	local function attachTool(tool)
-		if not tool:IsA("Tool") then return end
+		if not isBowTool(tool) then return end
 
 		local handle = tool:FindFirstChild("Handle")
 		if not handle then return end
@@ -350,14 +358,14 @@ function GraviBowPlayerService:_setupLeftHandGrip(character)
 			weld.Name = "LeftGrip"
 			weld.Part0 = leftHand
 			weld.Part1 = handle
-		weld.C0 = CFrame.Angles(0, math.rad(90), math.rad(-90)) * CFrame.Angles(0, 0, math.rad(20))
-		weld.C1 = tool.Grip
+			weld.C0 = CFrame.Angles(0, math.rad(90), math.rad(-90)) * CFrame.Angles(0, 0, math.rad(20))
+			weld.C1 = tool.Grip
 			weld.Parent = leftHand
 		end)
 	end
 
 	local function detachTool(tool)
-		if not tool:IsA("Tool") then return end
+		if not isBowTool(tool) then return end
 		local grip = leftHand:FindFirstChild("LeftGrip")
 		if grip then grip:Destroy() end
 	end
@@ -583,32 +591,121 @@ function GraviBowPlayerService:GetGamePlanets()
 	return list
 end
 
-function GraviBowPlayerService:SetBowEnabled(player, enabled)
-	self._playerBowEnabled[player] = enabled
+function GraviBowPlayerService:SetBowEnabled(_player, _enabled)
+	-- Legacy no-op; tool availability is now managed by the pickup/inventory system
+end
 
+function GraviBowPlayerService:_setupToolPickups()
+	local function setupPrompt(tool)
+		if not tool:IsA("Tool") then return end
+
+		local handle = tool:WaitForChild("Handle", 5)
+		if not handle then
+			warn("[GraviBowPlayerService] Tool", tool.Name, "has no Handle, skipping prompt")
+			return
+		end
+
+		handle.CanTouch = false
+
+		local toolName = tool.Name:lower()
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Pick Up"
+		prompt.ObjectText = tool.Name
+		prompt.KeyboardKeyCode = Enum.KeyCode.E
+		prompt.HoldDuration = 0.3
+		prompt.MaxActivationDistance = 12
+		prompt.RequiresLineOfSight = false
+		prompt.Parent = handle
+
+		prompt.Triggered:Connect(function(player)
+			if not self._playerInventory[player] then
+				self._playerInventory[player] = {}
+			end
+
+			for _, existing in ipairs(self._playerInventory[player]) do
+				if existing == toolName then
+					return
+				end
+			end
+
+			local backpack = player:FindFirstChild("Backpack")
+			if not backpack then return end
+
+			local clone = tool:Clone()
+			for _, desc in ipairs(clone:GetDescendants()) do
+				if desc:IsA("ProximityPrompt") then
+					desc:Destroy()
+				end
+			end
+			clone.Parent = backpack
+
+			table.insert(self._playerInventory[player], toolName)
+			self.Client.ToolPickedUp:Fire(player, toolName)
+
+			tool:Destroy()
+
+			for _, otherTool in ipairs(CollectionService:GetTagged(TOOL_TAG)) do
+				if otherTool:IsA("Tool") and otherTool.Name:lower() == toolName then
+					local otherHandle = otherTool:FindFirstChild("Handle")
+					if otherHandle then
+						local otherPrompt = otherHandle:FindFirstChildOfClass("ProximityPrompt")
+						if otherPrompt then
+							otherPrompt.Enabled = false
+						end
+					end
+				end
+			end
+
+			print("[GraviBowPlayerService] Player", player.Name, "picked up:", toolName)
+		end)
+	end
+
+	for _, instance in ipairs(CollectionService:GetTagged(TOOL_TAG)) do
+		setupPrompt(instance)
+	end
+
+	CollectionService:GetInstanceAddedSignal(TOOL_TAG):Connect(function(instance)
+		setupPrompt(instance)
+	end)
+end
+
+function GraviBowPlayerService:GetPlayerInventory(player)
+	return self._playerInventory[player] or {}
+end
+
+local DROP_HEIGHT = 50
+
+function GraviBowPlayerService:_dropPlayerOnPlanet(player, planetData)
 	local character = player.Character
 	if not character then return end
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if not humanoid or humanoid.Health <= 0 then return end
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
 
-	if enabled then
-		local backpack = player:FindFirstChild("Backpack")
-		local tool = nil
-		if backpack then
-			tool = backpack:FindFirstChildOfClass("Tool")
-		end
-		if not tool then
-			tool = character:FindFirstChildOfClass("Tool")
-		end
-		if tool and tool.Parent ~= character then
-			humanoid:EquipTool(tool)
-		end
-	else
-		local tool = character:FindFirstChildOfClass("Tool")
-		if tool then
-			humanoid:UnequipTools()
-		end
+	local center = planetData.center
+	local radius = planetData.radius
+
+	local angle = math.random() * math.pi * 2
+	local phi = math.acos(2 * math.random() - 1)
+	local upDir = Vector3.new(
+		math.sin(phi) * math.cos(angle),
+		math.cos(phi),
+		math.sin(phi) * math.sin(angle)
+	).Unit
+
+	local spawnPos = center + upDir * (radius + DROP_HEIGHT)
+
+	local lookDir = upDir:Cross(Vector3.new(0, 0, 1))
+	if lookDir.Magnitude < 0.01 then
+		lookDir = upDir:Cross(Vector3.new(1, 0, 0))
 	end
+	lookDir = lookDir.Unit
+
+	hrp.CFrame = CFrame.lookAt(spawnPos, spawnPos + lookDir, upDir)
+	hrp.AssemblyLinearVelocity = Vector3.zero
+	hrp.AssemblyAngularVelocity = Vector3.zero
+
+	self.Client.ActivePlanetChanged:Fire(player, planetData.model)
 end
 
 function GraviBowPlayerService:TeleportPlayerToPlanet(player, planetData)
@@ -628,7 +725,27 @@ function GraviBowPlayerService:TeleportPlayerToPlanet(player, planetData)
 		math.sin(phi) * math.sin(angle)
 	).Unit
 
-	local surfacePos = center + upDir * (radius + 5)
+	local rayOrigin = center + upDir * (radius + 60)
+	local rayDirection = -upDir * 120
+
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	local filterInstances = { character }
+	local gzFolder = Workspace:FindFirstChild("GravityZones")
+	if gzFolder then table.insert(filterInstances, gzFolder) end
+	local tpFolder = Workspace:FindFirstChild("TerrainPlanets")
+	if tpFolder then table.insert(filterInstances, tpFolder) end
+	rayParams.FilterDescendantsInstances = filterInstances
+
+	local result = Workspace:Raycast(rayOrigin, rayDirection, rayParams)
+
+	local surfacePos
+	if result then
+		surfacePos = result.Position + upDir * 5
+	else
+		surfacePos = center + upDir * (radius + 10)
+	end
+
 	local lookDir = upDir:Cross(Vector3.new(0, 0, 1))
 	if lookDir.Magnitude < 0.01 then
 		lookDir = upDir:Cross(Vector3.new(1, 0, 0))
@@ -648,7 +765,7 @@ function GraviBowPlayerService:TeleportPlayerToHub(player)
 		warn("[GraviBowPlayerService] No hub planet found for teleport")
 		return
 	end
-	self:TeleportPlayerToPlanet(player, hubPlanet)
+	self:_dropPlayerOnPlanet(player, hubPlanet)
 end
 
 function GraviBowPlayerService:_setPartFriction(character)
@@ -719,6 +836,626 @@ function GraviBowPlayerService:_stripDefaultScripts(character)
 			end
 		end
 	end
+end
+
+function GraviBowPlayerService:_initOreReplica()
+	self._oreClassToken = ReplicaService.NewClassToken("GraviBowOreState")
+	self._oreReplicas = {}
+end
+
+function GraviBowPlayerService:_createOreReplica(player)
+	if self._oreReplicas[player] then return end
+	local replica = ReplicaService.NewReplica({
+		ClassToken = self._oreClassToken,
+		Data = { ore = 0 },
+		Replication = { [player] = true },
+	})
+	self._oreReplicas[player] = replica
+end
+
+function GraviBowPlayerService:_destroyOreReplica(player)
+	local replica = self._oreReplicas[player]
+	if replica then
+		replica:Destroy()
+		self._oreReplicas[player] = nil
+	end
+end
+
+function GraviBowPlayerService:_onCrystalMined(player)
+	local replica = self._oreReplicas[player]
+	if not replica then return end
+	local current = replica.Data.ore or 0
+	replica:SetValue({"ore"}, current + 1)
+end
+
+function GraviBowPlayerService:GetPlayerOre(player)
+	local replica = self._oreReplicas[player]
+	return replica and replica.Data.ore or 0
+end
+
+function GraviBowPlayerService:_onPurchaseItem(player, itemName)
+	if type(itemName) ~= "string" then return end
+
+	local cost = ITEM_COSTS[itemName]
+	if not cost then
+		warn("[GraviBowPlayerService] Unknown item:", itemName)
+		return
+	end
+
+	local currentOre = self:GetPlayerOre(player)
+	if currentOre < cost then
+		warn("[GraviBowPlayerService] Not enough ore for", itemName, "- has", currentOre, "needs", cost)
+		return
+	end
+
+	local replica = self._oreReplicas[player]
+	if not replica then return end
+	replica:SetValue({"ore"}, currentOre - cost)
+
+	if itemName == "Harvester" then
+		local harvester = self:_spawnHarvester(player)
+		if harvester then
+			self.Client.ItemPurchased:Fire(player, itemName, harvester)
+			print("[GraviBowPlayerService] Player", player.Name, "purchased Harvester - ore left:", currentOre - cost)
+			return
+		end
+	end
+
+	self.Client.ItemPurchased:Fire(player, itemName, nil)
+	print("[GraviBowPlayerService] Player", player.Name, "purchased", itemName, "- ore left:", currentOre - cost)
+end
+
+function GraviBowPlayerService:_findHarvesterPrefab()
+	local prefabsFolder = ReplicatedStorage:FindFirstChild("prefabs")
+	if not prefabsFolder then return nil end
+
+	for _, child in ipairs(prefabsFolder:GetDescendants()) do
+		if CollectionService:HasTag(child, HARVESTER_TAG) then
+			return child
+		end
+	end
+	for _, child in ipairs(prefabsFolder:GetChildren()) do
+		if child.Name:lower() == "harvester" then
+			return child
+		end
+	end
+	return nil
+end
+
+function GraviBowPlayerService:_spawnHarvester(player)
+	local prefab = self:_findHarvesterPrefab()
+	if not prefab then
+		warn("[GraviBowPlayerService] Could not find harvester prefab")
+		return nil
+	end
+
+	local clone = prefab:Clone()
+
+	local parts = {}
+	if clone:IsA("BasePart") then table.insert(parts, clone) end
+	for _, desc in ipairs(clone:GetDescendants()) do
+		if desc:IsA("BasePart") then table.insert(parts, desc) end
+	end
+	for _, part in ipairs(parts) do
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanTouch = false
+		part.CanQuery = false
+	end
+
+	local character = player.Character
+	if character then
+		local hrp = character:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			local spawnPos = hrp.CFrame:PointToWorldSpace(Vector3.new(0, 0, -8))
+			if clone:IsA("Model") then
+				clone:PivotTo(CFrame.new(spawnPos))
+			else
+				clone.CFrame = CFrame.new(spawnPos)
+			end
+		end
+	end
+
+	clone.Parent = Workspace
+
+	for _, part in ipairs(parts) do
+		pcall(function()
+			part:SetNetworkOwner(player)
+		end)
+	end
+
+	self._playerHarvesters[player] = clone
+	return clone
+end
+
+function GraviBowPlayerService:_onDropHarvester(player, harvester, dropPos, lookDir)
+	if not harvester or not harvester.Parent then return end
+	if self._playerHarvesters[player] ~= harvester then return end
+	if typeof(dropPos) ~= "Vector3" then return end
+	if typeof(lookDir) ~= "Vector3" then return end
+
+	local rootPart
+	if harvester:IsA("Model") then
+		rootPart = harvester.PrimaryPart or harvester:FindFirstChildWhichIsA("BasePart")
+	elseif harvester:IsA("BasePart") then
+		rootPart = harvester
+	end
+	if not rootPart then return end
+
+	local planetCenter = self:_getNearestPlanetCenter(dropPos)
+	local upDir = (dropPos - planetCenter)
+	upDir = upDir.Magnitude > 0.01 and upDir.Unit or Vector3.new(0, 1, 0)
+
+	local projLook = lookDir - upDir * lookDir:Dot(upDir)
+	if projLook.Magnitude < 0.01 then
+		projLook = upDir:Cross(Vector3.new(0, 0, 1))
+		if projLook.Magnitude < 0.01 then
+			projLook = upDir:Cross(Vector3.new(1, 0, 0))
+		end
+	end
+	projLook = projLook.Unit
+
+	local orientedCF = CFrame.lookAt(dropPos, dropPos + projLook, upDir)
+	if harvester:IsA("Model") then
+		harvester:PivotTo(orientedCF)
+	else
+		rootPart.CFrame = orientedCF
+	end
+
+	local parts = {}
+	if harvester:IsA("BasePart") then table.insert(parts, harvester) end
+	for _, desc in ipairs(harvester:GetDescendants()) do
+		if desc:IsA("BasePart") then table.insert(parts, desc) end
+	end
+	for _, part in ipairs(parts) do
+		part.Anchored = false
+		part.CanCollide = true
+		part.CanTouch = true
+		part.CanQuery = true
+		pcall(function()
+			part:SetNetworkOwnershipAuto()
+		end)
+	end
+
+	self:_startHarvesterBehavior(harvester, rootPart, player)
+	print("[GraviBowPlayerService] Harvester dropped by", player.Name)
+end
+
+function GraviBowPlayerService:_getNearestPlanetCenter(pos)
+	local bestDist = math.huge
+	local bestCenter = Vector3.zero
+
+	for _, data in pairs(self._planets) do
+		local dist = (data.center - pos).Magnitude
+		if dist < bestDist then
+			bestDist = dist
+			bestCenter = data.center
+		end
+	end
+	for _, data in pairs(self._hubPlanets) do
+		local dist = (data.center - pos).Magnitude
+		if dist < bestDist then
+			bestDist = dist
+			bestCenter = data.center
+		end
+	end
+
+	return bestCenter
+end
+
+function GraviBowPlayerService:_findNearestCrystal(pos)
+	local crystalFolder = Workspace:FindFirstChild("CrystalPatches")
+	if not crystalFolder then return nil, math.huge end
+
+	local planetCenter = self:_getNearestPlanetCenter(pos)
+	local planetDist = (pos - planetCenter).Magnitude
+
+	local bestDist = HARVESTER_SEARCH_RADIUS
+	local bestCrystal = nil
+
+	for _, child in ipairs(crystalFolder:GetChildren()) do
+		local crystalPos
+		if child:IsA("Model") and child.PrimaryPart then
+			crystalPos = child.PrimaryPart.Position
+		elseif child:IsA("BasePart") then
+			crystalPos = child.Position
+		end
+		if crystalPos and not self._claimedCrystals[child] then
+			local crystalPlanetDist = (crystalPos - planetCenter).Magnitude
+			if math.abs(crystalPlanetDist - planetDist) < planetDist * 0.5 then
+				local dist = (crystalPos - pos).Magnitude
+				if dist < bestDist then
+					bestDist = dist
+					bestCrystal = child
+				end
+			end
+		end
+	end
+
+	return bestCrystal, bestDist
+end
+
+function GraviBowPlayerService:_getCrystalPosition(crystal)
+	if crystal:IsA("Model") and crystal.PrimaryPart then
+		return crystal.PrimaryPart.Position
+	elseif crystal:IsA("BasePart") then
+		return crystal.Position
+	end
+	return nil
+end
+
+function GraviBowPlayerService:_setCrystalTransparency(crystalModel, progress)
+	local t = math.clamp(progress, 0, 1)
+	if crystalModel:IsA("BasePart") then
+		crystalModel.Transparency = t
+	else
+		local primary = crystalModel:IsA("Model") and crystalModel.PrimaryPart or nil
+		for _, desc in ipairs(crystalModel:GetDescendants()) do
+			if desc:IsA("BasePart") and desc ~= primary and desc.Name ~= "harvestPoint" then
+				desc.Transparency = t
+			end
+		end
+	end
+end
+
+function GraviBowPlayerService:_destroyCrystalWithEffect(crystal)
+	if not crystal or not crystal.Parent then return end
+
+	local pos
+	if crystal:IsA("Model") and crystal.PrimaryPart then
+		pos = crystal.PrimaryPart.Position
+	elseif crystal:IsA("BasePart") then
+		pos = crystal.Position
+	else
+		crystal:Destroy()
+		return
+	end
+
+	local burstPart = Instance.new("Part")
+	burstPart.Size = Vector3.new(0.5, 0.5, 0.5)
+	burstPart.Transparency = 1
+	burstPart.Anchored = true
+	burstPart.CanCollide = false
+	burstPart.CanQuery = false
+	burstPart.CanTouch = false
+	burstPart.Position = pos
+	burstPart.Parent = Workspace
+
+	local burst = Instance.new("ParticleEmitter")
+	burst.Color = ColorSequence.new(Color3.fromRGB(255, 220, 80), Color3.fromRGB(255, 100, 20))
+	burst.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.5),
+		NumberSequenceKeypoint.new(0.5, 0.2),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	burst.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.5, 0.4),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	burst.Lifetime = NumberRange.new(0.4, 0.8)
+	burst.Speed = NumberRange.new(5, 15)
+	burst.SpreadAngle = Vector2.new(180, 180)
+	burst.LightEmission = 1
+	burst.LightInfluence = 0
+	burst.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	burst.Parent = burstPart
+
+	burst:Emit(30)
+	burst.Enabled = false
+
+	task.delay(1, function()
+		burstPart:Destroy()
+	end)
+
+	crystal:Destroy()
+end
+
+function GraviBowPlayerService:_startHarvesterBehavior(obj, rootPart, ownerPlayer)
+	local attachment = Instance.new("Attachment")
+	attachment.Name = "GravityAttachment"
+	attachment.Parent = rootPart
+
+	local gravityForce = Instance.new("VectorForce")
+	gravityForce.Name = "PlanetGravity"
+	gravityForce.Attachment0 = attachment
+	gravityForce.RelativeTo = Enum.ActuatorRelativeTo.World
+	gravityForce.ApplyAtCenterOfMass = true
+	gravityForce.Force = Vector3.zero
+	gravityForce.Parent = rootPart
+
+	local moveForce = Instance.new("VectorForce")
+	moveForce.Name = "MoveForce"
+	moveForce.Attachment0 = attachment
+	moveForce.RelativeTo = Enum.ActuatorRelativeTo.World
+	moveForce.ApplyAtCenterOfMass = true
+	moveForce.Force = Vector3.zero
+	moveForce.Parent = rootPart
+
+	local alignOrientation = Instance.new("AlignOrientation")
+	alignOrientation.Name = "PlanetAlign"
+	alignOrientation.Attachment0 = attachment
+	alignOrientation.Mode = Enum.OrientationAlignmentMode.OneAttachment
+	alignOrientation.MaxTorque = 50000
+	alignOrientation.Responsiveness = 15
+	alignOrientation.Parent = rootPart
+
+	local mass = 0
+	if obj:IsA("BasePart") then
+		mass = obj:GetMass()
+	else
+		for _, desc in ipairs(obj:GetDescendants()) do
+			if desc:IsA("BasePart") then
+				mass = mass + desc:GetMass()
+			end
+		end
+	end
+
+	local groundRayParams = RaycastParams.new()
+	groundRayParams.FilterType = Enum.RaycastFilterType.Exclude
+	local groundFilterList = { obj }
+	local gzFolder = Workspace:FindFirstChild("GravityZones")
+	if gzFolder then table.insert(groundFilterList, gzFolder) end
+	local tpFolder = Workspace:FindFirstChild("TerrainPlanets")
+	if tpFolder then table.insert(groundFilterList, tpFolder) end
+	local cpFolder = Workspace:FindFirstChild("CrystalPatches")
+	if cpFolder then table.insert(groundFilterList, cpFolder) end
+	groundRayParams.FilterDescendantsInstances = groundFilterList
+
+	task.spawn(function()
+		self:_harvesterBehaviorLoop(obj, rootPart, ownerPlayer, gravityForce, moveForce, alignOrientation, mass, groundRayParams)
+	end)
+end
+
+function GraviBowPlayerService:_harvesterBehaviorLoop(obj, rootPart, ownerPlayer, gravityForce, moveForce, alignOrientation, mass, groundRayParams)
+	local beamInstances = {}
+	local targetLookDir = nil
+
+	local function cleanBeam()
+		for _, inst in ipairs(beamInstances) do
+			if inst and inst.Parent then
+				inst:Destroy()
+			end
+		end
+		beamInstances = {}
+	end
+
+	local function createBeam(fromPart, toCrystal)
+		cleanBeam()
+
+		local targetPart
+		if toCrystal:IsA("Model") then
+			targetPart = toCrystal:FindFirstChild("harvestPoint")
+				or toCrystal.PrimaryPart
+		end
+		if not targetPart and toCrystal:IsA("BasePart") then
+			targetPart = toCrystal
+		end
+		if not targetPart then return end
+
+		local a0 = Instance.new("Attachment")
+		a0.Name = "BeamStart"
+		a0.Parent = fromPart
+		table.insert(beamInstances, a0)
+
+		local a1 = Instance.new("Attachment")
+		a1.Name = "BeamEnd"
+		local halfSize = targetPart.Size * 0.5
+		a1.Position = Vector3.new(
+			(math.random() - 0.5) * halfSize.X,
+			(math.random() - 0.5) * halfSize.Y,
+			(math.random() - 0.5) * halfSize.Z
+		)
+		a1.Parent = targetPart
+		table.insert(beamInstances, a1)
+
+		local beam = Instance.new("Beam")
+		beam.Name = "MineBeam"
+		beam.Attachment0 = a0
+		beam.Attachment1 = a1
+		beam.Color = HARVESTER_BEAM_COLOR
+		beam.Width0 = 0.3
+		beam.Width1 = 0.15
+		beam.LightEmission = 0.8
+		beam.LightInfluence = 0.2
+		beam.FaceCamera = true
+		beam.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0),
+			NumberSequenceKeypoint.new(0.8, 0.3),
+			NumberSequenceKeypoint.new(1, 0.6),
+		})
+		beam.Parent = fromPart
+		table.insert(beamInstances, beam)
+
+		local emitter = Instance.new("ParticleEmitter")
+		emitter.Name = "HarvesterMineParticles"
+		emitter.Color = ColorSequence.new(Color3.fromRGB(255, 200, 50), Color3.fromRGB(255, 120, 20))
+		emitter.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.25),
+			NumberSequenceKeypoint.new(0.5, 0.12),
+			NumberSequenceKeypoint.new(1, 0),
+		})
+		emitter.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0),
+			NumberSequenceKeypoint.new(0.7, 0.3),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		emitter.Lifetime = NumberRange.new(0.3, 0.5)
+		emitter.Rate = 40
+		emitter.Speed = NumberRange.new(1, 3)
+		emitter.SpreadAngle = Vector2.new(30, 30)
+		emitter.LightEmission = 0.8
+		emitter.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		emitter.Parent = targetPart
+		table.insert(beamInstances, emitter)
+	end
+
+	local steppedConn
+	steppedConn = RunService.Stepped:Connect(function()
+		if not rootPart or not rootPart.Parent then
+			steppedConn:Disconnect()
+			cleanBeam()
+			return
+		end
+
+		local pos = rootPart.Position
+		local planetCenter = self:_getNearestPlanetCenter(pos)
+		local toCenter = planetCenter - pos
+		if toCenter.Magnitude < 0.01 then return end
+
+		local gravDir = toCenter.Unit
+		gravityForce.Force = gravDir * HARVESTER_GRAVITY * mass
+
+		local rayResult = Workspace:Raycast(pos, gravDir * 20, groundRayParams)
+		local surfaceUp = -gravDir
+		if rayResult then
+			surfaceUp = rayResult.Normal
+		end
+
+		local fwd = targetLookDir or rootPart.CFrame.LookVector
+		local tangentFwd = fwd - surfaceUp * fwd:Dot(surfaceUp)
+		local lookDir
+		if tangentFwd.Magnitude > 0.01 then
+			lookDir = tangentFwd.Unit
+		else
+			lookDir = surfaceUp:Cross(Vector3.new(0, 0, 1))
+			if lookDir.Magnitude < 0.01 then
+				lookDir = surfaceUp:Cross(Vector3.new(1, 0, 0))
+			end
+			lookDir = lookDir.Unit
+		end
+
+		alignOrientation.CFrame = CFrame.lookAt(Vector3.zero, lookDir, surfaceUp)
+	end)
+
+	print("[Harvester] Behavior started, mass:", mass, "rootPart:", rootPart, "anchored:", rootPart.Anchored)
+
+	for _ = 1, 200 do
+		if not rootPart or not rootPart.Parent then break end
+		local gPos = rootPart.Position
+		local gCenter = self:_getNearestPlanetCenter(gPos)
+		local gDir = (gCenter - gPos)
+		if gDir.Magnitude > 0.01 then gDir = gDir.Unit else gDir = Vector3.new(0, -1, 0) end
+		local gHit = Workspace:Raycast(gPos, gDir * 10, groundRayParams)
+		if gHit and gHit.Distance < 6 then break end
+		task.wait(0.1)
+	end
+
+	print("[Harvester] Grounded, starting crystal search loop")
+
+	while rootPart and rootPart.Parent do
+		local pos = rootPart.Position
+
+		local crystal, dist = self:_findNearestCrystal(pos)
+
+		if not crystal or not crystal.Parent then
+			moveForce.Force = Vector3.zero
+			print("[Harvester] No crystal found, waiting...")
+			task.wait(1)
+			continue
+		end
+
+		self._claimedCrystals[crystal] = true
+		print("[Harvester] Targeting crystal:", crystal, "dist:", dist)
+
+		local targetPos = self:_getCrystalPosition(crystal)
+		if not targetPos then
+			self._claimedCrystals[crystal] = nil
+			task.wait(0.5)
+			continue
+		end
+
+		local SLOW_RADIUS = 40
+		local frameCount = 0
+
+		while crystal and crystal.Parent and rootPart and rootPart.Parent do
+			targetPos = self:_getCrystalPosition(crystal)
+			if not targetPos then break end
+
+			local harvPos = rootPart.Position
+			local toCrystal = targetPos - harvPos
+			local flatDist = toCrystal.Magnitude
+
+			if flatDist <= HARVESTER_ARRIVE_DIST then
+				moveForce.Force = Vector3.zero
+				targetLookDir = toCrystal.Magnitude > 0.01 and toCrystal.Unit or nil
+				print("[Harvester] Arrived at crystal, dist:", flatDist)
+				break
+			end
+
+			local planetCenter = self:_getNearestPlanetCenter(harvPos)
+			local upDir = (harvPos - planetCenter)
+			upDir = upDir.Magnitude > 0.01 and upDir.Unit or Vector3.new(0, 1, 0)
+
+			local tangent = toCrystal - upDir * toCrystal:Dot(upDir)
+			if tangent.Magnitude > 0.01 then
+				tangent = tangent.Unit
+
+				local approach = math.clamp((flatDist - HARVESTER_ARRIVE_DIST) / SLOW_RADIUS, 0.3, 1)
+				local vel = rootPart.AssemblyLinearVelocity
+				local tangentSpeed = vel:Dot(tangent)
+				local damping = math.clamp(tangentSpeed * 2, 0, HARVESTER_MOVE_FORCE * 0.8)
+
+				local forceMag = (HARVESTER_MOVE_FORCE * approach - damping) * mass
+				moveForce.Force = tangent * forceMag
+
+				frameCount = frameCount + 1
+				if frameCount % 60 == 1 then
+					print("[Harvester] Moving: dist=", math.floor(flatDist), "approach=", string.format("%.2f", approach), "speed=", string.format("%.1f", tangentSpeed), "force=", string.format("%.1f", forceMag), "anchored=", rootPart.Anchored)
+				end
+
+				targetLookDir = tangent
+			else
+				moveForce.Force = Vector3.zero
+			end
+
+			task.wait()
+		end
+
+		if not crystal or not crystal.Parent then
+			self._claimedCrystals[crystal] = nil
+			continue
+		end
+		if not rootPart or not rootPart.Parent then
+			self._claimedCrystals[crystal] = nil
+			break
+		end
+
+		moveForce.Force = Vector3.zero
+
+		for _ = 1, 100 do
+			if not rootPart or not rootPart.Parent then break end
+			local gPos = rootPart.Position
+			local gCenter = self:_getNearestPlanetCenter(gPos)
+			local gDir = (gCenter - gPos)
+			if gDir.Magnitude > 0.01 then gDir = gDir.Unit else gDir = Vector3.new(0, -1, 0) end
+			local gHit = Workspace:Raycast(gPos, gDir * 10, groundRayParams)
+			if gHit and gHit.Distance < 6 then break end
+			task.wait(0.1)
+		end
+
+		createBeam(rootPart, crystal)
+
+		local elapsed = 0
+		while elapsed < HARVESTER_MINE_DURATION and crystal and crystal.Parent and rootPart and rootPart.Parent do
+			elapsed = elapsed + task.wait()
+			local progress = math.clamp(elapsed / HARVESTER_MINE_DURATION, 0, 1)
+			self:_setCrystalTransparency(crystal, progress)
+		end
+
+		cleanBeam()
+
+		if crystal and crystal.Parent then
+			self:_onCrystalMined(ownerPlayer)
+			self:_destroyCrystalWithEffect(crystal)
+		end
+
+		self._claimedCrystals[crystal] = nil
+		task.wait(0.5)
+	end
+
+	steppedConn:Disconnect()
+	cleanBeam()
 end
 
 return GraviBowPlayerService

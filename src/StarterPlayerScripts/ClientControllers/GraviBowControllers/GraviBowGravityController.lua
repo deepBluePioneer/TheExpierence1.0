@@ -82,10 +82,21 @@ function GraviBowGravityController:KnitStart()
 		if planetModel then
 			local planetData = self._planets[planetModel]
 			if not planetData then
-				for _ = 1, 20 do
-					task.wait(0.25)
-					planetData = self._planets[planetModel]
-					if planetData then break end
+				local center = self:_getPlanetCenter(planetModel)
+				local radius = self:_getPlanetRadius(planetModel)
+				if center then
+					planetData = {
+						model = planetModel,
+						center = center,
+						radius = radius,
+					}
+					self._planets[planetModel] = planetData
+				else
+					for _ = 1, 20 do
+						task.wait(0.25)
+						planetData = self._planets[planetModel]
+						if planetData then break end
+					end
 				end
 			end
 			if planetData then
@@ -307,6 +318,12 @@ function GraviBowGravityController:_onCharacterAdded(character)
 		end
 	end
 
+	self._smoothedGravityDir = nil
+
+	self._characterTrove:Add(RunService.Stepped:Connect(function(_, dt)
+		self:_updateGravity(hrp, vectorForce, dt)
+	end), "Disconnect")
+
 	if not self._activePlanet then
 		local hubPlanet = self:_getHubPlanet()
 		if hubPlanet then
@@ -316,19 +333,15 @@ function GraviBowGravityController:_onCharacterAdded(character)
 			if nearest then
 				self._activePlanet = nearest
 			else
-				local registered = self._planetRegistered:Wait()
-				if registered then
-					self._activePlanet = registered
-				end
+				task.spawn(function()
+					local registered = self._planetRegistered:Wait()
+					if registered then
+						self._activePlanet = registered
+					end
+				end)
 			end
 		end
 	end
-
-	self._smoothedGravityDir = nil
-
-	self._characterTrove:Add(RunService.Stepped:Connect(function(_, dt)
-		self:_updateGravity(hrp, vectorForce, dt)
-	end), "Disconnect")
 end
 
 function GraviBowGravityController:_teleportToSurface(hrp)
@@ -360,7 +373,29 @@ function GraviBowGravityController:_teleportToSurface(hrp)
 	end
 	upDir = upDir.Unit
 
-	local surfacePos = center + upDir * (radius + 5)
+	local rayOrigin = center + upDir * (radius + 60)
+	local rayDirection = -upDir * 120
+
+	local character = hrp.Parent
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	local filterInstances = {}
+	if character then table.insert(filterInstances, character) end
+	local gzFolder = Workspace:FindFirstChild("GravityZones")
+	if gzFolder then table.insert(filterInstances, gzFolder) end
+	local tpFolder = Workspace:FindFirstChild("TerrainPlanets")
+	if tpFolder then table.insert(filterInstances, tpFolder) end
+	rayParams.FilterDescendantsInstances = filterInstances
+
+	local result = Workspace:Raycast(rayOrigin, rayDirection, rayParams)
+
+	local surfacePos
+	if result then
+		surfacePos = result.Position + upDir * 5
+	else
+		surfacePos = center + upDir * (radius + 10)
+	end
+
 	local lookDir = upDir:Cross(Vector3.new(0, 0, 1))
 	if lookDir.Magnitude < 0.01 then
 		lookDir = upDir:Cross(Vector3.new(1, 0, 0))

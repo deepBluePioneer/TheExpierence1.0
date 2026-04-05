@@ -88,6 +88,14 @@ function GraviBowGroundController:_onCharacterAdded(character)
 	if gravityZones then
 		table.insert(groundFilterList, gravityZones)
 	end
+	local terrainPlanets = Workspace:FindFirstChild("TerrainPlanets")
+	if terrainPlanets then
+		table.insert(groundFilterList, terrainPlanets)
+	end
+	local crystalPatches = Workspace:FindFirstChild("CrystalPatches")
+	if crystalPatches then
+		table.insert(groundFilterList, crystalPatches)
+	end
 	self._rayParams.FilterDescendantsInstances = groundFilterList
 	self._rayParams.FilterType = Enum.RaycastFilterType.Exclude
 

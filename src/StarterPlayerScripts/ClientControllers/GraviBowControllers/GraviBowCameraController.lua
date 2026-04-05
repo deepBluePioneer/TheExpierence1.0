@@ -14,8 +14,12 @@ local LocalPlayer = Players.LocalPlayer
 local MOUSE_SENSITIVITY = 0.3
 local PITCH_MIN = -80
 local PITCH_MAX = 80
-local FIRST_PERSON_DISTANCE = 0
-local THIRD_PERSON_DISTANCE = 20
+local MIN_DISTANCE = 0
+local MAX_DISTANCE = 30
+local SCROLL_STEP = 3
+local FOV_FIRST_PERSON = 55
+local FOV_THIRD_PERSON = 70
+local FOV_BLEND_DISTANCE = 6
 
 local GraviBowCameraController = Knit.CreateController({
 	Name = "GraviBowCameraController",
@@ -28,7 +32,7 @@ local GraviBowCameraController = Knit.CreateController({
 	_characterTrove = nil,
 	_yaw = 0,
 	_pitch = 15,
-	_distance = FIRST_PERSON_DISTANCE,
+	_distance = MIN_DISTANCE,
 	_prevUp = Vector3.new(0, 1, 0),
 	_refForward = Vector3.new(0, 0, -1),
 	_shaker = nil,
@@ -43,6 +47,7 @@ end
 
 function GraviBowCameraController:KnitStart()
 	self._gravityController = Knit.GetController("GraviBowGravityController")
+	self._toolController = Knit.GetController("GraviBowToolController")
 	self._mouseLocked = true
 
 	self._trove:Add(UserInputService.InputBegan:Connect(function(input, processed)
@@ -52,12 +57,7 @@ function GraviBowCameraController:KnitStart()
 			UserInputService.MouseBehavior = self._mouseLocked
 				and Enum.MouseBehavior.LockCenter
 				or Enum.MouseBehavior.Default
-		elseif input.KeyCode == Enum.KeyCode.Y then
-			if self._distance == FIRST_PERSON_DISTANCE then
-				self._distance = THIRD_PERSON_DISTANCE
-			else
-				self._distance = FIRST_PERSON_DISTANCE
-			end
+			UserInputService.MouseIconEnabled = not self._mouseLocked
 		end
 	end), "Disconnect")
 
@@ -67,6 +67,10 @@ function GraviBowCameraController:KnitStart()
 		if input.UserInputType == Enum.UserInputType.MouseMovement then
 			self._yaw = self._yaw + input.Delta.X * MOUSE_SENSITIVITY
 			self._pitch = math.clamp(self._pitch - input.Delta.Y * MOUSE_SENSITIVITY, PITCH_MIN, PITCH_MAX)
+		elseif input.UserInputType == Enum.UserInputType.MouseWheel then
+			if not (self._toolController and self._toolController:IsRadialOpen()) then
+				self._distance = math.clamp(self._distance - input.Position.Z * SCROLL_STEP, MIN_DISTANCE, MAX_DISTANCE)
+			end
 		end
 	end), "Disconnect")
 
@@ -210,6 +214,9 @@ function GraviBowCameraController:_updateCamera(hrp, head, camera)
 
 	camera.CFrame = CFrame.fromMatrix(eyePos, camRight, camUp, -camForward) * self._shakeOffset
 	camera.Focus = CFrame.new(focusPos)
+
+	local fovAlpha = math.clamp(self._distance / FOV_BLEND_DISTANCE, 0, 1)
+	camera.FieldOfView = FOV_FIRST_PERSON + (FOV_THIRD_PERSON - FOV_FIRST_PERSON) * fovAlpha
 
 	self.CameraLookOnSurface = (rotatedForward - upDir * rotatedForward:Dot(upDir)).Unit
 	self.CameraRightOnSurface = (rotatedRight - upDir * rotatedRight:Dot(upDir)).Unit

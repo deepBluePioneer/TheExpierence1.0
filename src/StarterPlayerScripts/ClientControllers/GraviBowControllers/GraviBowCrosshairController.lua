@@ -55,6 +55,7 @@ function GraviBowCrosshairController:KnitInit()
 	self._homingTimerFrac = Value(1)
 	self._isTargeting = Value(false)
 	self._gameActive = Value(false)
+	self._hasActiveTool = false
 end
 
 function GraviBowCrosshairController:FlashSalvo()
@@ -69,6 +70,7 @@ end
 function GraviBowCrosshairController:KnitStart()
 	local viewmodelController = Knit.GetController("GraviBowViewmodelController")
 	self._matchController = Knit.GetController("GraviBowMatchController")
+	self._toolController = Knit.GetController("GraviBowToolController")
 
 	UserInputService.MouseIconEnabled = false
 	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
@@ -96,11 +98,15 @@ function GraviBowCrosshairController:KnitStart()
 	end), "Disconnect")
 
 	self._trove:Add(RunService.RenderStepped:Connect(function()
-		local phase = self._matchController and self._matchController.Phase
-		local active = phase == "GAME_ACTIVE"
+		local hasActiveTool = self._toolController:GetActiveTool() ~= nil
+		local bowActive = viewmodelController._bowActive == true
+		if hasActiveTool ~= self._hasActiveTool then
+			self._hasActiveTool = hasActiveTool
+			UserInputService.MouseIconEnabled = not hasActiveTool
+		end
+		local active = bowActive
 		if active ~= self._gameActive:get(false) then
 			self._gameActive:set(active)
-			UserInputService.MouseIconEnabled = not active
 			if not active then
 				self._isAiming:set(false)
 				self._isDrawing:set(false)

@@ -14,10 +14,23 @@ local LocalPlayer = Players.LocalPlayer
 local WALK_SPEED = 24
 local XZ_DRAG_FACTOR = 3
 local FLAT_FRICTION = 500
+local AIR_CONTROL = 0.15
+local AIR_DRAG_FACTOR = 0.5
+local STOP_DAMPING = 60
 local JUMP_POWER = 1000
 local JUMP_DEBOUNCE_TIME = 0.25
 local JUMP_ANIM_TRANSITION = 0.31
 local ALIGN_RESPONSIVENESS = 20
+local FADE_IN_START = 2
+local FADE_IN_END = 6
+local ANIM_FADE_TIME = 0.2
+
+local ANIM_IDS = {
+	Idle     = "rbxassetid://507766666",
+	Walk     = "rbxassetid://507777826",
+	Jump     = "rbxassetid://507765000",
+	Fall     = "rbxassetid://507767968",
+}
 
 local GraviBowCharacterController = Knit.CreateController({
 	Name = "GraviBowCharacterController",
@@ -35,6 +48,10 @@ local GraviBowCharacterController = Knit.CreateController({
 	_alignOrientation = nil,
 	_terrainAttachment = nil,
 	_centerAttachment = nil,
+	_animator = nil,
+	_animTracks = {},
+	_currentAnimState = nil,
+	_character = nil,
 })
 
 function GraviBowCharacterController:KnitInit()
@@ -100,8 +117,11 @@ function GraviBowCharacterController:_onCharacterAdded(character)
 	self._stateMachine = self:_createStateMachine()
 	self._jumpAnimTimer = 0
 
+	self._character = character
+
 	self:_createPhysicsConstraints(character, centerAttachment)
-	self:_hideLocalCharacter(character)
+	self:_setupAnimations(character)
+	self:_setCharacterTransparency(1)
 	self:_muteCharacterSounds(character)
 
 	self._characterTrove:Add(RunService.Stepped:Connect(function(_, dt)
@@ -110,6 +130,8 @@ function GraviBowCharacterController:_onCharacterAdded(character)
 
 	self._characterTrove:Add(function()
 		self:_destroyPhysicsConstraints()
+		self:_cleanupAnimations()
+		self._character = nil
 	end)
 end
 
@@ -183,11 +205,18 @@ function GraviBowCharacterController:_update(hrp, dt)
 	local moveDirection = self:_getWorldMoveDirection(upDir)
 	local isMoving = moveDirection.Magnitude > 0.01
 
+	if isGrounded and not isMoving and tangentSpeed > 0.001 then
+		local verticalVel = upDir * currentVel:Dot(upDir)
+		hrp.AssemblyLinearVelocity = verticalVel
+	end
+
 	self:_updateMovementForces(moveDirection, isMoving, isGrounded, tangentUnit, tangentSpeed)
 	local orientUpDir = -self._gravityController:GetSmoothedGravityDirection()
 	self:_updateAutoRotate(hrp, moveDirection, isMoving, orientUpDir)
 	self:_updateFreeFall(hrp, upDir, dt)
 	self:_updateStateMachine(isMoving, isGrounded, tangentSpeed)
+	self:_updateAnimation()
+	self:_updateCharacterVisibility()
 
 	hrp.AssemblyAngularVelocity = Vector3.zero
 
@@ -238,27 +267,106 @@ function GraviBowCharacterController:_updateMovementForces(moveDirection, isMovi
 
 	local totalDrag = Vector3.zero
 
-	local flatFrictionScalar = nil
-	if isGrounded and isMoving and tangentSpeed > 0.001 then
-		flatFrictionScalar = FLAT_FRICTION * (1.0 - math.exp(-2 * tangentSpeed))
-		totalDrag += -tangentUnit * flatFrictionScalar
-	end
+	if isGrounded then
+		if tangentSpeed > 0.001 then
+			if isMoving then
+				local friction = FLAT_FRICTION * (1.0 - math.exp(-2 * tangentSpeed))
+				totalDrag += -tangentUnit * friction
+			else
+				totalDrag += -tangentUnit * tangentSpeed * STOP_DAMPING
+			end
+			totalDrag += -tangentUnit * (tangentSpeed ^ 2) * XZ_DRAG_FACTOR
+		end
 
-	local counterFriction = flatFrictionScalar or FLAT_FRICTION
-	local counterDrag = (WALK_SPEED ^ 2) * XZ_DRAG_FACTOR
+		if isMoving then
+			local counterDrag = (WALK_SPEED ^ 2) * XZ_DRAG_FACTOR
+			local counterFriction = FLAT_FRICTION
+			self._movementForce.Force = moveDirection * (counterDrag + counterFriction)
+		else
+			self._movementForce.Force = Vector3.zero
+		end
+	else
+		if tangentSpeed > 0.001 then
+			totalDrag += -tangentUnit * (tangentSpeed ^ 2) * AIR_DRAG_FACTOR
+		end
 
-	if counterDrag <= 0.01 then
-		counterFriction = 0
-	end
-
-	local movementScalar = counterDrag + counterFriction
-	self._movementForce.Force = moveDirection * movementScalar
-
-	if isMoving and tangentSpeed > 0.001 then
-		totalDrag += -tangentUnit * (tangentSpeed ^ 2) * XZ_DRAG_FACTOR
+		if isMoving then
+			local groundForce = (WALK_SPEED ^ 2) * XZ_DRAG_FACTOR + FLAT_FRICTION
+			self._movementForce.Force = moveDirection * groundForce * AIR_CONTROL
+		else
+			self._movementForce.Force = Vector3.zero
+		end
 	end
 
 	self._dragForce.Force = totalDrag
+end
+
+function GraviBowCharacterController:_setupAnimations(character)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = humanoid
+	end
+	self._animator = animator
+	self._animTracks = {}
+	self._currentAnimState = nil
+
+	for name, id in pairs(ANIM_IDS) do
+		local anim = Instance.new("Animation")
+		anim.AnimationId = id
+		local track = animator:LoadAnimation(anim)
+		track.Priority = Enum.AnimationPriority.Core
+		if name == "Idle" or name == "Walk" then
+			track.Looped = true
+		else
+			track.Looped = false
+		end
+		self._animTracks[name] = track
+	end
+end
+
+function GraviBowCharacterController:_cleanupAnimations()
+	for _, track in pairs(self._animTracks) do
+		track:Stop(0)
+	end
+	self._animTracks = {}
+	self._animator = nil
+	self._currentAnimState = nil
+end
+
+function GraviBowCharacterController:_updateAnimation()
+	if not self._animator then return end
+
+	local sm = self._stateMachine
+	if not sm then return end
+
+	local state = sm.current
+	local targetAnim
+	if state == "Running" then
+		targetAnim = "Walk"
+	elseif state == "Jumping" then
+		targetAnim = "Jump"
+	elseif state == "FreeFalling" then
+		targetAnim = "Fall"
+	else
+		targetAnim = "Idle"
+	end
+
+	if targetAnim == self._currentAnimState then return end
+
+	if self._currentAnimState and self._animTracks[self._currentAnimState] then
+		self._animTracks[self._currentAnimState]:Stop(ANIM_FADE_TIME)
+	end
+
+	local track = self._animTracks[targetAnim]
+	if track then
+		track:Play(ANIM_FADE_TIME)
+	end
+
+	self._currentAnimState = targetAnim
 end
 
 function GraviBowCharacterController:_updateAutoRotate(hrp, moveDirection, isMoving, upDir)
@@ -300,7 +408,7 @@ function GraviBowCharacterController:_updateStateMachine(isMoving, isGrounded, t
 		sm.run()
 	end
 
-	if sm.current == "Running" and tangentSpeed < 0.1 then
+	if sm.current == "Running" and (tangentSpeed < 0.1 or (isGrounded and not isMoving)) then
 		sm.stand()
 	end
 end
@@ -345,22 +453,27 @@ function GraviBowCharacterController:_onJumpRequest()
 	end)
 end
 
-function GraviBowCharacterController:_hideLocalCharacter(character)
-	local function hideDesc(desc)
-		if desc:IsA("BasePart") and desc.Name ~= "HumanoidRootPart" then
-			desc.LocalTransparencyModifier = 1
-		elseif desc:IsA("Decal") or desc:IsA("Texture") then
-			desc.Transparency = 1
-		end
-	end
+function GraviBowCharacterController:_setCharacterTransparency(alpha)
+	local character = self._character
+	if not character then return end
 
 	for _, desc in ipairs(character:GetDescendants()) do
-		hideDesc(desc)
+		if desc:IsA("BasePart") and desc.Name ~= "HumanoidRootPart" then
+			desc.LocalTransparencyModifier = alpha
+		end
 	end
+end
 
-	character.DescendantAdded:Connect(function(desc)
-		hideDesc(desc)
-	end)
+function GraviBowCharacterController:_updateCharacterVisibility()
+	local dist = self._cameraController._distance
+	if dist <= FADE_IN_START then
+		self:_setCharacterTransparency(1)
+	elseif dist >= FADE_IN_END then
+		self:_setCharacterTransparency(0)
+	else
+		local t = (dist - FADE_IN_START) / (FADE_IN_END - FADE_IN_START)
+		self:_setCharacterTransparency(1 - t)
+	end
 end
 
 function GraviBowCharacterController:_muteCharacterSounds(character)
