@@ -28,6 +28,9 @@ function GraviBowSoundController:KnitStart()
 		"ArrowRelease",
 		"Ambience",
 		"StringPullBack",
+		"ToolPickup",
+		"HarvestCollected",
+		"HarvestBeam",
 	}
 
 	for _, name in ipairs(groupNames) do
@@ -134,6 +137,44 @@ function GraviBowSoundController:PlayLoopOnPart(groupName, targetPart)
 	sound.RollOffMaxDistance = ROLLOFF_MAX
 	sound.Looped = true
 	sound.Parent = targetPart
+
+	sound:Play()
+
+	return sound
+end
+
+function GraviBowSoundController:PlayNamedLoopOnPart(groupName, soundName, targetPart)
+	local folder = self._groups[groupName]
+	if not folder then return nil end
+
+	local template = folder:FindFirstChild(soundName)
+	if not template then return nil end
+
+	local sound = template:Clone()
+	sound.RollOffMode = Enum.RollOffMode.InverseTapered
+	sound.RollOffMinDistance = ROLLOFF_MIN
+	sound.RollOffMaxDistance = ROLLOFF_MAX
+	sound.Looped = true
+	sound.Parent = targetPart
+
+	sound:Play()
+
+	return sound
+end
+
+function GraviBowSoundController:PlayNamedLoopGlobal(groupName, soundName)
+	local folder = self._groups[groupName]
+	if not folder then return nil end
+
+	local template = folder:FindFirstChild(soundName)
+	if not template then return nil end
+
+	local sound = template:Clone()
+	sound.RollOffMode = Enum.RollOffMode.InverseTapered
+	sound.RollOffMinDistance = 0
+	sound.RollOffMaxDistance = 0
+	sound.Looped = true
+	sound.Parent = SoundService
 
 	sound:Play()
 
