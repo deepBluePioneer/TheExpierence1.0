@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local Packages = ReplicatedStorage.Packages
@@ -11,6 +12,8 @@ local LocalPlayer = Players.LocalPlayer
 
 local GRAVGUN_HOLD_DISTANCE = 8
 local GRAVGUN_LERP_SPEED = 0.3
+local SNAP_HOLD_DISTANCE = 12
+local SNAP_SURFACE_RAYCAST = 80
 
 local HARVESTER_GRAVITY = 40
 local HARVESTER_MAX_SPEED = 16
@@ -28,6 +31,10 @@ local GraviBowHarvesterController = Knit.CreateController({
 	_activeHarvesters = {},
 	_harvesterSteppedConn = nil,
 	_harvesterBeamSounds = {},
+	_snapItem = nil,
+	_snapItemConn = nil,
+	_snapRenderConn = nil,
+	_snapInputConn = nil,
 })
 
 function GraviBowHarvesterController:KnitInit()
@@ -67,9 +74,13 @@ function GraviBowHarvesterController:UpdateHeldObject(cam)
 	self:_updateHeldObject(cam)
 end
 
-function GraviBowHarvesterController:_onItemPurchased(itemName, harvesterModel)
-	if itemName == "Harvester" and harvesterModel then
-		self:_holdServerObject(harvesterModel)
+function GraviBowHarvesterController:_onItemPurchased(itemName, model)
+	if not model then return end
+
+	if itemName == "Harvester" then
+		self:_holdServerObject(model)
+	else
+		self:_startSnapPlacement(model)
 	end
 end
 
@@ -354,6 +365,134 @@ function GraviBowHarvesterController:_setupHarvesterPhysicsLoop()
 	end)
 
 	self._trove:Add(self._harvesterSteppedConn, "Disconnect")
+end
+
+function GraviBowHarvesterController:_startSnapPlacement(model)
+	self:_cancelSnapPlacement()
+
+	self._snapItem = model
+
+	self._snapItemConn = model.AncestryChanged:Connect(function(_, newParent)
+		if not newParent then
+			self:_cancelSnapPlacement()
+		end
+	end)
+
+	local cam = Workspace.CurrentCamera
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	local filterList = { model }
+	local char = LocalPlayer.Character
+	if char then table.insert(filterList, char) end
+	local gzFolder = Workspace:FindFirstChild("GravityZones")
+	if gzFolder then table.insert(filterList, gzFolder) end
+	local tpFolder = Workspace:FindFirstChild("TerrainPlanets")
+	if tpFolder then table.insert(filterList, tpFolder) end
+	local cpFolder = Workspace:FindFirstChild("CrystalPatches")
+	if cpFolder then table.insert(filterList, cpFolder) end
+	rayParams.FilterDescendantsInstances = filterList
+
+	self._snapRenderConn = RunService.RenderStepped:Connect(function()
+		if not self._snapItem or not self._snapItem.Parent then
+			self:_cancelSnapPlacement()
+			return
+		end
+
+		local origin = cam.CFrame.Position
+		local dir = cam.CFrame.LookVector * SNAP_SURFACE_RAYCAST
+
+		local result = Workspace:Raycast(origin, dir, rayParams)
+		local targetCF
+		if result then
+			local normal = result.Normal
+			local up = normal.Unit
+			local fwd = cam.CFrame.LookVector
+			local tangent = fwd - up * fwd:Dot(up)
+			if tangent.Magnitude < 0.01 then
+				tangent = cam.CFrame.RightVector
+			end
+			tangent = tangent.Unit
+			targetCF = CFrame.lookAt(result.Position, result.Position + tangent, up)
+		else
+			targetCF = cam.CFrame * CFrame.new(0, 0, -SNAP_HOLD_DISTANCE)
+		end
+
+		if self._snapItem:IsA("Model") then
+			self._snapItem:PivotTo(targetCF)
+		elseif self._snapItem:IsA("BasePart") then
+			self._snapItem.CFrame = targetCF
+		end
+	end)
+
+	self._snapInputConn = UserInputService.InputBegan:Connect(function(input, processed)
+		if processed then return end
+		if not self._snapItem then return end
+
+		local isPlace = input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch
+		local isCancel = input.KeyCode == Enum.KeyCode.Q
+			or input.UserInputType == Enum.UserInputType.MouseButton2
+
+		if isPlace then
+			self:_confirmSnapPlacement()
+		elseif isCancel then
+			self:_refundSnapPlacement()
+		end
+	end)
+
+	print("[GraviBowHarvesterController] Snap placement started for:", model.Name)
+end
+
+function GraviBowHarvesterController:_confirmSnapPlacement()
+	local model = self._snapItem
+	if not model or not model.Parent then
+		self:_cancelSnapPlacement()
+		return
+	end
+
+	local cframe
+	if model:IsA("Model") then
+		cframe = model:GetPivot()
+	elseif model:IsA("BasePart") then
+		cframe = model.CFrame
+	end
+
+	self._oreService.PlaceSnapItem:Fire(model, cframe)
+	print("[GraviBowHarvesterController] Placed snap item:", model.Name)
+	self:_cleanupSnapConnections()
+end
+
+function GraviBowHarvesterController:_refundSnapPlacement()
+	local model = self._snapItem
+	if model and model.Parent then
+		model:Destroy()
+	end
+	self:_cleanupSnapConnections()
+	print("[GraviBowHarvesterController] Cancelled snap placement")
+end
+
+function GraviBowHarvesterController:_cancelSnapPlacement()
+	self:_cleanupSnapConnections()
+end
+
+function GraviBowHarvesterController:_cleanupSnapConnections()
+	self._snapItem = nil
+	if self._snapItemConn then
+		self._snapItemConn:Disconnect()
+		self._snapItemConn = nil
+	end
+	if self._snapRenderConn then
+		self._snapRenderConn:Disconnect()
+		self._snapRenderConn = nil
+	end
+	if self._snapInputConn then
+		self._snapInputConn:Disconnect()
+		self._snapInputConn = nil
+	end
+end
+
+function GraviBowHarvesterController:IsSnapping()
+	return self._snapItem ~= nil and self._snapItem.Parent ~= nil
 end
 
 return GraviBowHarvesterController

@@ -102,7 +102,7 @@ function GraviBowCrosshairController:KnitStart()
 		local bowActive = viewmodelController._bowActive == true
 		if hasActiveTool ~= self._hasActiveTool then
 			self._hasActiveTool = hasActiveTool
-			UserInputService.MouseIconEnabled = not hasActiveTool
+			UserInputService.MouseIconEnabled = false
 		end
 		local active = bowActive
 		if active ~= self._gameActive:get(false) then

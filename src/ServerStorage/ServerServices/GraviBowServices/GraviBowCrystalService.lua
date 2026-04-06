@@ -5,7 +5,6 @@ local Workspace = game:GetService("Workspace")
 local Knit = require(ReplicatedStorage.Packages.Knit)
 
 local PLANET_TAG = "planet"
-local HUB_PLANET_TAG = "planetHub"
 local CRYSTAL_TAG = "crystal"
 
 local PATCHES_PER_100_RADIUS = 30
@@ -89,16 +88,6 @@ end
 
 function GraviBowCrystalService:_getAllPlanets()
 	local planets = {}
-
-	for _, model in ipairs(CollectionService:GetTagged(HUB_PLANET_TAG)) do
-		local part = self:_getPlanetPart(model)
-		if part then
-			table.insert(planets, {
-				center = part.Position,
-				radius = math.max(part.Size.X, part.Size.Y, part.Size.Z) / 2,
-			})
-		end
-	end
 
 	for _, model in ipairs(CollectionService:GetTagged(PLANET_TAG)) do
 		local part = self:_getPlanetPart(model)

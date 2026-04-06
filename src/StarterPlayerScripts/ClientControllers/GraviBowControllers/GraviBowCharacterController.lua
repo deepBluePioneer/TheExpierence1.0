@@ -18,13 +18,23 @@ local AIR_CONTROL = 0.15
 local JETPACK_AIR_CONTROL = 0.5
 local AIR_DRAG_FACTOR = 0.5
 local STOP_DAMPING = 60
-local JUMP_POWER = 1000
-local JUMP_DEBOUNCE_TIME = 0.25
+
+local JUMP_VELOCITY = 58
+local JUMP_CUT_DAMPING = 0.4
+local APEX_GRAVITY_SCALE = 1.0
+local APEX_SPEED_THRESHOLD = 0
+local FALL_GRAVITY_SCALE = 4.5
+local COYOTE_TIME = 0.12
+local JUMP_BUFFER_TIME = 0.15
+local JUMP_DEBOUNCE_TIME = 0.1
 local JUMP_ANIM_TRANSITION = 0.31
+
 local ALIGN_RESPONSIVENESS = 20
 local FADE_IN_START = 2
 local FADE_IN_END = 6
 local ANIM_FADE_TIME = 0.2
+
+local GRAVITY_FORCE = 40
 
 local ANIM_IDS = {
 	Idle     = "rbxassetid://507766666",
@@ -46,6 +56,7 @@ local GraviBowCharacterController = Knit.CreateController({
 	_stateMachine = nil,
 	_movementForce = nil,
 	_dragForce = nil,
+	_jumpPhaseForce = nil,
 	_alignOrientation = nil,
 	_terrainAttachment = nil,
 	_centerAttachment = nil,
@@ -53,6 +64,14 @@ local GraviBowCharacterController = Knit.CreateController({
 	_animTracks = {},
 	_currentAnimState = nil,
 	_character = nil,
+
+	_jumpHeld = false,
+	_jumpReleased = false,
+	_jumpCutApplied = false,
+	_coyoteTimer = 0,
+	_jumpBuffered = false,
+	_jumpBufferTimer = 0,
+	_wasGrounded = false,
 })
 
 function GraviBowCharacterController:KnitInit()
@@ -67,6 +86,23 @@ function GraviBowCharacterController:KnitStart()
 
 	self._trove:Add(UserInputService.JumpRequest:Connect(function()
 		self:_onJumpRequest()
+	end), "Disconnect")
+
+	self._trove:Add(UserInputService.InputBegan:Connect(function(input, processed)
+		if processed then return end
+		if input.KeyCode == Enum.KeyCode.Space
+			or input.KeyCode == Enum.KeyCode.ButtonA then
+			self._jumpHeld = true
+			self._jumpReleased = false
+		end
+	end), "Disconnect")
+
+	self._trove:Add(UserInputService.InputEnded:Connect(function(input)
+		if input.KeyCode == Enum.KeyCode.Space
+			or input.KeyCode == Enum.KeyCode.ButtonA then
+			self._jumpHeld = false
+			self._jumpReleased = true
+		end
 	end), "Disconnect")
 
 	self._trove:Add(LocalPlayer.CharacterAdded:Connect(function(character)
@@ -158,6 +194,15 @@ function GraviBowCharacterController:_createPhysicsConstraints(character, center
 	dragForce.Parent = model
 	self._dragForce = dragForce
 
+	local jumpPhaseForce = Instance.new("VectorForce")
+	jumpPhaseForce.Name = "JumpPhaseForce"
+	jumpPhaseForce.Attachment0 = centerAttachment
+	jumpPhaseForce.ApplyAtCenterOfMass = true
+	jumpPhaseForce.Force = Vector3.zero
+	jumpPhaseForce.RelativeTo = Enum.ActuatorRelativeTo.World
+	jumpPhaseForce.Parent = model
+	self._jumpPhaseForce = jumpPhaseForce
+
 	local terrainAttachment = Instance.new("Attachment")
 	terrainAttachment.Name = "CharacterAlignAttachment"
 	terrainAttachment.Parent = Workspace.Terrain
@@ -182,6 +227,10 @@ function GraviBowCharacterController:_destroyPhysicsConstraints()
 	if self._dragForce then
 		self._dragForce:Destroy()
 		self._dragForce = nil
+	end
+	if self._jumpPhaseForce then
+		self._jumpPhaseForce:Destroy()
+		self._jumpPhaseForce = nil
 	end
 	if self._alignOrientation then
 		self._alignOrientation:Destroy()
@@ -212,7 +261,10 @@ function GraviBowCharacterController:_update(hrp, dt)
 		hrp.AssemblyLinearVelocity = verticalVel
 	end
 
+	self:_updateCoyoteTime(isGrounded, dt)
+	self:_updateJumpBuffer(isGrounded, dt)
 	self:_updateMovementForces(moveDirection, isMoving, isGrounded, tangentUnit, tangentSpeed)
+	self:_updateJumpPhaseForces(hrp, gravityDir, upDir, isGrounded, dt)
 	local orientUpDir = -self._gravityController:GetSmoothedGravityDirection()
 	self:_updateAutoRotate(hrp, moveDirection, isMoving, orientUpDir)
 	self:_updateFreeFall(hrp, upDir, dt)
@@ -220,6 +272,7 @@ function GraviBowCharacterController:_update(hrp, dt)
 	self:_updateAnimation()
 	self:_updateCharacterVisibility()
 
+	self._wasGrounded = isGrounded
 	hrp.AssemblyAngularVelocity = Vector3.zero
 
 	self.State = self._stateMachine.current
@@ -386,6 +439,62 @@ function GraviBowCharacterController:_updateAutoRotate(hrp, moveDirection, isMov
 	end
 end
 
+function GraviBowCharacterController:_updateCoyoteTime(isGrounded, dt)
+	if isGrounded then
+		self._coyoteTimer = COYOTE_TIME
+	else
+		self._coyoteTimer = math.max(0, self._coyoteTimer - dt)
+	end
+end
+
+function GraviBowCharacterController:_updateJumpBuffer(isGrounded, dt)
+	if self._jumpBuffered then
+		self._jumpBufferTimer = math.max(0, self._jumpBufferTimer - dt)
+		if self._jumpBufferTimer <= 0 then
+			self._jumpBuffered = false
+		end
+	end
+
+	if isGrounded and self._jumpBuffered then
+		self._jumpBuffered = false
+		self:_executeJump()
+	end
+end
+
+function GraviBowCharacterController:_updateJumpPhaseForces(hrp, gravityDir, upDir, isGrounded, dt)
+	if not self._jumpPhaseForce then return end
+
+	if isGrounded then
+		self._jumpPhaseForce.Force = Vector3.zero
+		self._jumpCutApplied = false
+		return
+	end
+
+	local verticalVel = hrp.AssemblyLinearVelocity:Dot(upDir)
+	local baseGravityForce = GRAVITY_FORCE * self._cachedMass
+	local ascending = verticalVel > 0
+	local nearApex = math.abs(verticalVel) < APEX_SPEED_THRESHOLD
+
+	if ascending and self._jumpReleased and not self._jumpCutApplied then
+		self._jumpCutApplied = true
+		local currentVel = hrp.AssemblyLinearVelocity
+		local tangentVel = currentVel - upDir * verticalVel
+		hrp.AssemblyLinearVelocity = tangentVel + upDir * (verticalVel * JUMP_CUT_DAMPING)
+	end
+
+	local phaseForce = Vector3.zero
+
+	if nearApex and not isGrounded then
+		local apexReduction = (1 - APEX_GRAVITY_SCALE) * baseGravityForce
+		phaseForce = upDir * apexReduction
+	elseif not ascending then
+		local fallExtra = (FALL_GRAVITY_SCALE - 1) * baseGravityForce
+		phaseForce = gravityDir * fallExtra
+	end
+
+	self._jumpPhaseForce.Force = phaseForce
+end
+
 function GraviBowCharacterController:_updateFreeFall(hrp, upDir, dt)
 	if not self._stateMachine then return end
 
@@ -421,36 +530,57 @@ function GraviBowCharacterController:_updateStateMachine(isMoving, isGrounded, t
 end
 
 function GraviBowCharacterController:_onJumpRequest()
-	if self._jumpDebounce then return end
+	local sm = self._stateMachine
+	if not sm then return end
+
+	if self._jumpDebounce then
+		self._jumpBuffered = true
+		self._jumpBufferTimer = JUMP_BUFFER_TIME
+		return
+	end
 
 	local isGrounded = self._groundController.IsGrounded
-	if not isGrounded then return end
+	local canCoyote = self._coyoteTimer > 0
+		and (sm.current == "FreeFalling" or not isGrounded)
+
+	if not isGrounded and not canCoyote then
+		self._jumpBuffered = true
+		self._jumpBufferTimer = JUMP_BUFFER_TIME
+		return
+	end
+
+	self:_executeJump()
+end
+
+function GraviBowCharacterController:_executeJump()
+	if self._jumpDebounce then return end
 
 	local sm = self._stateMachine
 	if not sm then return end
 
+	local character = LocalPlayer.Character
+	if not character then return end
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+
 	self._jumpDebounce = true
+	self._jumpCutApplied = false
+	self._jumpReleased = false
+	self._coyoteTimer = 0
 
 	local gravityDir = self._gravityController.GravityDirection
 	local upDir = -gravityDir
 
-	local character = LocalPlayer.Character
-	if not character then
-		self._jumpDebounce = false
-		return
-	end
-	local hrp = character:FindFirstChild("HumanoidRootPart")
-	if not hrp then
-		self._jumpDebounce = false
-		return
-	end
-
-	hrp:ApplyImpulse(upDir * JUMP_POWER)
+	local currentVel = hrp.AssemblyLinearVelocity
+	local tangentVel = currentVel - upDir * currentVel:Dot(upDir)
+	hrp.AssemblyLinearVelocity = tangentVel + upDir * JUMP_VELOCITY
 
 	if sm.current == "Standing" then
 		sm.jump()
 	elseif sm.current == "Running" then
 		sm.leap()
+	elseif sm.current == "FreeFalling" then
+		-- Coyote jump from freefall — force back through the state machine
 	end
 
 	self._jumpAnimTimer = JUMP_ANIM_TRANSITION
@@ -458,6 +588,10 @@ function GraviBowCharacterController:_onJumpRequest()
 	task.delay(JUMP_DEBOUNCE_TIME, function()
 		self._jumpDebounce = false
 	end)
+end
+
+function GraviBowCharacterController:RequestJump()
+	self:_onJumpRequest()
 end
 
 function GraviBowCharacterController:_setCharacterTransparency(alpha)

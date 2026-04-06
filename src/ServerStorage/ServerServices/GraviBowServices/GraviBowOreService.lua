@@ -1,4 +1,5 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local Packages = ReplicatedStorage.Packages
 local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
@@ -9,6 +10,13 @@ local ItemRegistry = require(ReplicatedStorage.Source.GraviBowItemRegistry)
 
 local ITEM_COSTS = {}
 local ITEM_PLACEMENT = {}
+local ITEM_PREFAB_NAMES = {
+	Floodlight = "floodlight",
+	Wall = "wall",
+	Floor = "floor",
+	Ramp = "ramp",
+	Turret = "turret",
+}
 for _, item in ipairs(ItemRegistry) do
 	if item.cost and item.cost > 0 then
 		ITEM_COSTS[item.name] = item.cost
@@ -24,10 +32,12 @@ local GraviBowOreService = Knit.CreateService({
 		CrystalMined = Knit.CreateSignal(),
 		PurchaseItem = Knit.CreateSignal(),
 		ItemPurchased = Knit.CreateSignal(),
+		PlaceSnapItem = Knit.CreateSignal(),
 	},
 
 	_oreClassToken = nil,
 	_oreReplicas = {},
+	_itemsFolder = nil,
 })
 
 function GraviBowOreService:KnitInit()
@@ -36,7 +46,10 @@ end
 
 function GraviBowOreService:KnitStart()
 	self._harvesterService = Knit.GetService("GraviBowHarvesterService")
-	self._buildService = Knit.GetService("GraviBowBuildService")
+
+	self._itemsFolder = Instance.new("Folder")
+	self._itemsFolder.Name = "PlacedItems"
+	self._itemsFolder.Parent = Workspace
 
 	self.Client.CrystalMined:Connect(function(player)
 		self:OnCrystalMined(player)
@@ -44,6 +57,10 @@ function GraviBowOreService:KnitStart()
 
 	self.Client.PurchaseItem:Connect(function(player, itemName)
 		self:_onPurchaseItem(player, itemName)
+	end)
+
+	self.Client.PlaceSnapItem:Connect(function(player, model, cframe)
+		self:_onPlaceSnapItem(player, model, cframe)
 	end)
 end
 
@@ -111,11 +128,89 @@ function GraviBowOreService:_onPurchaseItem(player, itemName)
 	if placement == "drop" then
 		spawnedModel = self._harvesterService:SpawnHarvester(player)
 	elseif placement == "snap" then
-		spawnedModel = self._buildService:SpawnBuildable(player, itemName)
+		spawnedModel = self:_spawnSnapItem(player, itemName)
 	end
 
 	self.Client.ItemPurchased:Fire(player, itemName, spawnedModel)
 	print("[GraviBowOreService] Player", player.Name, "purchased", itemName, "- ore left:", currentOre - cost)
+end
+
+function GraviBowOreService:_spawnSnapItem(player, itemName)
+	local prefabName = ITEM_PREFAB_NAMES[itemName]
+	if not prefabName then
+		warn("[GraviBowOreService] No prefab mapping for snap item:", itemName)
+		return nil
+	end
+
+	local prefabs = ReplicatedStorage:FindFirstChild("prefabs") or ReplicatedStorage:FindFirstChild("Prefabs")
+	if not prefabs then
+		warn("[GraviBowOreService] No prefabs folder in ReplicatedStorage")
+		return nil
+	end
+
+	local prefab = prefabs:FindFirstChild(prefabName)
+	if not prefab then
+		warn("[GraviBowOreService] Prefab not found:", prefabName)
+		return nil
+	end
+
+	local clone = prefab:Clone()
+	clone.Name = itemName .. "_" .. player.UserId .. "_" .. tick()
+
+	local character = player.Character
+	if character then
+		local head = character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart")
+		if head then
+			if clone:IsA("Model") then
+				clone:PivotTo(head.CFrame * CFrame.new(0, 0, -8))
+			elseif clone:IsA("BasePart") then
+				clone.CFrame = head.CFrame * CFrame.new(0, 0, -8)
+			end
+		end
+	end
+
+	for _, desc in ipairs(clone:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			desc.Anchored = true
+			desc.CanCollide = false
+		end
+	end
+	if clone:IsA("BasePart") then
+		clone.Anchored = true
+		clone.CanCollide = false
+	end
+
+	clone.Parent = self._itemsFolder
+
+	print("[GraviBowOreService] Spawned snap item:", clone.Name)
+	return clone
+end
+
+function GraviBowOreService:_onPlaceSnapItem(player, model, cframe)
+	if typeof(model) ~= "Instance" then return end
+	if not model.Parent then return end
+	if model.Parent ~= self._itemsFolder then return end
+
+	if typeof(cframe) ~= "CFrame" then return end
+
+	if model:IsA("Model") then
+		model:PivotTo(cframe)
+	elseif model:IsA("BasePart") then
+		model.CFrame = cframe
+	end
+
+	for _, desc in ipairs(model:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			desc.Anchored = true
+			desc.CanCollide = true
+		end
+	end
+	if model:IsA("BasePart") then
+		model.Anchored = true
+		model.CanCollide = true
+	end
+
+	print("[GraviBowOreService] Placed snap item:", model.Name, "at", cframe.Position)
 end
 
 return GraviBowOreService

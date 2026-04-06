@@ -6,13 +6,10 @@ local Knit = require(ReplicatedStorage.Packages.Knit)
 
 local RESOLUTION = 4
 local PLANET_TAG = "planet"
+local DEFAULT_RADIUS = 90
 
-local PLANET_CONFIGS = {
+local BIOME_PRESETS = {
 	{
-		name = "Verdant",
-		center = Vector3.new(0, 200, 0),
-		radius = 90,
-		seed = 42,
 		surfaceMaterial = Enum.Material.Grass,
 		coreMaterial = Enum.Material.Rock,
 		noise = {
@@ -31,10 +28,6 @@ local PLANET_CONFIGS = {
 		caves = { enabled = true, threshold = 0.42, scale = 0.05, minDepth = 0.5 },
 	},
 	{
-		name = "Dunes",
-		center = Vector3.new(500, 50, 300),
-		radius = 70,
-		seed = 137,
 		surfaceMaterial = Enum.Material.Sand,
 		coreMaterial = Enum.Material.Sandstone,
 		noise = {
@@ -53,10 +46,6 @@ local PLANET_CONFIGS = {
 		caves = { enabled = false },
 	},
 	{
-		name = "Frostpeak",
-		center = Vector3.new(-400, -80, 400),
-		radius = 80,
-		seed = 293,
 		surfaceMaterial = Enum.Material.Snow,
 		coreMaterial = Enum.Material.Glacier,
 		noise = {
@@ -75,10 +64,6 @@ local PLANET_CONFIGS = {
 		caves = { enabled = true, threshold = 0.4, scale = 0.045, minDepth = 0.4 },
 	},
 	{
-		name = "Cindercore",
-		center = Vector3.new(300, -150, -500),
-		radius = 65,
-		seed = 571,
 		surfaceMaterial = Enum.Material.CrackedLava,
 		coreMaterial = Enum.Material.Basalt,
 		noise = {
@@ -136,33 +121,137 @@ local GraviBowTerrainService = Knit.CreateService({
 	Name = "GraviBowTerrainService",
 	Client = {},
 	_anchorFolder = nil,
+	_sharedPlanet = nil,
 })
 
 function GraviBowTerrainService:KnitInit() end
+function GraviBowTerrainService:KnitStart() end
 
-function GraviBowTerrainService:KnitStart()
-	self:GenerateAllPlanets()
-end
 
-function GraviBowTerrainService:GenerateAllPlanets()
-	local terrain = Workspace.Terrain
-
-	for _, config in ipairs(PLANET_CONFIGS) do
-		local ok, err = pcall(function()
-			self:_generatePlanet(terrain, config)
-		end)
-		if ok then
-			print("[GraviBowTerrainService] Generated planet:", config.name)
-		else
-			warn("[GraviBowTerrainService] Failed to generate", config.name, ":", err)
-		end
-		task.wait()
+function GraviBowTerrainService:CreateSharedPlanet()
+	if self._sharedPlanet then
+		return self._sharedPlanet
 	end
 
-	print("[GraviBowTerrainService] All planets generated")
+	local center = Vector3.new(0, 0, 0)
+	local biome = BIOME_PRESETS[2]
+	local seed = 42
+
+	local config = {
+		name = "SharedPlanet",
+		center = center,
+		radius = DEFAULT_RADIUS,
+		seed = seed,
+		surfaceMaterial = biome.surfaceMaterial,
+		coreMaterial = biome.coreMaterial,
+		noise = {
+			amplitude = biome.noise.amplitude,
+			frequency = biome.noise.frequency,
+			octaves = biome.noise.octaves,
+			lacunarity = biome.noise.lacunarity,
+			gain = biome.noise.gain,
+			warpStrength = biome.noise.warpStrength,
+		},
+		layers = biome.layers,
+		caves = biome.caves,
+	}
+
+	local ok, err = pcall(function()
+		self:_generateTerrain(config)
+	end)
+
+	if not ok then
+		warn("[GraviBowTerrainService] Failed to generate shared planet:", err)
+		return nil
+	end
+
+	local anchor = self:_createPlanetAnchor(config)
+	self:_createDustStorm(anchor, center, DEFAULT_RADIUS + biome.noise.amplitude)
+	print("[GraviBowTerrainService] Created shared planet at", center)
+
+	self._sharedPlanet = {
+		anchor = anchor,
+		center = center,
+		radius = DEFAULT_RADIUS,
+		noiseAmplitude = biome.noise.amplitude,
+		config = config,
+	}
+	return self._sharedPlanet
 end
 
-function GraviBowTerrainService:_generatePlanet(terrain, config)
+function GraviBowTerrainService:GetSharedPlanet()
+	return self._sharedPlanet
+end
+
+function GraviBowTerrainService:_createDustStorm(anchor, center, surfaceRadius)
+	local EMITTER_COUNT = 26
+	local DUST_COLOR = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(210, 180, 130)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(190, 160, 110)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(160, 130, 90)),
+	})
+	local DUST_TRANSPARENCY = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(0.1, 0.6),
+		NumberSequenceKeypoint.new(0.7, 0.7),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	local DUST_SIZE = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 4),
+		NumberSequenceKeypoint.new(0.3, 12),
+		NumberSequenceKeypoint.new(0.7, 18),
+		NumberSequenceKeypoint.new(1, 8),
+	})
+
+	local goldenAngle = math.pi * (3 - math.sqrt(5))
+
+	for i = 1, EMITTER_COUNT do
+		local t = (i - 0.5) / EMITTER_COUNT
+		local phi = math.acos(1 - 2 * t)
+		local theta = goldenAngle * i
+
+		local dir = Vector3.new(
+			math.sin(phi) * math.cos(theta),
+			math.cos(phi),
+			math.sin(phi) * math.sin(theta)
+		).Unit
+
+		local pos = center + dir * (surfaceRadius + 5)
+
+		local att = Instance.new("Attachment")
+		att.Name = "DustAtt_" .. i
+		att.WorldPosition = pos
+		att.Parent = anchor
+
+		local tangent = dir:Cross(Vector3.new(0, 1, 0))
+		if tangent.Magnitude < 0.01 then
+			tangent = dir:Cross(Vector3.new(1, 0, 0))
+		end
+		tangent = tangent.Unit
+
+		local emitter = Instance.new("ParticleEmitter")
+		emitter.Name = "DustStorm"
+		emitter.Color = DUST_COLOR
+		emitter.Transparency = DUST_TRANSPARENCY
+		emitter.Size = DUST_SIZE
+		emitter.Texture = "rbxasset://textures/particles/smoke_main.dds"
+		emitter.Rate = 8
+		emitter.Lifetime = NumberRange.new(4, 8)
+		emitter.Speed = NumberRange.new(6, 14)
+		emitter.SpreadAngle = Vector2.new(40, 40)
+		emitter.EmissionDirection = Enum.NormalId.Front
+		emitter.Rotation = NumberRange.new(0, 360)
+		emitter.RotSpeed = NumberRange.new(-30, 30)
+		emitter.LightEmission = 0.05
+		emitter.LightInfluence = 0.9
+		emitter.Drag = 1
+		emitter.Acceleration = tangent * 3
+		emitter.Parent = att
+	end
+end
+
+function GraviBowTerrainService:_generateTerrain(config)
+	local terrain = Workspace.Terrain
 	local center = config.center
 	local radius = config.radius
 	local seed = config.seed
@@ -271,8 +360,7 @@ function GraviBowTerrainService:_generatePlanet(terrain, config)
 	end
 
 	terrain:WriteVoxels(region, RESOLUTION, materials, occupancies)
-
-	self:_createPlanetAnchor(config)
+	task.wait()
 end
 
 function GraviBowTerrainService:_createPlanetAnchor(config)
@@ -298,32 +386,7 @@ function GraviBowTerrainService:_createPlanetAnchor(config)
 
 	CollectionService:AddTag(anchor, PLANET_TAG)
 
-	print("[GraviBowTerrainService] Tagged terrain anchor", config.name, "as", PLANET_TAG)
-end
-
-function GraviBowTerrainService:ClearAllPlanets()
-	local terrain = Workspace.Terrain
-
-	for _, config in ipairs(PLANET_CONFIGS) do
-		local outerRadius = config.radius + config.noise.amplitude + 4
-		local minV = config.center - Vector3.new(outerRadius, outerRadius, outerRadius)
-		local maxV = config.center + Vector3.new(outerRadius, outerRadius, outerRadius)
-		local region = Region3.new(minV, maxV):ExpandToGrid(RESOLUTION)
-		terrain:FillRegion(region, RESOLUTION, Enum.Material.Air)
-	end
-
-	if self._anchorFolder then
-		self._anchorFolder:Destroy()
-		self._anchorFolder = nil
-	end
-
-	print("[GraviBowTerrainService] All planets cleared")
-end
-
-function GraviBowTerrainService:RegenerateAllPlanets()
-	self:ClearAllPlanets()
-	task.wait(0.1)
-	self:GenerateAllPlanets()
+	return anchor
 end
 
 return GraviBowTerrainService

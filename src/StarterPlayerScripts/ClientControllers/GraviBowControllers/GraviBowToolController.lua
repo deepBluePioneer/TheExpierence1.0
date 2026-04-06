@@ -38,7 +38,6 @@ function GraviBowToolController:KnitStart()
 	self._miningController = Knit.GetController("GraviBowMiningController")
 	self._radialMenuController = Knit.GetController("GraviBowRadialMenuController")
 	self._harvesterController = Knit.GetController("GraviBowHarvesterController")
-	self._buildController = Knit.GetController("GraviBowBuildController")
 	self._jetpackController = Knit.GetController("GraviBowJetpackController")
 	self._toolService = Knit.GetService("GraviBowToolService")
 
@@ -49,20 +48,12 @@ function GraviBowToolController:KnitStart()
 	self._trove:Add(UserInputService.InputBegan:Connect(function(input, processed)
 		if processed then return end
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			if self._buildController:IsPlacing() then
-				self._buildController:ConfirmPlacement()
-				return
-			end
 			if self._harvesterController:IsHolding() then
 				self._harvesterController:DropHeldObject()
 				return
 			end
 			self._miningController:SetLmbHeld(true)
 		elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-			if self._buildController:IsPlacing() then
-				self._buildController:CancelPlacement()
-				return
-			end
 			if self:GetActiveTool() == "scanner" then
 				self._radialMenuController:Show()
 			end
@@ -88,10 +79,6 @@ function GraviBowToolController:KnitStart()
 	self._trove:Add(UserInputService.InputChanged:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseWheel then
 			local dir = input.Position.Z > 0 and -1 or 1
-			if self._buildController:IsPlacing() then
-				self._buildController:Rotate(dir)
-				return
-			end
 			if self._radialMenuController:IsRadialOpen() then
 				self._radialMenuController:ScrollSelection(dir)
 			end

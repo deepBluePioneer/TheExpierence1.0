@@ -251,7 +251,7 @@ end
 
 function GraviBowMatchService:_returnToHub()
 	for _, player in ipairs(Players:GetPlayers()) do
-		self._playerService:TeleportPlayerToHub(player)
+		self._playerService:TeleportPlayerToOwnPlanet(player)
 	end
 
 	self:_setPhase(PHASES.HUB_WAITING)

@@ -208,15 +208,6 @@ function GraviBowHarvesterService:_getNearestPlanetCenter(pos)
 			bestCenter = data.center
 		end
 	end
-	local hubData = self._playerService:GetHubPlanet()
-	if hubData then
-		local dist = (hubData.center - pos).Magnitude
-		if dist < bestDist then
-			bestDist = dist
-			bestCenter = hubData.center
-		end
-	end
-
 	return bestCenter
 end
 

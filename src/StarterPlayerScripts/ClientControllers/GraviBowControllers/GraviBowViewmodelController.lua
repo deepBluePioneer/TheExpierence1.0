@@ -124,15 +124,8 @@ function GraviBowViewmodelController:_isBowAllowed()
 	return self._bowActive
 end
 
-function GraviBowViewmodelController:_isInsideHubZone(position)
-	local phase = self._matchController and self._matchController.Phase
-	if phase ~= "GAME_ACTIVE" and phase ~= "GAME_OVER" then
-		return false
-	end
-	local hubPlanet = self._gravityController:GetHubPlanet()
-	if not hubPlanet then return false end
-	local zoneRadius = hubPlanet.radius * self._gravityController:GetHubZoneMultiplier()
-	return (position - hubPlanet.center).Magnitude < zoneRadius
+function GraviBowViewmodelController:_isInsideHubZone(_position)
+	return false
 end
 
 function GraviBowViewmodelController:_getSphereCenter()

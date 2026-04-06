@@ -12,11 +12,10 @@ local ZoneRoot = CustomPackages:WaitForChild("ZoneRoot")
 local Zone = require(ZoneRoot:WaitForChild("Zone"))
 
 local PLANET_TAG = "planet"
-local HUB_PLANET_TAG = "planetHub"
 local GRAVITY_ZONE_MULTIPLIER = 1.8
 local ZONE_TRANSPARENCY = 0.85
 local ZONE_COLOR = Color3.fromRGB(100, 150, 255)
-local HUB_ZONE_COLOR = Color3.fromRGB(100, 255, 150)
+local DROP_HEIGHT = 50
 
 local GraviBowPlayerService = Knit.CreateService({
 	Name = "GraviBowPlayerService",
@@ -29,8 +28,8 @@ local GraviBowPlayerService = Knit.CreateService({
 
 	_playerTroves = {},
 	_planets = {},
-	_hubPlanets = {},
 	_playerActivePlanets = {},
+	_sharedPlanet = nil,
 	_zoneFolder = nil,
 })
 
@@ -48,11 +47,16 @@ function GraviBowPlayerService:KnitStart()
 
 	self:_setupLighting()
 	self:_setupPlanetZones()
-	self:_setupHubPlanetZones()
 
 	self._matchService = Knit.GetService("GraviBowMatchService")
 	self._oreService = Knit.GetService("GraviBowOreService")
 	self._toolService = Knit.GetService("GraviBowToolService")
+	self._terrainService = Knit.GetService("GraviBowTerrainService")
+
+	self._sharedPlanet = self._terrainService:CreateSharedPlanet()
+	if not self._sharedPlanet then
+		warn("[GraviBowPlayerService] Failed to create shared planet!")
+	end
 
 	self._trove:Add(Players.PlayerAdded:Connect(function(player)
 		self:_onPlayerAdded(player)
@@ -248,6 +252,7 @@ function GraviBowPlayerService:_setupCharacter(player, character)
 	end
 
 	self:_setPartFriction(character)
+	self:_hideAvatar(character)
 
 	local attachment = hrp:FindFirstChild("GravityAttachment")
 	if not attachment then
@@ -274,18 +279,14 @@ function GraviBowPlayerService:_setupCharacter(player, character)
 
 	self:_setupLeftHandGrip(character)
 
-	local hubPlanet = self:GetHubPlanet()
-	if not hubPlanet then
-		for _ = 1, 120 do
-			task.wait(0.25)
-			hubPlanet = self:GetHubPlanet()
-			if hubPlanet then break end
-		end
-	end
-	if hubPlanet then
-		self:_dropPlayerOnPlanet(player, hubPlanet)
+	if self._sharedPlanet then
+		self:_dropPlayerOnPlanet(player, {
+			model = self._sharedPlanet.anchor,
+			center = self._sharedPlanet.center,
+			radius = self._sharedPlanet.radius,
+		})
 	else
-		warn("[GraviBowPlayerService] Hub planet never registered; cannot teleport", player.Name)
+		warn("[GraviBowPlayerService] No shared planet - cannot spawn")
 	end
 end
 
@@ -345,14 +346,11 @@ function GraviBowPlayerService:_setupPlanetZones()
 	self._zoneFolder.Parent = Workspace
 
 	local tagged = CollectionService:GetTagged(PLANET_TAG)
-	print("[GraviBowPlayerService] Found", #tagged, "instances with tag '" .. PLANET_TAG .. "'")
-	for i, instance in ipairs(tagged) do
-		print("[GraviBowPlayerService]  ", i, instance:GetFullName(), "IsA:", instance.ClassName)
+	for _, instance in ipairs(tagged) do
 		self:_registerPlanet(instance)
 	end
 
 	CollectionService:GetInstanceAddedSignal(PLANET_TAG):Connect(function(instance)
-		print("[GraviBowPlayerService] Tag added to:", instance:GetFullName())
 		self:_registerPlanet(instance)
 	end)
 
@@ -376,7 +374,6 @@ function GraviBowPlayerService:_registerPlanet(model)
 
 	local part = self:_getPlanetPart(model)
 	if not part then
-		print("[GraviBowPlayerService] No BasePart yet for", model:GetFullName(), "- waiting...")
 		task.spawn(function()
 			while model.Parent and not self:_getPlanetPart(model) do
 				local desc = model.DescendantAdded:Wait()
@@ -385,7 +382,6 @@ function GraviBowPlayerService:_registerPlanet(model)
 				end
 			end
 			if model.Parent and not self._planets[model] then
-				print("[GraviBowPlayerService] BasePart found for", model:GetFullName(), "- retrying registration")
 				self:_registerPlanet(model)
 			end
 		end)
@@ -394,7 +390,6 @@ function GraviBowPlayerService:_registerPlanet(model)
 
 	local center = part.Position
 	local radius = math.max(part.Size.X, part.Size.Y, part.Size.Z) / 2
-	print("[GraviBowPlayerService] Registered planet:", model.Name, "center:", center, "radius:", radius)
 	local zoneRadius = radius * GRAVITY_ZONE_MULTIPLIER
 	local zoneDiameter = zoneRadius * 2
 
@@ -425,18 +420,18 @@ function GraviBowPlayerService:_registerPlanet(model)
 	self._planets[model] = planetData
 
 	zone.playerEntered:Connect(function(player)
-		print("[GraviBowPlayerService] Player", player.Name, "entered zone:", model.Name)
 		self._playerActivePlanets[player] = planetData
 		self.Client.ActivePlanetChanged:Fire(player, model)
 	end)
 
 	zone.playerExited:Connect(function(player)
-		print("[GraviBowPlayerService] Player", player.Name, "exited zone:", model.Name)
 		if self._playerActivePlanets[player] == planetData then
 			self._playerActivePlanets[player] = nil
 			self.Client.ActivePlanetChanged:Fire(player, nil)
 		end
 	end)
+
+	print("[GraviBowPlayerService] Registered planet:", model.Name, "center:", center, "radius:", radius)
 end
 
 function GraviBowPlayerService:_unregisterPlanet(model)
@@ -459,100 +454,6 @@ function GraviBowPlayerService:_unregisterPlanet(model)
 
 	self._planets[model] = nil
 end
-
-function GraviBowPlayerService:_setupHubPlanetZones()
-	local tagged = CollectionService:GetTagged(HUB_PLANET_TAG)
-	print("[GraviBowPlayerService] Found", #tagged, "instances with tag '" .. HUB_PLANET_TAG .. "'")
-	for i, instance in ipairs(tagged) do
-		print("[GraviBowPlayerService]  ", i, instance:GetFullName(), "IsA:", instance.ClassName)
-		self:_registerHubPlanet(instance)
-	end
-
-	CollectionService:GetInstanceAddedSignal(HUB_PLANET_TAG):Connect(function(instance)
-		print("[GraviBowPlayerService] Hub tag added to:", instance:GetFullName())
-		self:_registerHubPlanet(instance)
-	end)
-end
-
-function GraviBowPlayerService:_registerHubPlanet(model)
-	if self._hubPlanets[model] then return end
-
-	local part = self:_getPlanetPart(model)
-	if not part then
-		task.spawn(function()
-			while model.Parent and not self:_getPlanetPart(model) do
-				local desc = model.DescendantAdded:Wait()
-				if desc:IsA("BasePart") then break end
-			end
-			if model.Parent and not self._hubPlanets[model] then
-				self:_registerHubPlanet(model)
-			end
-		end)
-		return
-	end
-
-	local center = part.Position
-	local radius = math.max(part.Size.X, part.Size.Y, part.Size.Z) / 2
-	print("[GraviBowPlayerService] Registered hub planet:", model.Name, "center:", center, "radius:", radius)
-
-	local zoneRadius = radius * GRAVITY_ZONE_MULTIPLIER
-	local zoneDiameter = zoneRadius * 2
-
-	local zonePart = Instance.new("Part")
-	zonePart.Name = model.Name .. "_HubGravityZone"
-	zonePart.Shape = Enum.PartType.Ball
-	zonePart.Size = Vector3.new(zoneDiameter, zoneDiameter, zoneDiameter)
-	zonePart.Position = center
-	zonePart.Anchored = true
-	zonePart.CanCollide = false
-	zonePart.CanQuery = true
-	zonePart.CanTouch = true
-	zonePart.Transparency = ZONE_TRANSPARENCY
-	zonePart.Color = HUB_ZONE_COLOR
-	zonePart.Material = Enum.Material.ForceField
-	zonePart.Parent = self._zoneFolder
-
-	local zone = Zone.new(zonePart)
-
-	local planetData = {
-		model = model,
-		center = center,
-		radius = radius,
-		zonePart = zonePart,
-		zone = zone,
-	}
-
-	self._hubPlanets[model] = planetData
-
-	zone.playerEntered:Connect(function(player)
-		print("[GraviBowPlayerService] Player", player.Name, "entered hub zone:", model.Name)
-		self._playerActivePlanets[player] = planetData
-		self.Client.ActivePlanetChanged:Fire(player, model)
-	end)
-
-	zone.playerExited:Connect(function(player)
-		print("[GraviBowPlayerService] Player", player.Name, "exited hub zone:", model.Name)
-		if self._playerActivePlanets[player] == planetData then
-			self._playerActivePlanets[player] = nil
-			self.Client.ActivePlanetChanged:Fire(player, nil)
-		end
-	end)
-end
-
-function GraviBowPlayerService:GetHubPlanet()
-	local _, data = next(self._hubPlanets)
-	return data
-end
-
-function GraviBowPlayerService:GetGamePlanets()
-	local list = {}
-	for _, data in pairs(self._planets) do
-		table.insert(list, data)
-	end
-	return list
-end
-
-local DROP_HEIGHT = 50
 
 function GraviBowPlayerService:_dropPlayerOnPlanet(player, planetData)
 	local character = player.Character
@@ -637,13 +538,46 @@ function GraviBowPlayerService:TeleportPlayerToPlanet(player, planetData)
 	self.Client.ActivePlanetChanged:Fire(player, planetData.model)
 end
 
-function GraviBowPlayerService:TeleportPlayerToHub(player)
-	local hubPlanet = self:GetHubPlanet()
-	if not hubPlanet then
-		warn("[GraviBowPlayerService] No hub planet found for teleport")
+function GraviBowPlayerService:TeleportPlayerToOwnPlanet(player)
+	if not self._sharedPlanet then
+		warn("[GraviBowPlayerService] No shared planet")
 		return
 	end
-	self:_dropPlayerOnPlanet(player, hubPlanet)
+	self:_dropPlayerOnPlanet(player, {
+		model = self._sharedPlanet.anchor,
+		center = self._sharedPlanet.center,
+		radius = self._sharedPlanet.radius,
+	})
+end
+
+function GraviBowPlayerService:GetSharedPlanet()
+	return self._sharedPlanet
+end
+
+function GraviBowPlayerService:GetGamePlanets()
+	local list = {}
+	for _, data in pairs(self._planets) do
+		table.insert(list, data)
+	end
+	return list
+end
+
+function GraviBowPlayerService:_hideAvatar(character)
+	local function hideDescendant(desc)
+		if desc:IsA("BasePart") then
+			desc.Transparency = 1
+		elseif desc:IsA("Decal") or desc:IsA("Texture") then
+			desc.Transparency = 1
+		end
+	end
+
+	for _, desc in ipairs(character:GetDescendants()) do
+		hideDescendant(desc)
+	end
+
+	character.DescendantAdded:Connect(function(desc)
+		hideDescendant(desc)
+	end)
 end
 
 function GraviBowPlayerService:_setPartFriction(character)

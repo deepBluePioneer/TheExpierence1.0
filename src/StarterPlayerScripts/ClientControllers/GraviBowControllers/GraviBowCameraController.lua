@@ -100,6 +100,7 @@ function GraviBowCameraController:_onCharacterAdded(character)
 	local camera = Workspace.CurrentCamera
 	camera.CameraType = Enum.CameraType.Scriptable
 	UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+	UserInputService.MouseIconEnabled = false
 
 	local initUp = -self._gravityController:GetSmoothedGravityDirection()
 	self._prevUp = initUp
@@ -120,6 +121,7 @@ function GraviBowCameraController:_onCharacterAdded(character)
 		RunService:UnbindFromRenderStep(CAM_RENDER_NAME)
 		camera.CameraType = Enum.CameraType.Custom
 		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		UserInputService.MouseIconEnabled = true
 	end)
 
 	if humanoid then
