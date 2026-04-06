@@ -39,6 +39,8 @@ local GraviBowCameraController = Knit.CreateController({
 	_shakeActive = false,
 	_shakeOffset = CFrame.new(),
 	_spectatingDeath = false,
+	_digTarget = nil,
+	_digLerpAlpha = 0,
 })
 
 function GraviBowCameraController:KnitInit()
@@ -160,6 +162,20 @@ function GraviBowCameraController:_updateCamera(hrp, head, camera)
 	local gravityDir = self._gravityController:GetSmoothedGravityDirection()
 	local upDir = -gravityDir
 
+	local digTarget = self._digTarget
+	if digTarget then
+		self._digLerpAlpha = math.min(self._digLerpAlpha + 3.5 * (1 / 60), 1)
+		local t = self._digLerpAlpha
+		t = t * t * (3 - 2 * t)
+
+		upDir = self._prevUp:Lerp(digTarget.upDir, t)
+		if upDir.Magnitude > 0.001 then
+			upDir = upDir.Unit
+		else
+			upDir = digTarget.upDir
+		end
+	end
+
 	local deltaRot = self:_fromToRotation(self._prevUp, upDir)
 	self._refForward = (deltaRot * self._refForward)
 	self._prevUp = upDir
@@ -184,6 +200,12 @@ function GraviBowCameraController:_updateCamera(hrp, head, camera)
 	local camForward = (rotatedForward * math.cos(pitchRad) + upDir * math.sin(pitchRad)).Unit
 
 	local focusPos = head and head.Position or hrp.Position
+	if digTarget then
+		local t = self._digLerpAlpha
+		t = t * t * (3 - 2 * t)
+		focusPos = focusPos:Lerp(digTarget.position, t)
+	end
+
 	local camRight = camForward:Cross(upDir)
 	if camRight.Magnitude < 0.001 then
 		camRight = rotatedRight
@@ -223,6 +245,19 @@ function GraviBowCameraController:_updateCamera(hrp, head, camera)
 	self.CameraLookOnSurface = (rotatedForward - upDir * rotatedForward:Dot(upDir)).Unit
 	self.CameraRightOnSurface = (rotatedRight - upDir * rotatedRight:Dot(upDir)).Unit
 	self.Pitch = self._pitch
+end
+
+function GraviBowCameraController:SetDigTarget(exitPos, exitUpDir)
+	self._digTarget = {
+		position = exitPos,
+		upDir = exitUpDir,
+	}
+	self._digLerpAlpha = 0
+end
+
+function GraviBowCameraController:ClearDigTarget()
+	self._digTarget = nil
+	self._digLerpAlpha = 0
 end
 
 function GraviBowCameraController:TriggerShake(amplitude, duration)

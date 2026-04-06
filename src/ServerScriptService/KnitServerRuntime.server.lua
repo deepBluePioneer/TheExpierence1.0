@@ -57,6 +57,11 @@ local function loadServicesForPlace(placeId)
 		requireServices(CavesServices)
 	elseif placeId == GraviBowPlaceID then
 		requireServices(GraviBowServices)
+	elseif RunService:IsStudio() and placeId == 0 then
+		warn(
+			"[KnitServerRuntime] Studio unpublished place (PlaceId 0): loading GraviBow services. Use published PlaceId for other games."
+		)
+		requireServices(GraviBowServices)
 	elseif RunService:IsStudio() then
 		warn("Studio detected with PlaceId " .. placeId .. " -- loading Lakeland Career Day services for testing")
 		requireServices(LakelandCareerDayServices)

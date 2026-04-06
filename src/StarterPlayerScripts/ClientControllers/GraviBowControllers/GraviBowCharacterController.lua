@@ -9,6 +9,15 @@ local Knit = require(Packages.Knit)
 local Trove = require(Packages.Trove)
 local fsm = require(ReplicatedStorage.Source.fsm)
 
+local Gizmo
+do
+	local ok, mod = pcall(require, Packages.imgizmo)
+	if ok then
+		Gizmo = mod
+		Gizmo.Init()
+	end
+end
+
 local LocalPlayer = Players.LocalPlayer
 
 local WALK_SPEED = 24
@@ -35,6 +44,15 @@ local FADE_IN_END = 6
 local ANIM_FADE_TIME = 0.2
 
 local GRAVITY_FORCE = 40
+
+local DIG_SPEED_THRESHOLD = 40
+local DIG_DURATION = 0.6
+local DIG_EXIT_VELOCITY = 55
+
+local DIG_GIZMO_SEGMENTS = 32
+local DIG_GIZMO_COLOR_ENTRY = Color3.fromRGB(255, 120, 40)
+local DIG_GIZMO_COLOR_EXIT = Color3.fromRGB(40, 200, 255)
+local DIG_GIZMO_COLOR_ARC = Color3.fromRGB(255, 200, 60)
 
 local ANIM_IDS = {
 	Idle     = "rbxassetid://507766666",
@@ -72,6 +90,15 @@ local GraviBowCharacterController = Knit.CreateController({
 	_jumpBuffered = false,
 	_jumpBufferTimer = 0,
 	_wasGrounded = false,
+
+	_isDigging = false,
+	_digTimer = 0,
+	_digEntryPos = nil,
+	_digExitPos = nil,
+	_digExitUpDir = nil,
+	_digCP1 = nil,
+	_digCP2 = nil,
+	_digEntryLook = nil,
 })
 
 function GraviBowCharacterController:KnitInit()
@@ -166,6 +193,12 @@ function GraviBowCharacterController:_onCharacterAdded(character)
 		self:_update(hrp, dt)
 	end), "Disconnect")
 
+	if Gizmo then
+		self._characterTrove:Add(RunService.RenderStepped:Connect(function()
+			self:_drawDigTrajectory(hrp)
+		end), "Disconnect")
+	end
+
 	self._characterTrove:Add(function()
 		self:_destroyPhysicsConstraints()
 		self:_cleanupAnimations()
@@ -243,6 +276,11 @@ function GraviBowCharacterController:_destroyPhysicsConstraints()
 end
 
 function GraviBowCharacterController:_update(hrp, dt)
+	if self._isDigging then
+		self:_updateDig(hrp, dt)
+		return
+	end
+
 	local gravityDir = self._gravityController.GravityDirection
 	local upDir = -gravityDir
 	local isGrounded = self._groundController.IsGrounded
@@ -268,7 +306,7 @@ function GraviBowCharacterController:_update(hrp, dt)
 	local orientUpDir = -self._gravityController:GetSmoothedGravityDirection()
 	self:_updateAutoRotate(hrp, moveDirection, isMoving, orientUpDir)
 	self:_updateFreeFall(hrp, upDir, dt)
-	self:_updateStateMachine(isMoving, isGrounded, tangentSpeed)
+	self:_updateStateMachine(hrp, isMoving, isGrounded, tangentSpeed, upDir)
 	self:_updateAnimation()
 	self:_updateCharacterVisibility()
 
@@ -510,12 +548,17 @@ function GraviBowCharacterController:_updateFreeFall(hrp, upDir, dt)
 	end
 end
 
-function GraviBowCharacterController:_updateStateMachine(isMoving, isGrounded, tangentSpeed)
+function GraviBowCharacterController:_updateStateMachine(hrp, isMoving, isGrounded, tangentSpeed, upDir)
 	if not self._stateMachine then return end
 
 	local sm = self._stateMachine
 
 	if isGrounded and sm.current == "FreeFalling" then
+		local impactVelocity = hrp.AssemblyLinearVelocity
+		if self:_tryStartDig(hrp, upDir, impactVelocity) then
+			sm.land()
+			return
+		end
 		sm.land()
 		sm.recover()
 	end
@@ -592,6 +635,376 @@ end
 
 function GraviBowCharacterController:RequestJump()
 	self:_onJumpRequest()
+end
+
+function GraviBowCharacterController:IsDigging()
+	return self._isDigging
+end
+
+function GraviBowCharacterController:GetDigBezier()
+	if not self._isDigging then return nil end
+	return {
+		p0 = self._digEntryPos,
+		p1 = self._digCP1,
+		p2 = self._digCP2,
+		p3 = self._digExitPos,
+		alpha = math.clamp(self._digTimer / DIG_DURATION, 0, 1),
+	}
+end
+
+function GraviBowCharacterController:_tryStartDig(hrp, upDir, impactVelocity)
+	local downSpeed = -impactVelocity:Dot(upDir)
+	if downSpeed < DIG_SPEED_THRESHOLD then
+		return false
+	end
+
+	local character = self._character
+	if not character then return false end
+
+	local planetCenter = self._gravityController:GetSphereCenter()
+	local planetRadius = self._gravityController:GetSphereRadius()
+	local entryPos = hrp.Position
+	local entryUpDir = upDir
+
+	local tangentVel = impactVelocity - entryUpDir * impactVelocity:Dot(entryUpDir)
+	local forwardSpeed = tangentVel.Magnitude
+	local forwardDir
+	if forwardSpeed > 0.1 then
+		forwardDir = tangentVel.Unit
+	else
+		forwardDir = entryUpDir:Cross(Vector3.new(0, 0, 1))
+		if forwardDir.Magnitude < 0.01 then
+			forwardDir = entryUpDir:Cross(Vector3.new(1, 0, 0))
+		end
+		forwardDir = forwardDir.Unit
+		forwardSpeed = 10
+	end
+
+	local speedFactor = math.clamp(forwardSpeed / 60, 0.3, 1)
+	local arcAngle = math.rad(40) * speedFactor + math.rad(25)
+
+	local rotAxis = entryUpDir:Cross(forwardDir)
+	if rotAxis.Magnitude < 0.001 then
+		rotAxis = entryUpDir:Cross(Vector3.new(0, 0, 1))
+	end
+	rotAxis = rotAxis.Unit
+
+	local exitUpDir = entryUpDir * math.cos(arcAngle)
+		+ rotAxis:Cross(entryUpDir) * math.sin(arcAngle)
+		+ rotAxis * rotAxis:Dot(entryUpDir) * (1 - math.cos(arcAngle))
+	exitUpDir = exitUpDir.Unit
+
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	local excludeList = { character }
+	local snakeBodies = Workspace:FindFirstChild("SnakeBodies")
+	if snakeBodies then table.insert(excludeList, snakeBodies) end
+	local gravZones = Workspace:FindFirstChild("GravityZones")
+	if gravZones then table.insert(excludeList, gravZones) end
+	local tpFolder = Workspace:FindFirstChild("TerrainPlanets")
+	if tpFolder then table.insert(excludeList, tpFolder) end
+	rayParams.FilterDescendantsInstances = excludeList
+
+	local exitRayOrigin = planetCenter + exitUpDir * (planetRadius + 30)
+	local result = Workspace:Raycast(exitRayOrigin, -exitUpDir * 60, rayParams)
+	local exitPos
+	if result then
+		exitPos = result.Position + exitUpDir * 3
+	else
+		exitPos = planetCenter + exitUpDir * (planetRadius + 3)
+	end
+
+	local entryVelDir = impactVelocity.Unit
+	local exitForwardDir = exitUpDir:Cross(rotAxis)
+	if exitForwardDir:Dot(forwardDir) < 0 then exitForwardDir = -exitForwardDir end
+	exitForwardDir = exitForwardDir.Unit
+	local exitVelDir = (exitForwardDir * 0.4 + exitUpDir * 2).Unit
+
+	local arcDist = (entryPos - exitPos).Magnitude
+	local pullStrength = arcDist * 0.45
+
+	local cp1 = entryPos + entryVelDir * pullStrength
+	local cp2 = exitPos - exitVelDir * (pullStrength * 0.7)
+
+	self._digEntryPos = entryPos
+	self._digExitPos = exitPos
+	self._digExitUpDir = exitUpDir
+	self._digCP1 = cp1
+	self._digCP2 = cp2
+	self._digEntryLook = hrp.CFrame.LookVector
+	self._digTimer = 0
+	self._isDigging = true
+
+	if self._movementForce then self._movementForce.Force = Vector3.zero end
+	if self._dragForce then self._dragForce.Force = Vector3.zero end
+	if self._jumpPhaseForce then self._jumpPhaseForce.Force = Vector3.zero end
+
+	for _, desc in ipairs(character:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			desc.CanCollide = false
+		end
+	end
+
+	hrp.AssemblyLinearVelocity = Vector3.zero
+	hrp.AssemblyAngularVelocity = Vector3.zero
+
+	self:_spawnDigParticles(entryPos, -entryUpDir)
+
+	self._cameraController:SetDigTarget(exitPos, exitUpDir)
+
+	return true
+end
+
+function GraviBowCharacterController:_updateDig(hrp, dt)
+	if not self._isDigging then return end
+
+	self._digTimer += dt
+	local alpha = math.clamp(self._digTimer / DIG_DURATION, 0, 1)
+	alpha = alpha * alpha * (3 - 2 * alpha)
+
+	local p0 = self._digEntryPos
+	local p1 = self._digCP1
+	local p2 = self._digCP2
+	local p3 = self._digExitPos
+	local t = alpha
+	local u = 1 - t
+
+	local pos = u*u*u * p0 + 3*u*u*t * p1 + 3*u*t*t * p2 + t*t*t * p3
+
+	local tangent = 3*u*u * (p1 - p0) + 6*u*t * (p2 - p1) + 3*t*t * (p3 - p2)
+	if tangent.Magnitude < 0.01 then
+		tangent = (p3 - p0)
+	end
+	if tangent.Magnitude > 0.01 then
+		tangent = tangent.Unit
+	else
+		tangent = self._digExitUpDir
+	end
+
+	local charUp = tangent
+	local entryLook = self._digEntryLook or Vector3.zAxis
+	local charLook = entryLook - charUp * entryLook:Dot(charUp)
+	if charLook.Magnitude < 0.01 then
+		charLook = charUp:Cross(Vector3.new(0, 0, 1))
+		if charLook.Magnitude < 0.01 then
+			charLook = charUp:Cross(Vector3.new(1, 0, 0))
+		end
+	end
+	charLook = charLook.Unit
+	local charRight = charLook:Cross(charUp).Unit
+
+	hrp.CFrame = CFrame.fromMatrix(pos, charRight, charUp, -charLook)
+	hrp.AssemblyLinearVelocity = Vector3.zero
+	hrp.AssemblyAngularVelocity = Vector3.zero
+
+	hrp.CanCollide = false
+	local character = self._character
+	if character then
+		for _, desc in ipairs(character:GetDescendants()) do
+			if desc:IsA("BasePart") then
+				desc.CanCollide = false
+			end
+		end
+	end
+
+	if alpha >= 1 then
+		self:_endDig(hrp)
+	end
+end
+
+function GraviBowCharacterController:_endDig(hrp)
+	self._isDigging = false
+
+	local character = self._character
+	if character then
+		for _, desc in ipairs(character:GetDescendants()) do
+			if desc:IsA("BasePart") and desc.Name ~= "HumanoidRootPart" then
+				desc.CanCollide = false
+			end
+		end
+		local hrpPart = character:FindFirstChild("HumanoidRootPart")
+		if hrpPart then
+			hrpPart.CanCollide = true
+		end
+	end
+
+	local exitTangent = self._digExitUpDir
+	if self._digCP2 and self._digExitPos then
+		local t = (self._digExitPos - self._digCP2)
+		if t.Magnitude > 0.01 then
+			exitTangent = t.Unit
+		end
+	end
+	hrp.AssemblyLinearVelocity = exitTangent * DIG_EXIT_VELOCITY
+	hrp.AssemblyAngularVelocity = Vector3.zero
+
+	self:_spawnDigParticles(self._digExitPos, self._digExitUpDir)
+
+	self._cameraController:ClearDigTarget()
+
+	if self._stateMachine then
+		if self._stateMachine.current == "Landed" then
+			self._stateMachine.recover()
+		end
+	end
+
+	self._jumpCutApplied = false
+	self._jumpReleased = false
+end
+
+function GraviBowCharacterController:_drawDigTrajectory(hrp)
+	if not Gizmo then return end
+
+	local planetCenter = self._gravityController:GetSphereCenter()
+	local planetRadius = self._gravityController:GetSphereRadius()
+
+	local entryPos, exitPos, cp1, cp2, entryUpDir, exitUpDir
+
+	if self._isDigging and self._digEntryPos and self._digExitPos then
+		entryPos = self._digEntryPos
+		exitPos = self._digExitPos
+		cp1 = self._digCP1
+		cp2 = self._digCP2
+		entryUpDir = (entryPos - planetCenter)
+		if entryUpDir.Magnitude > 0.01 then entryUpDir = entryUpDir.Unit else entryUpDir = Vector3.yAxis end
+		exitUpDir = self._digExitUpDir
+	else
+		local isGrounded = self._groundController.IsGrounded
+		if isGrounded then return end
+
+		local vel = hrp.AssemblyLinearVelocity
+		local upDir = -self._gravityController.GravityDirection
+		local downSpeed = -vel:Dot(upDir)
+		if downSpeed < 1 then return end
+
+		entryPos = hrp.Position
+		entryUpDir = upDir
+
+		local tangentVel = vel - entryUpDir * vel:Dot(entryUpDir)
+		local forwardSpeed = tangentVel.Magnitude
+		local forwardDir
+		if forwardSpeed > 0.1 then
+			forwardDir = tangentVel.Unit
+		else
+			forwardDir = entryUpDir:Cross(Vector3.new(0, 0, 1))
+			if forwardDir.Magnitude < 0.01 then
+				forwardDir = entryUpDir:Cross(Vector3.new(1, 0, 0))
+			end
+			forwardDir = forwardDir.Unit
+			forwardSpeed = 10
+		end
+
+		local speedFactor = math.clamp(forwardSpeed / 60, 0.3, 1)
+		local arcAngle = math.rad(40) * speedFactor + math.rad(25)
+
+		local rotAxis = entryUpDir:Cross(forwardDir)
+		if rotAxis.Magnitude < 0.001 then
+			rotAxis = entryUpDir:Cross(Vector3.new(0, 0, 1))
+		end
+		rotAxis = rotAxis.Unit
+
+		exitUpDir = entryUpDir * math.cos(arcAngle)
+			+ rotAxis:Cross(entryUpDir) * math.sin(arcAngle)
+			+ rotAxis * rotAxis:Dot(entryUpDir) * (1 - math.cos(arcAngle))
+		exitUpDir = exitUpDir.Unit
+
+		local character = self._character
+		local rayParams = RaycastParams.new()
+		rayParams.FilterType = Enum.RaycastFilterType.Exclude
+		local excludeList = {}
+		if character then table.insert(excludeList, character) end
+		local snakeBodies = Workspace:FindFirstChild("SnakeBodies")
+		if snakeBodies then table.insert(excludeList, snakeBodies) end
+		local gravZones = Workspace:FindFirstChild("GravityZones")
+		if gravZones then table.insert(excludeList, gravZones) end
+		local tpFolder = Workspace:FindFirstChild("TerrainPlanets")
+		if tpFolder then table.insert(excludeList, tpFolder) end
+		rayParams.FilterDescendantsInstances = excludeList
+
+		local exitRayOrigin = planetCenter + exitUpDir * (planetRadius + 30)
+		local result = Workspace:Raycast(exitRayOrigin, -exitUpDir * 60, rayParams)
+		if result then
+			exitPos = result.Position + exitUpDir * 3
+		else
+			exitPos = planetCenter + exitUpDir * (planetRadius + 3)
+		end
+
+		local entryVelDir = vel.Unit
+		local exitForwardDir = exitUpDir:Cross(rotAxis)
+		if exitForwardDir:Dot(forwardDir) < 0 then exitForwardDir = -exitForwardDir end
+		exitForwardDir = exitForwardDir.Unit
+		local exitVelDir = (exitForwardDir * 0.4 + exitUpDir * 2).Unit
+
+		local arcDist = (entryPos - exitPos).Magnitude
+		local pullStrength = arcDist * 0.45
+
+		cp1 = entryPos + entryVelDir * pullStrength
+		cp2 = exitPos - exitVelDir * (pullStrength * 0.7)
+	end
+
+	Gizmo.PushProperty("AlwaysOnTop", true)
+
+	for i = 0, DIG_GIZMO_SEGMENTS - 1 do
+		local t0 = i / DIG_GIZMO_SEGMENTS
+		local t1 = (i + 1) / DIG_GIZMO_SEGMENTS
+
+		local a0 = (1 - t0)
+		local b0 = t0
+		local g0 = a0*a0*a0 * entryPos + 3*a0*a0*b0 * cp1 + 3*a0*b0*b0 * cp2 + b0*b0*b0 * exitPos
+
+		local a1 = (1 - t1)
+		local b1 = t1
+		local g1 = a1*a1*a1 * entryPos + 3*a1*a1*b1 * cp1 + 3*a1*b1*b1 * cp2 + b1*b1*b1 * exitPos
+
+		local segColor = DIG_GIZMO_COLOR_ENTRY:Lerp(DIG_GIZMO_COLOR_EXIT, t0)
+		Gizmo.PushProperty("Color3", segColor)
+		Gizmo.Ray:Draw(g0, g1)
+	end
+
+	Gizmo.PushProperty("Color3", DIG_GIZMO_COLOR_ENTRY)
+	Gizmo.Arrow:Draw(entryPos, entryPos - entryUpDir * 6, 0.3, 0.8, 6)
+
+	Gizmo.PushProperty("Color3", DIG_GIZMO_COLOR_EXIT)
+	Gizmo.Arrow:Draw(exitPos, exitPos + exitUpDir * 6, 0.3, 0.8, 6)
+
+	Gizmo.PushProperty("Color3", DIG_GIZMO_COLOR_ARC)
+	Gizmo.Sphere:Draw(CFrame.new(entryPos), 1.5, 8, 360)
+	Gizmo.Sphere:Draw(CFrame.new(exitPos), 1.5, 8, 360)
+end
+
+function GraviBowCharacterController:_spawnDigParticles(position, direction)
+	local att = Instance.new("Attachment")
+	att.WorldPosition = position
+	att.Parent = Workspace.Terrain
+
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Color = ColorSequence.new(Color3.fromRGB(190, 160, 110))
+	emitter.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.3),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	emitter.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 2),
+		NumberSequenceKeypoint.new(0.5, 6),
+		NumberSequenceKeypoint.new(1, 3),
+	})
+	emitter.Texture = "rbxasset://textures/particles/smoke_main.dds"
+	emitter.Lifetime = NumberRange.new(0.5, 1.2)
+	emitter.Speed = NumberRange.new(10, 25)
+	emitter.SpreadAngle = Vector2.new(45, 45)
+	emitter.Rotation = NumberRange.new(0, 360)
+	emitter.RotSpeed = NumberRange.new(-60, 60)
+	emitter.Rate = 0
+	emitter.LightEmission = 0.1
+	emitter.LightInfluence = 0.8
+	emitter.Drag = 3
+	emitter.Parent = att
+
+	emitter:Emit(30)
+
+	task.delay(2, function()
+		att:Destroy()
+	end)
 end
 
 function GraviBowCharacterController:_setCharacterTransparency(alpha)

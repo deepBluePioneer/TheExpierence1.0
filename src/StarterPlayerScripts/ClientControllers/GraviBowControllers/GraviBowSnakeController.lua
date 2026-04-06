@@ -9,13 +9,11 @@ local Trove = require(Packages.Trove)
 
 local LocalPlayer = Players.LocalPlayer
 
-local SEGMENT_RADIUS = 1.3
+local SEGMENT_RADIUS = 2.2
 local SAMPLE_DISTANCE = 0.25
 local SEGMENT_TRAIL_GAP = 2.8
 
-local HEAD_SCALE = 1.35
-local TAIL_TAPER_START = 14
-local TAIL_MIN_SCALE = 0.65
+local UNIFORM_SCALE = 1
 
 local GraviBowSnakeController = Knit.CreateController({
 	Name = "GraviBowSnakeController",
@@ -30,6 +28,8 @@ local GraviBowSnakeController = Knit.CreateController({
 	_trailCount = 0,
 	_bufferSize = 0,
 	_lastSamplePos = nil,
+	_wasDigging = false,
+	_lastDigBezier = nil,
 })
 
 function GraviBowSnakeController:KnitInit()
@@ -38,6 +38,7 @@ end
 
 function GraviBowSnakeController:KnitStart()
 	self._gravityController = Knit.GetController("GraviBowGravityController")
+	self._characterController = Knit.GetController("GraviBowCharacterController")
 
 	self._trove:Add(LocalPlayer.CharacterAdded:Connect(function(character)
 		self:_onCharacterAdded(character)
@@ -121,15 +122,21 @@ function GraviBowSnakeController:_collectSegments(folder)
 	end
 end
 
-function GraviBowSnakeController:_segmentScale(index)
-	if index == 1 then
-		return HEAD_SCALE
+function GraviBowSnakeController:_segmentScale(_index)
+	return UNIFORM_SCALE
+end
+
+function GraviBowSnakeController:_cubeOrientation(upDir, fwd)
+	local look = fwd - upDir * fwd:Dot(upDir)
+	if look.Magnitude < 0.01 then
+		look = upDir:Cross(Vector3.new(0, 0, 1))
+		if look.Magnitude < 0.01 then
+			look = upDir:Cross(Vector3.new(1, 0, 0))
+		end
 	end
-	if index >= TAIL_TAPER_START then
-		local t = (index - TAIL_TAPER_START) / math.max(self._segmentCount - TAIL_TAPER_START, 1)
-		return 1 - (1 - TAIL_MIN_SCALE) * math.min(t, 1)
-	end
-	return 1
+	look = look.Unit
+	local right = look:Cross(upDir).Unit
+	return CFrame.fromMatrix(Vector3.zero, right, upDir, -look)
 end
 
 function GraviBowSnakeController:_pushSample(pos)
@@ -158,9 +165,24 @@ function GraviBowSnakeController:_getSampleLerped(fractionalSteps)
 	return a:Lerp(b, alpha)
 end
 
+function GraviBowSnakeController:_bezierPosAndTangent(bez, t)
+	local u = 1 - t
+	local pos = u*u*u * bez.p0 + 3*u*u*t * bez.p1 + 3*u*t*t * bez.p2 + t*t*t * bez.p3
+	local tan = 3*u*u * (bez.p1 - bez.p0) + 6*u*t * (bez.p2 - bez.p1) + 3*t*t * (bez.p3 - bez.p2)
+	if tan.Magnitude < 0.01 then
+		tan = (bez.p3 - bez.p0)
+	end
+	if tan.Magnitude > 0.01 then tan = tan.Unit end
+	return pos, tan
+end
+
 function GraviBowSnakeController:_update(hrp)
 	if not hrp.Parent then return end
 	local pos = hrp.Position
+
+	local character = hrp.Parent
+	local head = character and character:FindFirstChild("Head")
+	local lookTarget = head and head.Position or pos
 
 	if self._lastSamplePos then
 		local delta = pos - self._lastSamplePos
@@ -180,6 +202,100 @@ function GraviBowSnakeController:_update(hrp)
 
 	local planetCenter = self._gravityController:GetSphereCenter()
 	if not planetCenter then return end
+
+	local digging = self._characterController and self._characterController:IsDigging()
+	local bezier = digging and self._characterController:GetDigBezier() or nil
+
+	local digJustEnded = self._wasDigging and not digging
+	if digJustEnded then
+		local lastBezier = self._lastDigBezier
+		if lastBezier then
+			local headAlpha = lastBezier.alpha
+			local totalTrailT = self._segmentCount / (self._segmentCount + 1)
+			for i = 1, self._bufferSize do
+				local frac = (self._bufferSize - i) / math.max(self._bufferSize - 1, 1)
+				local t = math.clamp(headAlpha - frac * totalTrailT, 0, headAlpha)
+				local u = 1 - t
+				self._trail[i] = u*u*u * lastBezier.p0 + 3*u*u*t * lastBezier.p1 + 3*u*t*t * lastBezier.p2 + t*t*t * lastBezier.p3
+			end
+		else
+			for i = 1, self._bufferSize do
+				self._trail[i] = pos
+			end
+		end
+		self._trailHead = self._bufferSize
+		self._trailCount = self._bufferSize
+		self._lastSamplePos = pos
+		self._lastDigBezier = nil
+
+		for i = 1, self._segmentCount do
+			local data = self._segments[i]
+			if not data then continue end
+			local seg = data.part
+			if not seg.Parent then continue end
+
+			local trailF = i * self._samplesPerSegF
+			if trailF < 0 then trailF = 0 end
+			local targetPos = self:_getSampleLerped(trailF)
+			local aheadF = math.max(0, trailF - self._samplesPerSegF)
+			local aheadPos = self:_getSampleLerped(aheadF)
+
+			local toCenter = planetCenter - targetPos
+			local upDir
+			if toCenter.Magnitude > 0.01 then upDir = -toCenter.Unit else upDir = Vector3.yAxis end
+
+			local scale = self:_segmentScale(i)
+			local finalPos = targetPos + upDir * (SEGMENT_RADIUS * scale)
+			local fwd = aheadPos - targetPos
+			if fwd.Magnitude < 0.01 then fwd = upDir:Cross(Vector3.new(0, 0, 1)) end
+			local ori = self:_cubeOrientation(upDir, fwd)
+
+			seg.CFrame = ori + finalPos
+			data.alignPos.Position = finalPos
+			data.alignOri.CFrame = ori
+		end
+	end
+	self._wasDigging = digging
+
+	if bezier then
+		self._lastDigBezier = bezier
+		local headAlpha = bezier.alpha
+		local segSpacing = 1 / (self._segmentCount + 1)
+
+		for i = 1, self._segmentCount do
+			local data = self._segments[i]
+			if not data then continue end
+			local seg = data.part
+			if not seg.Parent then continue end
+
+			local t = math.clamp(headAlpha - i * segSpacing, 0, headAlpha)
+			local bPos, bTan = self:_bezierPosAndTangent(bezier, t)
+
+			local curveUp = (bPos - planetCenter)
+			if curveUp.Magnitude > 0.01 then curveUp = curveUp.Unit else curveUp = Vector3.yAxis end
+
+			local scale = self:_segmentScale(i)
+			local offset = curveUp * (SEGMENT_RADIUS * scale)
+			local finalPos = bPos + offset
+
+			local ori
+			if i == 1 then
+				local toHead = lookTarget - finalPos
+				if toHead.Magnitude > 0.01 then
+					ori = CFrame.lookAt(Vector3.zero, toHead.Unit, curveUp) - CFrame.lookAt(Vector3.zero, toHead.Unit, curveUp).Position
+				else
+					ori = self:_cubeOrientation(curveUp, bTan)
+				end
+			else
+				ori = self:_cubeOrientation(curveUp, bTan)
+			end
+
+			seg.CFrame = ori + finalPos
+			data.alignPos.Position = finalPos
+			data.alignOri.CFrame = ori
+		end
+		return
+	end
 
 	local residual = 0
 	if self._lastSamplePos then
@@ -209,31 +325,24 @@ function GraviBowSnakeController:_update(hrp)
 		end
 
 		local scale = self:_segmentScale(i)
-		local surfaceOffset = upDir * (SEGMENT_RADIUS * scale)
-		data.alignPos.Position = targetPos + surfaceOffset
+		local finalPos = targetPos + upDir * (SEGMENT_RADIUS * scale)
 
-		local fwd = aheadPos - targetPos
-		local tangent
-		if fwd.Magnitude > 0.01 then
-			tangent = fwd.Unit
+		local ori
+		if i == 1 then
+			local toHead = lookTarget - finalPos
+			if toHead.Magnitude > 0.01 then
+				ori = CFrame.lookAt(Vector3.zero, toHead.Unit, upDir) - CFrame.lookAt(Vector3.zero, toHead.Unit, upDir).Position
+			else
+				ori = self:_cubeOrientation(upDir, upDir:Cross(Vector3.new(0, 0, 1)))
+			end
 		else
-			tangent = upDir:Cross(Vector3.new(0, 0, 1))
-			if tangent.Magnitude < 0.01 then
-				tangent = upDir:Cross(Vector3.new(1, 0, 0))
-			end
-			tangent = tangent.Unit
+			local fwd = aheadPos - targetPos
+			if fwd.Magnitude < 0.01 then fwd = upDir:Cross(Vector3.new(0, 0, 1)) end
+			ori = self:_cubeOrientation(upDir, fwd)
 		end
 
-		local radial = upDir - tangent * upDir:Dot(tangent)
-		if radial.Magnitude < 0.01 then
-			radial = tangent:Cross(Vector3.new(0, 0, 1))
-			if radial.Magnitude < 0.01 then
-				radial = tangent:Cross(Vector3.new(1, 0, 0))
-			end
-		end
-		radial = radial.Unit
-		local side = tangent:Cross(radial).Unit
-		data.alignOri.CFrame = CFrame.fromMatrix(Vector3.zero, tangent, radial, -side)
+		data.alignPos.Position = finalPos
+		data.alignOri.CFrame = ori
 	end
 end
 

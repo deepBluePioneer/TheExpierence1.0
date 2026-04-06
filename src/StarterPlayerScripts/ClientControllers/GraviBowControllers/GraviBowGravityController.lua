@@ -136,6 +136,7 @@ function GraviBowGravityController:GetSmoothedGravityDirection()
 	return self._smoothedGravityDir or self.GravityDirection
 end
 
+
 function GraviBowGravityController:_getPlanetPart(model)
 	if model:IsA("BasePart") then
 		return model
