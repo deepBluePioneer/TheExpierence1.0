@@ -6,10 +6,13 @@ local Knit = require(ReplicatedStorage.Packages.Knit)
 
 local RESOLUTION = 4
 local PLANET_TAG = "planet"
-local HUB_PLANET_TAG = "planetHub"
 
-local BIOME_PRESETS = {
+local PLANET_CONFIGS = {
 	{
+		name = "Verdant",
+		center = Vector3.new(0, 200, 0),
+		radius = 90,
+		seed = 42,
 		surfaceMaterial = Enum.Material.Grass,
 		coreMaterial = Enum.Material.Rock,
 		noise = {
@@ -28,6 +31,10 @@ local BIOME_PRESETS = {
 		caves = { enabled = true, threshold = 0.42, scale = 0.05, minDepth = 0.5 },
 	},
 	{
+		name = "Dunes",
+		center = Vector3.new(500, 50, 300),
+		radius = 70,
+		seed = 137,
 		surfaceMaterial = Enum.Material.Sand,
 		coreMaterial = Enum.Material.Sandstone,
 		noise = {
@@ -46,6 +53,10 @@ local BIOME_PRESETS = {
 		caves = { enabled = false },
 	},
 	{
+		name = "Frostpeak",
+		center = Vector3.new(-400, -80, 400),
+		radius = 80,
+		seed = 293,
 		surfaceMaterial = Enum.Material.Snow,
 		coreMaterial = Enum.Material.Glacier,
 		noise = {
@@ -64,6 +75,10 @@ local BIOME_PRESETS = {
 		caves = { enabled = true, threshold = 0.4, scale = 0.045, minDepth = 0.4 },
 	},
 	{
+		name = "Cindercore",
+		center = Vector3.new(300, -150, -500),
+		radius = 65,
+		seed = 571,
 		surfaceMaterial = Enum.Material.CrackedLava,
 		coreMaterial = Enum.Material.Basalt,
 		noise = {
@@ -132,82 +147,19 @@ end
 function GraviBowTerrainService:GenerateAllPlanets()
 	local terrain = Workspace.Terrain
 
-	local tagged = CollectionService:GetTagged(PLANET_TAG)
-	local spheres = {}
-	for _, instance in ipairs(tagged) do
-		if CollectionService:HasTag(instance, HUB_PLANET_TAG) then continue end
-
-		local part = nil
-		if instance:IsA("BasePart") then
-			part = instance
-		elseif instance:IsA("Model") then
-			part = instance.PrimaryPart or instance:FindFirstChildWhichIsA("BasePart", true)
-		end
-		if part then
-			table.insert(spheres, { instance = instance, part = part })
-		end
-	end
-
-	if #spheres == 0 then
-		print("[GraviBowTerrainService] No non-hub planet spheres found; nothing to replace")
-		return
-	end
-
-	self._replacedSpheres = {}
-
-	for i, entry in ipairs(spheres) do
-		local part = entry.part
-		local center = part.Position
-		local radius = math.max(part.Size.X, part.Size.Y, part.Size.Z) / 2
-
-		local biome = BIOME_PRESETS[((i - 1) % #BIOME_PRESETS) + 1]
-		local seed = i * 137 + 42
-
-		local config = {
-			name = entry.instance.Name,
-			center = center,
-			radius = radius,
-			seed = seed,
-			surfaceMaterial = biome.surfaceMaterial,
-			coreMaterial = biome.coreMaterial,
-			noise = biome.noise,
-			layers = biome.layers,
-			caves = biome.caves,
-			skipAnchor = true,
-		}
-
+	for _, config in ipairs(PLANET_CONFIGS) do
 		local ok, err = pcall(function()
 			self:_generatePlanet(terrain, config)
 		end)
 		if ok then
-			self:_hideSphere(entry.instance)
-			table.insert(self._replacedSpheres, { instance = entry.instance, config = config })
-			print("[GraviBowTerrainService] Replaced sphere", entry.instance.Name, "with terrain at", center, "r:", radius)
+			print("[GraviBowTerrainService] Generated planet:", config.name)
 		else
-			warn("[GraviBowTerrainService] Failed to generate terrain for", entry.instance.Name, ":", err)
+			warn("[GraviBowTerrainService] Failed to generate", config.name, ":", err)
 		end
 		task.wait()
 	end
 
-	print("[GraviBowTerrainService] All planets generated (" .. #self._replacedSpheres .. " replaced)")
-end
-
-function GraviBowTerrainService:_hideSphere(instance)
-	local parts = {}
-	if instance:IsA("BasePart") then
-		table.insert(parts, instance)
-	end
-	for _, desc in ipairs(instance:GetDescendants()) do
-		if desc:IsA("BasePart") then
-			table.insert(parts, desc)
-		end
-	end
-	for _, part in ipairs(parts) do
-		part.Transparency = 1
-		part.CanCollide = false
-		part.CanQuery = false
-		part.CanTouch = false
-	end
+	print("[GraviBowTerrainService] All planets generated")
 end
 
 function GraviBowTerrainService:_generatePlanet(terrain, config)
@@ -320,9 +272,7 @@ function GraviBowTerrainService:_generatePlanet(terrain, config)
 
 	terrain:WriteVoxels(region, RESOLUTION, materials, occupancies)
 
-	if not config.skipAnchor then
-		self:_createPlanetAnchor(config)
-	end
+	self:_createPlanetAnchor(config)
 end
 
 function GraviBowTerrainService:_createPlanetAnchor(config)
@@ -354,16 +304,12 @@ end
 function GraviBowTerrainService:ClearAllPlanets()
 	local terrain = Workspace.Terrain
 
-	if self._replacedSpheres then
-		for _, entry in ipairs(self._replacedSpheres) do
-			local config = entry.config
-			local outerRadius = config.radius + config.noise.amplitude + 4
-			local minV = config.center - Vector3.new(outerRadius, outerRadius, outerRadius)
-			local maxV = config.center + Vector3.new(outerRadius, outerRadius, outerRadius)
-			local region = Region3.new(minV, maxV):ExpandToGrid(RESOLUTION)
-			terrain:FillRegion(region, RESOLUTION, Enum.Material.Air)
-		end
-		self._replacedSpheres = nil
+	for _, config in ipairs(PLANET_CONFIGS) do
+		local outerRadius = config.radius + config.noise.amplitude + 4
+		local minV = config.center - Vector3.new(outerRadius, outerRadius, outerRadius)
+		local maxV = config.center + Vector3.new(outerRadius, outerRadius, outerRadius)
+		local region = Region3.new(minV, maxV):ExpandToGrid(RESOLUTION)
+		terrain:FillRegion(region, RESOLUTION, Enum.Material.Air)
 	end
 
 	if self._anchorFolder then
