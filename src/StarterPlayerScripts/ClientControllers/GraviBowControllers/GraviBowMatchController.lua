@@ -110,6 +110,45 @@ function GraviBowMatchController:_addTextSizeConstraint(parent, minSize, maxSize
 	return c
 end
 
+function GraviBowMatchController:_applyHeadshot(imageLabel, userIdStr)
+	local id = tonumber(userIdStr)
+	if id then
+		imageLabel.Image = string.format("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150", id)
+	else
+		imageLabel.Image = ""
+	end
+end
+
+function GraviBowMatchController:_createCircularHeadshot(parent, userIdStr, strokeColor)
+	local holder = Instance.new("Frame")
+	holder.Name = "Headshot"
+	holder.BackgroundColor3 = BG_CARD
+	holder.BorderSizePixel = 0
+	holder.ClipsDescendants = true
+
+	local img = Instance.new("ImageLabel")
+	img.Name = "Image"
+	img.BackgroundTransparency = 1
+	img.Size = UDim2.fromScale(1, 1)
+	img.ScaleType = Enum.ScaleType.Fit
+	img.Parent = holder
+	self:_applyHeadshot(img, userIdStr)
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(1, 0)
+	corner.Parent = holder
+
+	if strokeColor then
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = strokeColor
+		stroke.Thickness = 2
+		stroke.Parent = holder
+	end
+
+	holder.Parent = parent
+	return holder
+end
+
 function GraviBowMatchController:_refreshScoreList(scores, snakePlayers)
 	if not self._scoreListFrame then return end
 
@@ -139,10 +178,11 @@ function GraviBowMatchController:_refreshScoreList(scores, snakePlayers)
 	for rank, entry in ipairs(list) do
 		local isLocal = entry.userId == tostring(LocalPlayer.UserId)
 		local rowBg = isLocal and Color3.fromRGB(65, 45, 25) or BG_CARD
+		local roleStroke = entry.isSnake and SNAKE_RED or RUNNER_BLUE
 
 		local row = Instance.new("Frame")
 		row.Name = "Row_" .. rank
-		row.Size = UDim2.new(1, 0, 0.09, 0)
+		row.Size = UDim2.new(1, 0, 0, 52)
 		row.BackgroundColor3 = rowBg
 		row.BackgroundTransparency = 0.2
 		row.BorderSizePixel = 0
@@ -153,13 +193,13 @@ function GraviBowMatchController:_refreshScoreList(scores, snakePlayers)
 		corner.Parent = row
 
 		local pad = Instance.new("UIPadding")
-		pad.PaddingLeft = UDim.new(0.03, 0)
-		pad.PaddingRight = UDim.new(0.03, 0)
+		pad.PaddingLeft = UDim.new(0, 8)
+		pad.PaddingRight = UDim.new(0, 8)
 		pad.Parent = row
 
 		local rankLabel = Instance.new("TextLabel")
 		rankLabel.Name = "Rank"
-		rankLabel.Size = UDim2.new(0.08, 0, 1, 0)
+		rankLabel.Size = UDim2.new(0, 28, 1, 0)
 		rankLabel.BackgroundTransparency = 1
 		rankLabel.Text = "#" .. rank
 		rankLabel.TextScaled = true
@@ -167,12 +207,17 @@ function GraviBowMatchController:_refreshScoreList(scores, snakePlayers)
 		rankLabel.Font = FONT_BODY
 		rankLabel.TextXAlignment = Enum.TextXAlignment.Left
 		rankLabel.Parent = row
-		self:_addTextSizeConstraint(rankLabel, 10, 24)
+		self:_addTextSizeConstraint(rankLabel, 10, 22)
+
+		local thumb = self:_createCircularHeadshot(row, entry.userId, roleStroke)
+		thumb.Size = UDim2.new(0, 40, 0, 40)
+		thumb.AnchorPoint = Vector2.new(0, 0.5)
+		thumb.Position = UDim2.new(0, 36, 0.5, 0)
 
 		local nameLabel = Instance.new("TextLabel")
 		nameLabel.Name = "Name"
-		nameLabel.Size = UDim2.new(0.38, 0, 1, 0)
-		nameLabel.Position = UDim2.new(0.1, 0, 0, 0)
+		nameLabel.Size = UDim2.new(1, -220, 0, 22)
+		nameLabel.Position = UDim2.new(0, 84, 0, 6)
 		nameLabel.BackgroundTransparency = 1
 		nameLabel.Text = entry.name
 		nameLabel.TextScaled = true
@@ -181,13 +226,13 @@ function GraviBowMatchController:_refreshScoreList(scores, snakePlayers)
 		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
 		nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
 		nameLabel.Parent = row
-		self:_addTextSizeConstraint(nameLabel, 10, 24)
+		self:_addTextSizeConstraint(nameLabel, 10, 18)
 
 		local roleLabel = Instance.new("TextLabel")
 		roleLabel.Name = "Role"
+		roleLabel.Size = UDim2.new(0, 72, 0, 18)
 		roleLabel.AnchorPoint = Vector2.new(1, 0)
-		roleLabel.Size = UDim2.new(0.2, 0, 1, 0)
-		roleLabel.Position = UDim2.new(0.73, 0, 0, 0)
+		roleLabel.Position = UDim2.new(1, -100, 0, 8)
 		roleLabel.BackgroundTransparency = 1
 		roleLabel.Text = entry.isSnake and "SNAKE" or "RUNNER"
 		roleLabel.TextScaled = true
@@ -195,55 +240,56 @@ function GraviBowMatchController:_refreshScoreList(scores, snakePlayers)
 		roleLabel.Font = FONT_TITLE
 		roleLabel.TextXAlignment = Enum.TextXAlignment.Center
 		roleLabel.Parent = row
-		self:_addTextSizeConstraint(roleLabel, 10, 22)
+		self:_addTextSizeConstraint(roleLabel, 9, 16)
 
 		local statusLabel = Instance.new("TextLabel")
 		statusLabel.Name = "Status"
-		statusLabel.AnchorPoint = Vector2.new(1, 0)
-		statusLabel.Size = UDim2.new(0.25, 0, 1, 0)
-		statusLabel.Position = UDim2.new(1, 0, 0, 0)
+		statusLabel.Size = UDim2.new(0, 88, 1, -12)
+		statusLabel.AnchorPoint = Vector2.new(1, 0.5)
+		statusLabel.Position = UDim2.new(1, 0, 0.5, 0)
 		statusLabel.BackgroundTransparency = 1
 		statusLabel.Text = entry.survived and "SURVIVED" or (entry.isSnake and string.format("%d caught", entry.deaths) or "CAUGHT")
 		statusLabel.TextScaled = true
 		statusLabel.TextColor3 = entry.survived and GOLD or DUST
 		statusLabel.Font = FONT_BODY
-		statusLabel.TextXAlignment = Enum.TextXAlignment.Center
+		statusLabel.TextXAlignment = Enum.TextXAlignment.Right
 		statusLabel.Parent = row
-		self:_addTextSizeConstraint(statusLabel, 10, 22)
+		self:_addTextSizeConstraint(statusLabel, 9, 15)
 
 		row.Parent = self._scoreListFrame
 	end
 end
 
-function GraviBowMatchController:_createAliveRow(entry, order, dotColor, nameColor)
+function GraviBowMatchController:_createAliveRow(entry, order, accentColor, nameColor)
 	local row = Instance.new("Frame")
 	row.Name = (entry.isSnake and "S_" or "R_") .. entry.userId
-	row.Size = UDim2.new(1, 0, 0.08, 0)
+	row.Size = UDim2.new(1, 0, 0, 54)
 	row.BackgroundTransparency = 1
 	row.LayoutOrder = order
 	row.BorderSizePixel = 0
 
-	local dot = Instance.new("Frame")
-	dot.Name = "Dot"
-	dot.Size = UDim2.fromScale(0.045, 0.35)
-	dot.AnchorPoint = Vector2.new(0, 0.5)
-	dot.Position = UDim2.new(0, 0, 0.5, 0)
-	dot.BackgroundColor3 = dotColor
-	dot.BorderSizePixel = 0
-	dot.Parent = row
+	local thumb = self:_createCircularHeadshot(row, entry.userId, accentColor)
+	thumb.Size = UDim2.new(0, 40, 0, 40)
+	thumb.AnchorPoint = Vector2.new(0, 0.5)
+	thumb.Position = UDim2.new(0, 0, 0.5, 0)
 
-	local dotAR = Instance.new("UIAspectRatioConstraint")
-	dotAR.AspectRatio = 1
-	dotAR.Parent = dot
+	local textCol = Instance.new("Frame")
+	textCol.Name = "TextColumn"
+	textCol.Size = UDim2.new(1, -48, 1, 0)
+	textCol.Position = UDim2.new(0, 48, 0, 0)
+	textCol.BackgroundTransparency = 1
+	textCol.Parent = row
 
-	local dotCorner = Instance.new("UICorner")
-	dotCorner.CornerRadius = UDim.new(1, 0)
-	dotCorner.Parent = dot
+	local vlist = Instance.new("UIListLayout")
+	vlist.FillDirection = Enum.FillDirection.Vertical
+	vlist.SortOrder = Enum.SortOrder.LayoutOrder
+	vlist.VerticalAlignment = Enum.VerticalAlignment.Center
+	vlist.Padding = UDim.new(0, 2)
+	vlist.Parent = textCol
 
 	local nameLabel = Instance.new("TextLabel")
 	nameLabel.Name = "Name"
-	nameLabel.Size = UDim2.new(0.88, 0, 1, 0)
-	nameLabel.Position = UDim2.new(0.12, 0, 0, 0)
+	nameLabel.Size = UDim2.new(1, 0, 0, 18)
 	nameLabel.BackgroundTransparency = 1
 	nameLabel.Text = entry.name
 	nameLabel.TextScaled = true
@@ -251,8 +297,22 @@ function GraviBowMatchController:_createAliveRow(entry, order, dotColor, nameCol
 	nameLabel.Font = FONT_BODY
 	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
 	nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-	nameLabel.Parent = row
-	self:_addTextSizeConstraint(nameLabel, 8, 18)
+	nameLabel.LayoutOrder = 1
+	nameLabel.Parent = textCol
+	self:_addTextSizeConstraint(nameLabel, 8, 16)
+
+	local roleLabel = Instance.new("TextLabel")
+	roleLabel.Name = "Role"
+	roleLabel.Size = UDim2.new(1, 0, 0, 14)
+	roleLabel.BackgroundTransparency = 1
+	roleLabel.Text = entry.isSnake and "SNAKE" or "RUNNER"
+	roleLabel.TextScaled = true
+	roleLabel.TextColor3 = accentColor
+	roleLabel.Font = FONT_BODY
+	roleLabel.TextXAlignment = Enum.TextXAlignment.Left
+	roleLabel.LayoutOrder = 2
+	roleLabel.Parent = textCol
+	self:_addTextSizeConstraint(roleLabel, 7, 12)
 
 	return row
 end
@@ -424,7 +484,7 @@ function GraviBowMatchController:_createUI()
 		[Children] = {
 			New "UIListLayout" {
 				SortOrder = Enum.SortOrder.LayoutOrder,
-				Padding = UDim.new(0.01, 0),
+				Padding = UDim.new(0, 6),
 			},
 		},
 	}
@@ -548,15 +608,34 @@ function GraviBowMatchController:_createUI()
 
 						[Children] = {
 							New "UIPadding" {
-								PaddingLeft = UDim.new(0.03, 0),
-								PaddingRight = UDim.new(0.03, 0),
+								PaddingLeft = UDim.new(0, 8),
+								PaddingRight = UDim.new(0, 8),
 							},
 							New "TextLabel" {
-								Name = "NameH",
-								Size = UDim2.new(0.38, 0, 1, 0),
-								Position = UDim2.fromScale(0.1, 0),
+								Name = "RankH",
+								Size = UDim2.new(0, 28, 1, 0),
+								Position = UDim2.fromScale(0, 0),
 								BackgroundTransparency = 1,
-								Text = "Name",
+								Text = "#",
+								TextScaled = true,
+								TextColor3 = DUST,
+								TextTransparency = resultsAlpha,
+								Font = FONT_BODY,
+								TextXAlignment = Enum.TextXAlignment.Left,
+
+								[Children] = {
+									New "UITextSizeConstraint" {
+										MinTextSize = 8,
+										MaxTextSize = 18,
+									},
+								},
+							},
+							New "TextLabel" {
+								Name = "PlayerH",
+								Size = UDim2.new(1, -220, 1, 0),
+								Position = UDim2.new(0, 84, 0, 0),
+								BackgroundTransparency = 1,
+								Text = "Player",
 								TextScaled = true,
 								TextColor3 = DUST,
 								TextTransparency = resultsAlpha,
@@ -573,8 +652,8 @@ function GraviBowMatchController:_createUI()
 							New "TextLabel" {
 								Name = "RoleH",
 								AnchorPoint = Vector2.new(1, 0),
-								Size = UDim2.new(0.2, 0, 1, 0),
-								Position = UDim2.fromScale(0.73, 0),
+								Size = UDim2.new(0, 72, 1, 0),
+								Position = UDim2.new(1, -100, 0, 0),
 								BackgroundTransparency = 1,
 								Text = "Role",
 								TextScaled = true,
@@ -593,15 +672,15 @@ function GraviBowMatchController:_createUI()
 							New "TextLabel" {
 								Name = "StatusH",
 								AnchorPoint = Vector2.new(1, 0),
-								Size = UDim2.new(0.25, 0, 1, 0),
-								Position = UDim2.fromScale(1, 0),
+								Size = UDim2.new(0, 88, 1, 0),
+								Position = UDim2.new(1, 0, 0, 0),
 								BackgroundTransparency = 1,
-								Text = "Status",
+								Text = "Result",
 								TextScaled = true,
 								TextColor3 = DUST,
 								TextTransparency = resultsAlpha,
 								Font = FONT_BODY,
-								TextXAlignment = Enum.TextXAlignment.Center,
+								TextXAlignment = Enum.TextXAlignment.Right,
 
 								[Children] = {
 									New "UITextSizeConstraint" {
@@ -713,7 +792,7 @@ function GraviBowMatchController:_createUI()
 							[Children] = {
 								New "UIListLayout" {
 									SortOrder = Enum.SortOrder.LayoutOrder,
-									Padding = UDim.new(0.01, 0),
+									Padding = UDim.new(0, 6),
 								},
 							},
 						}

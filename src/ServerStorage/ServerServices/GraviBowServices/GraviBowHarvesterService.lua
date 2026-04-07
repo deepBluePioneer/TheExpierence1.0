@@ -268,54 +268,6 @@ end
 
 function GraviBowHarvesterService:_destroyCrystalWithEffect(crystal)
 	if not crystal or not crystal.Parent then return end
-
-	local pos
-	if crystal:IsA("Model") and crystal.PrimaryPart then
-		pos = crystal.PrimaryPart.Position
-	elseif crystal:IsA("BasePart") then
-		pos = crystal.Position
-	else
-		crystal:Destroy()
-		return
-	end
-
-	local burstPart = Instance.new("Part")
-	burstPart.Size = Vector3.new(0.5, 0.5, 0.5)
-	burstPart.Transparency = 1
-	burstPart.Anchored = true
-	burstPart.CanCollide = false
-	burstPart.CanQuery = false
-	burstPart.CanTouch = false
-	burstPart.Position = pos
-	burstPart.Parent = Workspace
-
-	local burst = Instance.new("ParticleEmitter")
-	burst.Color = ColorSequence.new(Color3.fromRGB(255, 220, 80), Color3.fromRGB(255, 100, 20))
-	burst.Size = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.5),
-		NumberSequenceKeypoint.new(0.5, 0.2),
-		NumberSequenceKeypoint.new(1, 0),
-	})
-	burst.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0),
-		NumberSequenceKeypoint.new(0.5, 0.4),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	burst.Lifetime = NumberRange.new(0.4, 0.8)
-	burst.Speed = NumberRange.new(5, 15)
-	burst.SpreadAngle = Vector2.new(180, 180)
-	burst.LightEmission = 1
-	burst.LightInfluence = 0
-	burst.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-	burst.Parent = burstPart
-
-	burst:Emit(30)
-	burst.Enabled = false
-
-	task.delay(1, function()
-		burstPart:Destroy()
-	end)
-
 	crystal:Destroy()
 end
 
@@ -396,28 +348,6 @@ function GraviBowHarvesterService:_harvesterBehaviorLoop(obj, rootPart, ownerPla
 		})
 		beam.Parent = fromPart
 		table.insert(beamInstances, beam)
-
-		local emitter = Instance.new("ParticleEmitter")
-		emitter.Name = "HarvesterMineParticles"
-		emitter.Color = ColorSequence.new(Color3.fromRGB(255, 200, 50), Color3.fromRGB(255, 120, 20))
-		emitter.Size = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0.25),
-			NumberSequenceKeypoint.new(0.5, 0.12),
-			NumberSequenceKeypoint.new(1, 0),
-		})
-		emitter.Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0),
-			NumberSequenceKeypoint.new(0.7, 0.3),
-			NumberSequenceKeypoint.new(1, 1),
-		})
-		emitter.Lifetime = NumberRange.new(0.3, 0.5)
-		emitter.Rate = 40
-		emitter.Speed = NumberRange.new(1, 3)
-		emitter.SpreadAngle = Vector2.new(30, 30)
-		emitter.LightEmission = 0.8
-		emitter.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-		emitter.Parent = targetPart
-		table.insert(beamInstances, emitter)
 	end
 
 	print("[Harvester] Behavior loop started, waiting 1s to settle")

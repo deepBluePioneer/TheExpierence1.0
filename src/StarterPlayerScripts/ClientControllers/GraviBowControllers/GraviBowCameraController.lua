@@ -5,9 +5,11 @@ local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local Packages = ReplicatedStorage.Packages
+local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
 local Knit = require(Packages.Knit)
 local Trove = require(Packages.Trove)
 local Shake = require(Packages.Shake)
+local ReplicaController = require(CustomPackages.Replica.ReplicaController)
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -67,6 +69,15 @@ function GraviBowCameraController:KnitStart()
 		self._distance = DEFAULT_MOBILE_DISTANCE
 	end
 
+	ReplicaController.RequestData()
+	ReplicaController.ReplicaOfClassCreated("GraviBowMatchState", function(replica)
+		replica:ListenToChange({"phase"}, function(newPhase)
+			if newPhase == "COUNTDOWN" then
+				self:_resetCameraForNewRound()
+			end
+		end)
+	end)
+
 	self._trove:Add(UserInputService.InputBegan:Connect(function(input, processed)
 		if input.UserInputType == Enum.UserInputType.Touch then
 			if not processed then
@@ -119,6 +130,35 @@ function GraviBowCameraController:KnitStart()
 	end
 end
 
+function GraviBowCameraController:_resetCameraForNewRound()
+	self:ClearDigTarget()
+	self._shakeActive = false
+	self._shaker = nil
+	self._shakeOffset = CFrame.new()
+
+	local character = LocalPlayer.Character
+	if not character then return end
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+
+	local initUp = -self._gravityController:GetSmoothedGravityDirection()
+	self._prevUp = initUp
+	local initForward = hrp.CFrame.LookVector
+	initForward = (initForward - initUp * initForward:Dot(initUp))
+	if initForward.Magnitude < 0.001 then
+		initForward = Vector3.new(0, 0, -1)
+	end
+	self._refForward = initForward.Unit
+
+	self._yaw = 0
+	self._pitch = 15
+	if self._isMobile then
+		self._distance = DEFAULT_MOBILE_DISTANCE
+	else
+		self._distance = MIN_DISTANCE
+	end
+end
+
 function GraviBowCameraController:_onCharacterAdded(character)
 	if self._spectatingDeath then return end
 
@@ -131,6 +171,11 @@ function GraviBowCameraController:_onCharacterAdded(character)
 	local head = character:WaitForChild("Head", 10)
 	local humanoid = character:WaitForChild("Humanoid", 10)
 	if not hrp then return end
+
+	self:ClearDigTarget()
+	self._shakeActive = false
+	self._shaker = nil
+	self._shakeOffset = CFrame.new()
 
 	local camera = Workspace.CurrentCamera
 	camera.CameraType = Enum.CameraType.Scriptable

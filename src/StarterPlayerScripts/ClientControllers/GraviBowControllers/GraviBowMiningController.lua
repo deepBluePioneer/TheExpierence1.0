@@ -186,31 +186,6 @@ function GraviBowMiningController:_startMiningEffect(hitPos, hitNormal)
 	part.CFrame = CFrame.lookAt(hitPos, hitPos + hitNormal)
 	part.Parent = Workspace
 
-	local emitter = Instance.new("ParticleEmitter")
-	emitter.Name = "MineParticles"
-	emitter.Color = ColorSequence.new(
-		Color3.fromRGB(255, 200, 50),
-		Color3.fromRGB(255, 120, 20)
-	)
-	emitter.Size = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.3),
-		NumberSequenceKeypoint.new(0.5, 0.15),
-		NumberSequenceKeypoint.new(1, 0),
-	})
-	emitter.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0),
-		NumberSequenceKeypoint.new(0.7, 0.3),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	emitter.Lifetime = NumberRange.new(0.3, 0.6)
-	emitter.Rate = 60
-	emitter.Speed = NumberRange.new(2, 6)
-	emitter.SpreadAngle = Vector2.new(45, 45)
-	emitter.LightEmission = 0.8
-	emitter.LightInfluence = 0.2
-	emitter.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-	emitter.Parent = part
-
 	local glow = Instance.new("PointLight")
 	glow.Name = "MineGlow"
 	glow.Color = Color3.fromRGB(255, 200, 50)
@@ -244,46 +219,6 @@ function GraviBowMiningController:_destroyCrystal(crystalModel)
 		else crystalModel.Position
 
 	self._soundController:PlayAtPosition("HarvestCollected", pos)
-
-	local burstPart = Instance.new("Part")
-	burstPart.Size = Vector3.new(0.5, 0.5, 0.5)
-	burstPart.Transparency = 1
-	burstPart.Anchored = true
-	burstPart.CanCollide = false
-	burstPart.CanQuery = false
-	burstPart.CanTouch = false
-	burstPart.Position = pos
-	burstPart.Parent = Workspace
-
-	local burst = Instance.new("ParticleEmitter")
-	burst.Color = ColorSequence.new(
-		Color3.fromRGB(255, 220, 80),
-		Color3.fromRGB(255, 100, 20)
-	)
-	burst.Size = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.5),
-		NumberSequenceKeypoint.new(0.5, 0.2),
-		NumberSequenceKeypoint.new(1, 0),
-	})
-	burst.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0),
-		NumberSequenceKeypoint.new(0.5, 0.4),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	burst.Lifetime = NumberRange.new(0.4, 0.8)
-	burst.Speed = NumberRange.new(5, 15)
-	burst.SpreadAngle = Vector2.new(180, 180)
-	burst.LightEmission = 1
-	burst.LightInfluence = 0
-	burst.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-	burst.Parent = burstPart
-
-	burst:Emit(30)
-	burst.Enabled = false
-
-	task.delay(1, function()
-		burstPart:Destroy()
-	end)
 
 	crystalModel:Destroy()
 end

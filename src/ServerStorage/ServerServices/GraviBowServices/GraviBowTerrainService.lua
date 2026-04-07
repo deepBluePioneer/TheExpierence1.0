@@ -183,71 +183,8 @@ function GraviBowTerrainService:GetSharedPlanet()
 	return self._sharedPlanet
 end
 
-function GraviBowTerrainService:_createDustStorm(anchor, center, surfaceRadius)
-	local EMITTER_COUNT = 26
-	local DUST_COLOR = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, Color3.fromRGB(210, 180, 130)),
-		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(190, 160, 110)),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(160, 130, 90)),
-	})
-	local DUST_TRANSPARENCY = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 1),
-		NumberSequenceKeypoint.new(0.1, 0.6),
-		NumberSequenceKeypoint.new(0.7, 0.7),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	local DUST_SIZE = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 4),
-		NumberSequenceKeypoint.new(0.3, 12),
-		NumberSequenceKeypoint.new(0.7, 18),
-		NumberSequenceKeypoint.new(1, 8),
-	})
-
-	local goldenAngle = math.pi * (3 - math.sqrt(5))
-
-	for i = 1, EMITTER_COUNT do
-		local t = (i - 0.5) / EMITTER_COUNT
-		local phi = math.acos(1 - 2 * t)
-		local theta = goldenAngle * i
-
-		local dir = Vector3.new(
-			math.sin(phi) * math.cos(theta),
-			math.cos(phi),
-			math.sin(phi) * math.sin(theta)
-		).Unit
-
-		local pos = center + dir * (surfaceRadius + 5)
-
-		local att = Instance.new("Attachment")
-		att.Name = "DustAtt_" .. i
-		att.WorldPosition = pos
-		att.Parent = anchor
-
-		local tangent = dir:Cross(Vector3.new(0, 1, 0))
-		if tangent.Magnitude < 0.01 then
-			tangent = dir:Cross(Vector3.new(1, 0, 0))
-		end
-		tangent = tangent.Unit
-
-		local emitter = Instance.new("ParticleEmitter")
-		emitter.Name = "DustStorm"
-		emitter.Color = DUST_COLOR
-		emitter.Transparency = DUST_TRANSPARENCY
-		emitter.Size = DUST_SIZE
-		emitter.Texture = "rbxasset://textures/particles/smoke_main.dds"
-		emitter.Rate = 8
-		emitter.Lifetime = NumberRange.new(4, 8)
-		emitter.Speed = NumberRange.new(6, 14)
-		emitter.SpreadAngle = Vector2.new(40, 40)
-		emitter.EmissionDirection = Enum.NormalId.Front
-		emitter.Rotation = NumberRange.new(0, 360)
-		emitter.RotSpeed = NumberRange.new(-30, 30)
-		emitter.LightEmission = 0.05
-		emitter.LightInfluence = 0.9
-		emitter.Drag = 1
-		emitter.Acceleration = tangent * 3
-		emitter.Parent = att
-	end
+function GraviBowTerrainService:_createDustStorm(_anchor, _center, _surfaceRadius)
+	-- Particle dust storm removed.
 end
 
 function GraviBowTerrainService:_generateTerrain(config)

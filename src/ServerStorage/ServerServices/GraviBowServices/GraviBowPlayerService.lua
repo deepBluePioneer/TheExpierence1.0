@@ -154,63 +154,71 @@ end
 function GraviBowPlayerService:_setupLighting()
 	Lighting.ClockTime = 14
 	Lighting.GeographicLatitude = 0
-	Lighting.Brightness = 3
-	Lighting.Ambient = Color3.fromRGB(40, 40, 50)
-	Lighting.OutdoorAmbient = Color3.fromRGB(70, 70, 90)
-	Lighting.ColorShift_Top = Color3.fromRGB(230, 220, 255)
-	Lighting.ColorShift_Bottom = Color3.fromRGB(30, 30, 50)
-	Lighting.EnvironmentDiffuseScale = 0.5
-	Lighting.EnvironmentSpecularScale = 0.8
-	Lighting.ExposureCompensation = 0.3
+	Lighting.Brightness = 2.9
+	Lighting.Ambient = Color3.fromRGB(45, 78, 88)
+	Lighting.OutdoorAmbient = Color3.fromRGB(115, 88, 135)
+	Lighting.ColorShift_Top = Color3.fromRGB(220, 205, 255)
+	Lighting.ColorShift_Bottom = Color3.fromRGB(40, 95, 105)
+	Lighting.EnvironmentDiffuseScale = 0.65
+	Lighting.EnvironmentSpecularScale = 0.9
+	Lighting.ExposureCompensation = 0.22
 	Lighting.GlobalShadows = true
-	Lighting.ShadowSoftness = 0.3
+	Lighting.ShadowSoftness = 0.35
 
 	for _, child in ipairs(Lighting:GetChildren()) do
 		if child:IsA("Sky") or child:IsA("Atmosphere") or child:IsA("BloomEffect")
-			or child:IsA("ColorCorrectionEffect") or child:IsA("SunRaysEffect") then
+			or child:IsA("ColorCorrectionEffect") or child:IsA("SunRaysEffect")
+			or child:IsA("DepthOfFieldEffect") then
 			child:Destroy()
 		end
 	end
 
 	local sky = Instance.new("Sky")
-	sky.SkyboxBk = "rbxassetid://1012890"
-	sky.SkyboxDn = "rbxassetid://1012891"
-	sky.SkyboxFt = "rbxassetid://1012887"
-	sky.SkyboxLf = "rbxassetid://1012889"
-	sky.SkyboxRt = "rbxassetid://1012888"
-	sky.SkyboxUp = "rbxassetid://1014449"
-	sky.StarCount = 5000
-	sky.MoonAngularSize = 8
-	sky.SunAngularSize = 15
+	sky.SkyboxBk = ""
+	sky.SkyboxDn = ""
+	sky.SkyboxFt = ""
+	sky.SkyboxLf = ""
+	sky.SkyboxRt = ""
+	sky.SkyboxUp = ""
+	sky.StarCount = 600
+	sky.MoonAngularSize = 10
+	sky.SunAngularSize = 11
 	sky.CelestialBodiesShown = true
 	sky.Parent = Lighting
 
 	local atmosphere = Instance.new("Atmosphere")
-	atmosphere.Density = 0.05
+	atmosphere.Density = 0.22
 	atmosphere.Offset = 0
-	atmosphere.Color = Color3.fromRGB(20, 20, 35)
-	atmosphere.Decay = Color3.fromRGB(30, 30, 50)
-	atmosphere.Glare = 0.2
-	atmosphere.Haze = 0.5
+	atmosphere.Color = Color3.fromRGB(85, 175, 165)
+	atmosphere.Decay = Color3.fromRGB(140, 85, 155)
+	atmosphere.Glare = 0.28
+	atmosphere.Haze = 4.5
 	atmosphere.Parent = Lighting
 
 	local bloom = Instance.new("BloomEffect")
-	bloom.Intensity = 0.5
-	bloom.Size = 30
-	bloom.Threshold = 1.5
+	bloom.Intensity = 0.65
+	bloom.Size = 32
+	bloom.Threshold = 0.85
 	bloom.Parent = Lighting
 
 	local cc = Instance.new("ColorCorrectionEffect")
-	cc.Brightness = 0.05
-	cc.Contrast = 0.15
-	cc.Saturation = 0.1
-	cc.TintColor = Color3.fromRGB(245, 240, 255)
+	cc.Brightness = 0.04
+	cc.Contrast = 0.2
+	cc.Saturation = 0.16
+	cc.TintColor = Color3.new(1, 1, 1)
 	cc.Parent = Lighting
 
 	local sunRays = Instance.new("SunRaysEffect")
-	sunRays.Intensity = 0.15
-	sunRays.Spread = 0.8
+	sunRays.Intensity = 0.18
+	sunRays.Spread = 0.75
 	sunRays.Parent = Lighting
+
+	local dof = Instance.new("DepthOfFieldEffect")
+	dof.FarIntensity = 0.12
+	dof.FocusDistance = 50
+	dof.InFocusRadius = 40
+	dof.NearIntensity = 0
+	dof.Parent = Lighting
 end
 
 function GraviBowPlayerService:_onPlayerRemoving(player)

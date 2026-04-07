@@ -10,11 +10,6 @@ local Trove = require(Packages.Trove)
 local LocalPlayer = Players.LocalPlayer
 
 local JETPACK_THRUST = 60
-local PARTICLE_RATE = 80
-local PARTICLE_LIFETIME_MIN = 0.3
-local PARTICLE_LIFETIME_MAX = 0.6
-local PARTICLE_SPEED_MIN = 8
-local PARTICLE_SPEED_MAX = 15
 
 local GraviBowJetpackController = Knit.CreateController({
 	Name = "GraviBowJetpackController",
@@ -25,7 +20,6 @@ local GraviBowJetpackController = Knit.CreateController({
 	_characterTrove = nil,
 	_thrustForce = nil,
 	_cachedMass = 0,
-	_emitter = nil,
 	_backVisual = nil,
 })
 
@@ -55,9 +49,6 @@ function GraviBowJetpackController:Deactivate()
 	self._thrusting = false
 	if self._thrustForce then
 		self._thrustForce.Force = Vector3.zero
-	end
-	if self._emitter then
-		self._emitter.Rate = 0
 	end
 	self:_detachVisual()
 end
@@ -164,38 +155,12 @@ function GraviBowJetpackController:_onCharacterAdded(character)
 	thrustForce.Parent = character
 	self._thrustForce = thrustForce
 
-	local emitter = Instance.new("ParticleEmitter")
-	emitter.Name = "JetpackExhaust"
-	emitter.Rate = 0
-	emitter.Lifetime = NumberRange.new(PARTICLE_LIFETIME_MIN, PARTICLE_LIFETIME_MAX)
-	emitter.Speed = NumberRange.new(PARTICLE_SPEED_MIN, PARTICLE_SPEED_MAX)
-	emitter.SpreadAngle = Vector2.new(15, 15)
-	emitter.EmissionDirection = Enum.NormalId.Bottom
-	emitter.Size = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 1.5),
-		NumberSequenceKeypoint.new(1, 0),
-	})
-	emitter.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.3),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	emitter.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 170, 0)),
-		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 85, 0)),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 100, 100)),
-	})
-	emitter.LightEmission = 0.8
-	emitter.LightInfluence = 0.2
-	emitter.Parent = hrp
-	self._emitter = emitter
-
 	self._characterTrove:Add(RunService.Stepped:Connect(function()
 		self:_update()
 	end), "Disconnect")
 
 	self._characterTrove:Add(function()
 		self._thrustForce = nil
-		self._emitter = nil
 		self._thrusting = false
 		self:_detachVisual()
 	end)
@@ -207,9 +172,6 @@ function GraviBowJetpackController:_update()
 	if not self._active then
 		self._thrustForce.Force = Vector3.zero
 		self._thrusting = false
-		if self._emitter then
-			self._emitter.Rate = 0
-		end
 		return
 	end
 
@@ -220,15 +182,8 @@ function GraviBowJetpackController:_update()
 		local gravityDir = self._gravityController.GravityDirection
 		local upDir = -gravityDir
 		self._thrustForce.Force = upDir * JETPACK_THRUST * self._cachedMass
-
-		if self._emitter then
-			self._emitter.Rate = PARTICLE_RATE
-		end
 	else
 		self._thrustForce.Force = Vector3.zero
-		if self._emitter then
-			self._emitter.Rate = 0
-		end
 	end
 end
 

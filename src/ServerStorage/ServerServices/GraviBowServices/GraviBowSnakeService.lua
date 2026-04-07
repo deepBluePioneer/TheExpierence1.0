@@ -18,8 +18,9 @@ local ORIENT_RESPONSIVENESS = 20
 
 local UNIFORM_SCALE = 1
 
-local BODY_COLOR = Color3.fromRGB(139, 90, 43)
-local HEAD_COLOR = Color3.fromRGB(139, 90, 43)
+local HEAD_COLOR = Color3.fromRGB(225, 165, 55)
+local BODY_COLOR_START = Color3.fromRGB(175, 115, 50)
+local BODY_COLOR_END = Color3.fromRGB(90, 55, 28)
 local BODY_MATERIAL = Enum.Material.SmoothPlastic
 local BODY_TRANSPARENCY = 0
 
@@ -75,6 +76,7 @@ function GraviBowSnakeService:BuildSnakeForPlayer(player)
 
 	for i = 1, SEGMENT_COUNT do
 		local diameter = SEGMENT_RADIUS * 2
+		local t = (i - 1) / math.max(SEGMENT_COUNT - 1, 1)
 
 		local seg = Instance.new("Part")
 		seg.Name = "Seg_" .. i
@@ -90,9 +92,20 @@ function GraviBowSnakeService:BuildSnakeForPlayer(player)
 		seg.TopSurface = Enum.SurfaceType.Smooth
 		seg.BottomSurface = Enum.SurfaceType.Smooth
 		seg.Material = BODY_MATERIAL
-
-		seg.Color = BODY_COLOR
 		seg.Transparency = BODY_TRANSPARENCY
+
+		local baseColor
+		if i == 1 then
+			baseColor = HEAD_COLOR
+		else
+			baseColor = BODY_COLOR_START:Lerp(BODY_COLOR_END, t)
+		end
+		seg.Color = baseColor
+
+		self:_weldBodyDetails(seg, diameter, baseColor)
+		if i == 1 then
+			self:_weldHeadDetails(seg, diameter)
+		end
 
 		local att = Instance.new("Attachment")
 		att.Name = "CenterAtt"
@@ -195,6 +208,97 @@ end
 
 function GraviBowSnakeService:_segmentScale(_index)
 	return UNIFORM_SCALE
+end
+
+function GraviBowSnakeService:_makeDetailPart(parent)
+	local p = Instance.new("Part")
+	p.Shape = Enum.PartType.Block
+	p.Material = BODY_MATERIAL
+	p.Anchored = false
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.Massless = true
+	p.CastShadow = false
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Parent = parent
+	return p
+end
+
+function GraviBowSnakeService:_weldTo(part0, part1, offset)
+	local w = Instance.new("Weld")
+	w.Part0 = part0
+	w.Part1 = part1
+	w.C0 = offset
+	w.Parent = part1
+end
+
+function GraviBowSnakeService:_weldBodyDetails(seg, diameter, baseColor)
+	local r = diameter / 2
+
+	local spine = self:_makeDetailPart(seg)
+	spine.Name = "Spine"
+	spine.Size = Vector3.new(r * 0.35, 0.3, diameter * 0.88)
+	spine.Color = baseColor:Lerp(Color3.new(0, 0, 0), 0.35)
+	self:_weldTo(seg, spine, CFrame.new(0, r + 0.12, 0))
+
+	local belly = self:_makeDetailPart(seg)
+	belly.Name = "Belly"
+	belly.Size = Vector3.new(diameter * 0.55, 0.2, diameter * 0.88)
+	belly.Color = baseColor:Lerp(Color3.new(1, 1, 1), 0.2)
+	self:_weldTo(seg, belly, CFrame.new(0, -(r + 0.08), 0))
+end
+
+function GraviBowSnakeService:_weldHeadDetails(seg, diameter)
+	local r = diameter / 2
+	local eyeSize = r * 0.5
+	local pupilSize = r * 0.28
+
+	local brow = self:_makeDetailPart(seg)
+	brow.Name = "Brow"
+	brow.Size = Vector3.new(diameter * 0.8, 0.35, 0.35)
+	brow.Color = HEAD_COLOR:Lerp(Color3.new(0, 0, 0), 0.35)
+	self:_weldTo(seg, brow, CFrame.new(0, r * 0.45, -(r + 0.1)))
+
+	for _, side in ipairs({-1, 1}) do
+		local eye = Instance.new("Part")
+		eye.Name = side == 1 and "EyeR" or "EyeL"
+		eye.Shape = Enum.PartType.Ball
+		eye.Size = Vector3.one * eyeSize
+		eye.Color = Color3.new(1, 1, 1)
+		eye.Material = Enum.Material.SmoothPlastic
+		eye.Anchored = false
+		eye.CanCollide = false
+		eye.CanQuery = false
+		eye.CanTouch = false
+		eye.Massless = true
+		eye.CastShadow = false
+		eye.Parent = seg
+		self:_weldTo(seg, eye, CFrame.new(side * r * 0.42, r * 0.18, -(r * 0.82)))
+
+		local pupil = Instance.new("Part")
+		pupil.Name = "Pupil"
+		pupil.Shape = Enum.PartType.Ball
+		pupil.Size = Vector3.one * pupilSize
+		pupil.Color = Color3.fromRGB(15, 15, 15)
+		pupil.Material = Enum.Material.SmoothPlastic
+		pupil.Anchored = false
+		pupil.CanCollide = false
+		pupil.CanQuery = false
+		pupil.CanTouch = false
+		pupil.Massless = true
+		pupil.CastShadow = false
+		pupil.Parent = seg
+		self:_weldTo(eye, pupil, CFrame.new(side * eyeSize * 0.1, eyeSize * 0.05, -(eyeSize * 0.35)))
+	end
+
+	local light = Instance.new("PointLight")
+	light.Color = HEAD_COLOR
+	light.Brightness = 0.4
+	light.Range = 8
+	light.Shadows = false
+	light.Parent = seg
 end
 
 return GraviBowSnakeService

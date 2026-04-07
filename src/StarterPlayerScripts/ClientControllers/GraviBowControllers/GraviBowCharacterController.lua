@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
@@ -123,6 +124,8 @@ function GraviBowCharacterController:KnitStart()
 	self._isMobile = UserInputService.TouchEnabled
 	self._thumbstickDir = Vector3.zero
 
+	self:_disableDefaultControls()
+
 	self._trove:Add(UserInputService.JumpRequest:Connect(function()
 		self:_onJumpRequest()
 	end), "Disconnect")
@@ -133,6 +136,7 @@ function GraviBowCharacterController:KnitStart()
 			or input.KeyCode == Enum.KeyCode.ButtonA then
 			self._jumpHeld = true
 			self._jumpReleased = false
+			self:_onJumpRequest()
 		end
 	end), "Disconnect")
 
@@ -175,17 +179,14 @@ function GraviBowCharacterController:_createMobileControls()
 	thumbOuter.Active = true
 	thumbOuter.AnchorPoint = Vector2.new(0.5, 0.5)
 	thumbOuter.Position = UDim2.fromScale(0.13, 0.72)
-	thumbOuter.Size = UDim2.fromScale(0.18, 0)
+	thumbOuter.SizeConstraint = Enum.SizeConstraint.RelativeXX
+	thumbOuter.Size = UDim2.fromScale(0.18, 0.18)
 	thumbOuter.BackgroundColor3 = STICK_BG
 	thumbOuter.BackgroundTransparency = 0.5
 	thumbOuter.BorderSizePixel = 0
 	thumbOuter.Text = ""
 	thumbOuter.AutoButtonColor = false
 	thumbOuter.Parent = gui
-
-	local outerAR = Instance.new("UIAspectRatioConstraint")
-	outerAR.AspectRatio = 1
-	outerAR.Parent = thumbOuter
 
 	local outerCorner = Instance.new("UICorner")
 	outerCorner.CornerRadius = UDim.new(1, 0)
@@ -215,21 +216,22 @@ function GraviBowCharacterController:_createMobileControls()
 	innerCorner.CornerRadius = UDim.new(1, 0)
 	innerCorner.Parent = thumbInner
 
+	local JUMP_PRESSED_COLOR = Color3.fromRGB(255, 200, 120)
+	local JUMP_IDLE_TRANSPARENCY = 0.7
+	local JUMP_PRESSED_TRANSPARENCY = 0.35
+
 	local jumpBtn = Instance.new("TextButton")
 	jumpBtn.Name = "JumpButton"
 	jumpBtn.AnchorPoint = Vector2.new(0.5, 0.5)
 	jumpBtn.Position = UDim2.fromScale(0.88, 0.72)
-	jumpBtn.Size = UDim2.fromScale(0.13, 0)
+	jumpBtn.SizeConstraint = Enum.SizeConstraint.RelativeXX
+	jumpBtn.Size = UDim2.fromScale(0.15, 0.15)
 	jumpBtn.BackgroundColor3 = STICK_BG
-	jumpBtn.BackgroundTransparency = 0.5
+	jumpBtn.BackgroundTransparency = 0.35
 	jumpBtn.BorderSizePixel = 0
 	jumpBtn.Text = ""
 	jumpBtn.AutoButtonColor = false
 	jumpBtn.Parent = gui
-
-	local jumpAR = Instance.new("UIAspectRatioConstraint")
-	jumpAR.AspectRatio = 1
-	jumpAR.Parent = jumpBtn
 
 	local jumpCorner = Instance.new("UICorner")
 	jumpCorner.CornerRadius = UDim.new(1, 0)
@@ -237,23 +239,62 @@ function GraviBowCharacterController:_createMobileControls()
 
 	local jumpStroke = Instance.new("UIStroke")
 	jumpStroke.Color = JUMP_COLOR
-	jumpStroke.Thickness = 2
-	jumpStroke.Transparency = 0.4
+	jumpStroke.Thickness = 3
+	jumpStroke.Transparency = 0.2
 	jumpStroke.Parent = jumpBtn
 
-	local jumpIcon = Instance.new("TextLabel")
-	jumpIcon.Size = UDim2.fromScale(1, 1)
-	jumpIcon.BackgroundTransparency = 1
-	jumpIcon.Text = "^"
-	jumpIcon.TextScaled = true
-	jumpIcon.TextColor3 = JUMP_COLOR
-	jumpIcon.Font = Enum.Font.GothamBold
-	jumpIcon.Parent = jumpBtn
+	local jumpFill = Instance.new("Frame")
+	jumpFill.Name = "JumpFill"
+	jumpFill.AnchorPoint = Vector2.new(0.5, 0.5)
+	jumpFill.Position = UDim2.fromScale(0.5, 0.5)
+	jumpFill.Size = UDim2.fromScale(0.88, 0.88)
+	jumpFill.BackgroundColor3 = JUMP_COLOR
+	jumpFill.BackgroundTransparency = JUMP_IDLE_TRANSPARENCY
+	jumpFill.BorderSizePixel = 0
+	jumpFill.Parent = jumpBtn
 
-	local jumpTSC = Instance.new("UITextSizeConstraint")
-	jumpTSC.MinTextSize = 16
-	jumpTSC.MaxTextSize = 48
-	jumpTSC.Parent = jumpIcon
+	local jumpFillCorner = Instance.new("UICorner")
+	jumpFillCorner.CornerRadius = UDim.new(1, 0)
+	jumpFillCorner.Parent = jumpFill
+
+	local chevronContainer = Instance.new("Frame")
+	chevronContainer.Name = "ChevronContainer"
+	chevronContainer.AnchorPoint = Vector2.new(0.5, 0.5)
+	chevronContainer.Position = UDim2.fromScale(0.5, 0.46)
+	chevronContainer.Size = UDim2.fromScale(0.45, 0.4)
+	chevronContainer.BackgroundTransparency = 1
+	chevronContainer.Parent = jumpBtn
+
+	local chevronLeft = Instance.new("Frame")
+	chevronLeft.Name = "ChevronLeft"
+	chevronLeft.AnchorPoint = Vector2.new(0.5, 1)
+	chevronLeft.Position = UDim2.fromScale(0.35, 0.95)
+	chevronLeft.Size = UDim2.new(0, 6, 0.75, 0)
+	chevronLeft.Rotation = -35
+	chevronLeft.BackgroundColor3 = JUMP_COLOR
+	chevronLeft.BorderSizePixel = 0
+	chevronLeft.Parent = chevronContainer
+
+	local chevLeftCorner = Instance.new("UICorner")
+	chevLeftCorner.CornerRadius = UDim.new(0, 4)
+	chevLeftCorner.Parent = chevronLeft
+
+	local chevronRight = Instance.new("Frame")
+	chevronRight.Name = "ChevronRight"
+	chevronRight.AnchorPoint = Vector2.new(0.5, 1)
+	chevronRight.Position = UDim2.fromScale(0.65, 0.95)
+	chevronRight.Size = UDim2.new(0, 6, 0.75, 0)
+	chevronRight.Rotation = 35
+	chevronRight.BackgroundColor3 = JUMP_COLOR
+	chevronRight.BorderSizePixel = 0
+	chevronRight.Parent = chevronContainer
+
+	local chevRightCorner = Instance.new("UICorner")
+	chevRightCorner.CornerRadius = UDim.new(0, 4)
+	chevRightCorner.Parent = chevronRight
+
+	local pressInfo = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local releaseInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 	thumbOuter.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.Touch then
@@ -261,9 +302,9 @@ function GraviBowCharacterController:_createMobileControls()
 		end
 	end)
 
-	self._trove:Add(UserInputService.InputChanged:Connect(function(input)
-		if input ~= self._thumbstickTouchId then return end
+	thumbOuter.InputChanged:Connect(function(input)
 		if input.UserInputType ~= Enum.UserInputType.Touch then return end
+		if input ~= self._thumbstickTouchId then return end
 
 		local center = thumbOuter.AbsolutePosition + thumbOuter.AbsoluteSize / 2
 		local touchPos = Vector2.new(input.Position.X, input.Position.Y)
@@ -285,20 +326,36 @@ function GraviBowCharacterController:_createMobileControls()
 			local dir = offset.Unit
 			self._thumbstickDir = Vector3.new(dir.X, 0, dir.Y) * mag
 		end
-	end), "Disconnect")
+	end)
 
-	self._trove:Add(UserInputService.InputEnded:Connect(function(input)
+	thumbOuter.InputEnded:Connect(function(input)
+		if input.UserInputType ~= Enum.UserInputType.Touch then return end
 		if input ~= self._thumbstickTouchId then return end
 		self._thumbstickTouchId = nil
 		self._thumbstickDir = Vector3.zero
 		thumbInner.Position = UDim2.fromScale(0.5, 0.5)
-	end), "Disconnect")
+	end)
 
 	jumpBtn.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.Touch then
 			self._jumpHeld = true
 			self._jumpReleased = false
 			self:_onJumpRequest()
+
+			TweenService:Create(jumpFill, pressInfo, {
+				BackgroundTransparency = JUMP_PRESSED_TRANSPARENCY,
+				BackgroundColor3 = JUMP_PRESSED_COLOR,
+			}):Play()
+			TweenService:Create(jumpStroke, pressInfo, {
+				Transparency = 0,
+				Color = JUMP_PRESSED_COLOR,
+			}):Play()
+			TweenService:Create(chevronLeft, pressInfo, {
+				BackgroundColor3 = Color3.new(1, 1, 1),
+			}):Play()
+			TweenService:Create(chevronRight, pressInfo, {
+				BackgroundColor3 = Color3.new(1, 1, 1),
+			}):Play()
 		end
 	end)
 
@@ -306,6 +363,38 @@ function GraviBowCharacterController:_createMobileControls()
 		if input.UserInputType == Enum.UserInputType.Touch then
 			self._jumpHeld = false
 			self._jumpReleased = true
+
+			TweenService:Create(jumpFill, releaseInfo, {
+				BackgroundTransparency = JUMP_IDLE_TRANSPARENCY,
+				BackgroundColor3 = JUMP_COLOR,
+			}):Play()
+			TweenService:Create(jumpStroke, releaseInfo, {
+				Transparency = 0.3,
+				Color = JUMP_COLOR,
+			}):Play()
+			TweenService:Create(chevronLeft, releaseInfo, {
+				BackgroundColor3 = JUMP_COLOR,
+			}):Play()
+			TweenService:Create(chevronRight, releaseInfo, {
+				BackgroundColor3 = JUMP_COLOR,
+			}):Play()
+		end
+	end)
+end
+
+function GraviBowCharacterController:_disableDefaultControls()
+	local playerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
+	if not playerScripts then return end
+
+	task.spawn(function()
+		local ok, playerModule = pcall(function()
+			return require(playerScripts:WaitForChild("PlayerModule", 5))
+		end)
+		if ok and playerModule then
+			local controls = playerModule:GetControls()
+			if controls then
+				controls:Disable()
+			end
 		end
 	end)
 end
@@ -961,8 +1050,6 @@ function GraviBowCharacterController:_tryStartDig(hrp, upDir, impactVelocity)
 	hrp.AssemblyLinearVelocity = Vector3.zero
 	hrp.AssemblyAngularVelocity = Vector3.zero
 
-	self:_spawnDigParticles(entryPos, -entryUpDir)
-
 	self._cameraController:SetDigTarget(exitPos, exitUpDir)
 
 	return true
@@ -1050,8 +1137,6 @@ function GraviBowCharacterController:_endDig(hrp)
 	end
 	hrp.AssemblyLinearVelocity = exitTangent * DIG_EXIT_VELOCITY
 	hrp.AssemblyAngularVelocity = Vector3.zero
-
-	self:_spawnDigParticles(self._digExitPos, self._digExitUpDir)
 
 	self._cameraController:ClearDigTarget()
 
@@ -1184,41 +1269,6 @@ function GraviBowCharacterController:_drawDigTrajectory(hrp)
 	Gizmo.PushProperty("Color3", DIG_GIZMO_COLOR_ARC)
 	Gizmo.Sphere:Draw(CFrame.new(entryPos), 1.5, 8, 360)
 	Gizmo.Sphere:Draw(CFrame.new(exitPos), 1.5, 8, 360)
-end
-
-function GraviBowCharacterController:_spawnDigParticles(position, direction)
-	local att = Instance.new("Attachment")
-	att.WorldPosition = position
-	att.Parent = Workspace.Terrain
-
-	local emitter = Instance.new("ParticleEmitter")
-	emitter.Color = ColorSequence.new(Color3.fromRGB(190, 160, 110))
-	emitter.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.3),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	emitter.Size = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 2),
-		NumberSequenceKeypoint.new(0.5, 6),
-		NumberSequenceKeypoint.new(1, 3),
-	})
-	emitter.Texture = "rbxasset://textures/particles/smoke_main.dds"
-	emitter.Lifetime = NumberRange.new(0.5, 1.2)
-	emitter.Speed = NumberRange.new(10, 25)
-	emitter.SpreadAngle = Vector2.new(45, 45)
-	emitter.Rotation = NumberRange.new(0, 360)
-	emitter.RotSpeed = NumberRange.new(-60, 60)
-	emitter.Rate = 0
-	emitter.LightEmission = 0.1
-	emitter.LightInfluence = 0.8
-	emitter.Drag = 3
-	emitter.Parent = att
-
-	emitter:Emit(30)
-
-	task.delay(2, function()
-		att:Destroy()
-	end)
 end
 
 function GraviBowCharacterController:_setCharacterTransparency(alpha)
