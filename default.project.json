@@ -38,6 +38,9 @@
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
 
+        "PlayerModule": {
+          "$path": "src/PlayerModule.lua"
+        },
         "Source": {
           "$path": "src/StarterPlayerScripts"
         }

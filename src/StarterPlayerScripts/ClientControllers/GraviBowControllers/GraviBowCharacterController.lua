@@ -108,6 +108,8 @@ local GraviBowCharacterController = Knit.CreateController({
 	_digCP1 = nil,
 	_digCP2 = nil,
 	_digEntryLook = nil,
+
+	_defaultControls = nil,
 })
 
 function GraviBowCharacterController:KnitInit()
@@ -383,20 +385,24 @@ function GraviBowCharacterController:_createMobileControls()
 end
 
 function GraviBowCharacterController:_disableDefaultControls()
+	if self._defaultControls then
+		self._defaultControls:Disable()
+		return
+	end
+
 	local playerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
 	if not playerScripts then return end
 
-	task.spawn(function()
-		local ok, playerModule = pcall(function()
-			return require(playerScripts:WaitForChild("PlayerModule", 5))
-		end)
-		if ok and playerModule then
-			local controls = playerModule:GetControls()
-			if controls then
-				controls:Disable()
-			end
-		end
+	local ok, playerModule = pcall(function()
+		return require(playerScripts:WaitForChild("PlayerModule", 5))
 	end)
+	if ok and playerModule then
+		local controls = playerModule:GetControls()
+		if controls then
+			self._defaultControls = controls
+			controls:Disable()
+		end
+	end
 end
 
 function GraviBowCharacterController:_createStateMachine()
@@ -415,6 +421,7 @@ function GraviBowCharacterController:_createStateMachine()
 end
 
 function GraviBowCharacterController:_onLocalHumanoidDeath()
+	self:_disableDefaultControls()
 	self._isDigging = false
 	self._digTimer = 0
 	self._digEntryPos = nil
@@ -433,6 +440,8 @@ function GraviBowCharacterController:_onLocalHumanoidDeath()
 end
 
 function GraviBowCharacterController:_onCharacterAdded(character)
+	self:_disableDefaultControls()
+
 	if self._characterTrove then
 		self._characterTrove:Clean()
 	end

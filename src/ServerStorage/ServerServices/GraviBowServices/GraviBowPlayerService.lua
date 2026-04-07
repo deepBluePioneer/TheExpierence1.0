@@ -109,6 +109,7 @@ function GraviBowPlayerService:_onArrowHit(shooter, victimPlayer)
 end
 
 function GraviBowPlayerService:_onPlayerAdded(player)
+	player.DevComputerMovementMode = Enum.DevComputerMovementMode.Scriptable
 	player.DevTouchMovementMode = Enum.DevTouchMovementMode.Scriptable
 
 	self._oreService:CreateOreReplica(player)
