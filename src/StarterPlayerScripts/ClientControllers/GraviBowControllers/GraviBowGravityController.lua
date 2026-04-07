@@ -14,6 +14,10 @@ local LocalPlayer = Players.LocalPlayer
 local PLANET_TAG = "planet"
 local GRAVITY_FORCE = 40
 local GRAVITY_DIR_SMOOTH_RAD_PER_SEC = 4.2
+local PULLBACK_THRESHOLD = 50
+local PULLBACK_SCALE = 80
+local MAX_GRAVITY_MULT = 8
+local SAFETY_TELEPORT_DISTANCE = 500
 
 local function smoothUnitToward(current, target, dt, maxRadPerSec)
 	local c = current.Unit
@@ -41,6 +45,7 @@ local GraviBowGravityController = Knit.CreateController({
 	_characterTrove = nil,
 	_planets = {},
 	_activePlanet = nil,
+	_lastKnownPlanet = nil,
 	_cachedMass = 0,
 	_planetRegistered = Signal.new(),
 	_smoothedGravityDir = nil,
@@ -351,13 +356,15 @@ end
 function GraviBowGravityController:_updateGravity(hrp, vectorForce, dt)
 	self:_updatePlanetCenters()
 
-	local planet = self._activePlanet or self:_findNearestPlanet(hrp.Position)
-
+	local planet = self._activePlanet or self:_findNearestPlanet(hrp.Position) or self._lastKnownPlanet
 	if not planet then return end
+
+	self._lastKnownPlanet = planet
 
 	local playerPos = hrp.Position
 	local toCenter = planet.center - playerPos
-	if toCenter.Magnitude < 0.001 then return end
+	local distToCenter = toCenter.Magnitude
+	if distToCenter < 0.001 then return end
 
 	local gravityDir = toCenter.Unit
 	self.GravityDirection = gravityDir
@@ -370,7 +377,18 @@ function GraviBowGravityController:_updateGravity(hrp, vectorForce, dt)
 
 	self.GravityChanged:Fire(gravityDir)
 
-	vectorForce.Force = gravityDir * GRAVITY_FORCE * self._cachedMass
+	local distFromSurface = distToCenter - planet.radius
+	local forceMult = 1
+	if distFromSurface > PULLBACK_THRESHOLD then
+		forceMult = 1 + (distFromSurface - PULLBACK_THRESHOLD) / PULLBACK_SCALE
+		forceMult = math.min(forceMult, MAX_GRAVITY_MULT)
+	end
+
+	vectorForce.Force = gravityDir * GRAVITY_FORCE * self._cachedMass * forceMult
+
+	if distFromSurface > SAFETY_TELEPORT_DISTANCE then
+		self:_teleportToSurface(hrp)
+	end
 end
 
 return GraviBowGravityController

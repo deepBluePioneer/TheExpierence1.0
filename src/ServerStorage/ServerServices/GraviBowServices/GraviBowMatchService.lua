@@ -10,16 +10,17 @@ local Replica = CustomPackages.Replica
 local ReplicaService = require(Replica.ReplicaService)
 
 local MIN_PLAYERS = 1
-local HUB_COUNTDOWN_TIME = 60
-local GAME_TIME = 300
+local COUNTDOWN_TIME = 5
+local ROUND_TIME = 120
+local SNAKE_SPAWN_DELAY = 2
 local RESULTS_TIME = 10
 
 local PHASES = {
-	HUB_WAITING = "HUB_WAITING",
-	HUB_COUNTDOWN = "HUB_COUNTDOWN",
-	TELEPORTING = "TELEPORTING",
-	GAME_ACTIVE = "GAME_ACTIVE",
-	GAME_OVER = "GAME_OVER",
+	WAITING = "WAITING",
+	COUNTDOWN = "COUNTDOWN",
+	SNAKE_SPAWNING = "SNAKE_SPAWNING",
+	ROUND_ACTIVE = "ROUND_ACTIVE",
+	ROUND_OVER = "ROUND_OVER",
 	RESULTS = "RESULTS",
 }
 
@@ -29,10 +30,12 @@ local GraviBowMatchService = Knit.CreateService({
 
 	PhaseChanged = Signal.new(),
 
-	_phase = PHASES.HUB_WAITING,
+	_phase = PHASES.WAITING,
 	_matchReplica = nil,
 	_timer = nil,
 	_timeRemaining = 0,
+	_snakePlayers = {},
+	_killDebounce = {},
 })
 
 function GraviBowMatchService:KnitInit() end
@@ -41,14 +44,20 @@ function GraviBowMatchService:KnitStart()
 	self:_initReplica()
 
 	self._playerService = Knit.GetService("GraviBowPlayerService")
+	self._snakeService = Knit.GetService("GraviBowSnakeService")
 
 	Players.PlayerAdded:Connect(function(player)
-		self:_onPlayerCountChanged(player, true)
+		self:_addPlayerScore(player)
+		self:_checkPlayerCount()
 	end)
 
 	Players.PlayerRemoving:Connect(function(player)
 		self:_removePlayerScore(player)
-		self:_onPlayerCountChanged(player, false)
+		self._snakePlayers[player] = nil
+		self._killDebounce[player] = nil
+		task.defer(function()
+			self:_checkPlayerCount()
+		end)
 	end)
 
 	for _, player in ipairs(Players:GetPlayers()) do
@@ -62,9 +71,11 @@ function GraviBowMatchService:_initReplica()
 	self._matchReplica = ReplicaService.NewReplica({
 		ClassToken = ReplicaService.NewClassToken("GraviBowMatchState"),
 		Data = {
-			phase = PHASES.HUB_WAITING,
+			phase = PHASES.WAITING,
 			timeRemaining = 0,
 			scores = {},
+			snakePlayers = {},
+			firstSnakeId = 0,
 		},
 		Replication = "All",
 	})
@@ -74,31 +85,57 @@ function GraviBowMatchService:GetPhase()
 	return self._phase
 end
 
-function GraviBowMatchService:RecordKill(killer, victim)
-	if self._phase ~= PHASES.GAME_ACTIVE then return end
+function GraviBowMatchService:IsSnakePlayer(player)
+	return self._snakePlayers[player] == true
+end
 
-	local killerKey = tostring(killer.UserId)
-	local victimKey = tostring(victim.UserId)
+function GraviBowMatchService:IsRoundActive()
+	return self._phase == PHASES.ROUND_ACTIVE
+end
+
+function GraviBowMatchService:ConvertToSnake(player)
+	if self._phase ~= PHASES.ROUND_ACTIVE then return end
+	if self._snakePlayers[player] then return end
+
+	if self._killDebounce[player] then return end
+	self._killDebounce[player] = true
+
+	self._snakePlayers[player] = true
+	local key = tostring(player.UserId)
+	self._matchReplica:SetValue({"snakePlayers", key}, true)
 
 	local scores = self._matchReplica.Data.scores
-
-	if scores[killerKey] then
-		self._matchReplica:SetValue({"scores", killerKey, "kills"}, scores[killerKey].kills + 1)
+	if scores[key] then
+		self._matchReplica:SetValue({"scores", key, "deaths"}, (scores[key].deaths or 0) + 1)
 	end
-	if scores[victimKey] then
-		self._matchReplica:SetValue({"scores", victimKey, "deaths"}, scores[victimKey].deaths + 1)
+
+	local character = player.Character
+	if character then
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid and humanoid.Health > 0 then
+			humanoid.Health = 0
+		end
+	end
+
+	print("[GraviBowMatchService]", player.Name, "converted to snake")
+
+	task.delay(0.5, function()
+		self._killDebounce[player] = nil
+	end)
+
+	if self:_allPlayersAreSnakes() then
+		self:_stopTimer()
+		self:_startRoundOver()
 	end
 end
 
-function GraviBowMatchService:RecordHit(shooter)
-	if self._phase ~= PHASES.GAME_ACTIVE then return end
-
-	local key = tostring(shooter.UserId)
-	local scores = self._matchReplica.Data.scores
-
-	if scores[key] then
-		self._matchReplica:SetValue({"scores", key, "hits"}, scores[key].hits + 1)
+function GraviBowMatchService:_allPlayersAreSnakes()
+	for _, player in ipairs(Players:GetPlayers()) do
+		if not self._snakePlayers[player] then
+			return false
+		end
 	end
+	return true
 end
 
 function GraviBowMatchService:_addPlayerScore(player)
@@ -107,16 +144,21 @@ function GraviBowMatchService:_addPlayerScore(player)
 		name = player.Name,
 		kills = 0,
 		deaths = 0,
-		hits = 0,
+		survived = false,
 	})
 end
 
 function GraviBowMatchService:_removePlayerScore(player)
 	local key = tostring(player.UserId)
 	self._matchReplica:SetValue({"scores", key}, nil)
+	self._matchReplica:SetValue({"snakePlayers", key}, nil)
 end
 
-function GraviBowMatchService:_resetAllScores()
+function GraviBowMatchService:_resetRound()
+	self._snakePlayers = {}
+	self._killDebounce = {}
+	self._matchReplica:SetValue({"snakePlayers"}, {})
+	self._matchReplica:SetValue({"firstSnakeId"}, 0)
 	for _, player in ipairs(Players:GetPlayers()) do
 		self:_addPlayerScore(player)
 	end
@@ -144,29 +186,33 @@ function GraviBowMatchService:_stopTimer()
 	end
 end
 
-function GraviBowMatchService:_onPlayerCountChanged(player, joined)
-	if joined then
-		self:_addPlayerScore(player)
-	end
-	task.defer(function()
-		self:_checkPlayerCount()
-	end)
-end
-
-function GraviBowMatchService:_isGameInSession()
-	return self._phase == PHASES.TELEPORTING
-		or self._phase == PHASES.GAME_ACTIVE
-		or self._phase == PHASES.GAME_OVER
-		or self._phase == PHASES.RESULTS
-end
-
 function GraviBowMatchService:_checkPlayerCount()
-	return
+	if self._phase ~= PHASES.WAITING then return end
+
+	local playerCount = #Players:GetPlayers()
+	if playerCount >= MIN_PLAYERS then
+		self:_startCountdown()
+	end
 end
 
-function GraviBowMatchService:_startHubCountdown()
-	self:_setPhase(PHASES.HUB_COUNTDOWN)
-	self:_setTimeRemaining(HUB_COUNTDOWN_TIME)
+function GraviBowMatchService:_startCountdown()
+	self:_resetRound()
+	self:_setPhase(PHASES.COUNTDOWN)
+	self:_setTimeRemaining(COUNTDOWN_TIME)
+
+	local players = Players:GetPlayers()
+	if #players == 0 then
+		self:_setPhase(PHASES.WAITING)
+		return
+	end
+
+	local chosenSnake = players[math.random(1, #players)]
+	self._snakePlayers[chosenSnake] = true
+	local key = tostring(chosenSnake.UserId)
+	self._matchReplica:SetValue({"snakePlayers", key}, true)
+	self._matchReplica:SetValue({"firstSnakeId"}, chosenSnake.UserId)
+
+	print("[GraviBowMatchService] First snake:", chosenSnake.Name)
 
 	self:_stopTimer()
 	self._timer = Timer.new(1)
@@ -176,37 +222,31 @@ function GraviBowMatchService:_startHubCountdown()
 
 		if self._timeRemaining <= 0 then
 			self:_stopTimer()
-			self:_startTeleporting()
+			self:_startSnakeSpawning()
 		end
 	end)
 	self._timer:Start()
 end
 
-function GraviBowMatchService:_startTeleporting()
-	self:_setPhase(PHASES.TELEPORTING)
+function GraviBowMatchService:_startSnakeSpawning()
+	self:_setPhase(PHASES.SNAKE_SPAWNING)
 	self:_setTimeRemaining(0)
 
-	self:_resetAllScores()
-
-	local gamePlanets = self._playerService:GetGamePlanets()
-	local players = Players:GetPlayers()
-
-	if #gamePlanets > 0 and #players > 0 then
-		for i, player in ipairs(players) do
-			local planetIndex = ((i - 1) % #gamePlanets) + 1
-			local planet = gamePlanets[planetIndex]
-			self._playerService:TeleportPlayerToPlanet(player, planet)
+	for player, isSnake in pairs(self._snakePlayers) do
+		if isSnake and player.Parent then
+			self._snakeService:BuildSnakeForPlayer(player)
+			self._playerService:HideAvatar(player)
 		end
 	end
 
-	task.delay(1, function()
-		self:_startGameActive()
+	task.delay(SNAKE_SPAWN_DELAY, function()
+		self:_startRoundActive()
 	end)
 end
 
-function GraviBowMatchService:_startGameActive()
-	self:_setPhase(PHASES.GAME_ACTIVE)
-	self:_setTimeRemaining(GAME_TIME)
+function GraviBowMatchService:_startRoundActive()
+	self:_setPhase(PHASES.ROUND_ACTIVE)
+	self:_setTimeRemaining(ROUND_TIME)
 
 	self:_stopTimer()
 	self._timer = Timer.new(1)
@@ -216,17 +256,24 @@ function GraviBowMatchService:_startGameActive()
 
 		if self._timeRemaining <= 0 then
 			self:_stopTimer()
-			self:_startGameOver()
+			self:_startRoundOver()
 		end
 	end)
 	self._timer:Start()
 end
 
-function GraviBowMatchService:_startGameOver()
-	self:_setPhase(PHASES.GAME_OVER)
+function GraviBowMatchService:_startRoundOver()
+	self:_setPhase(PHASES.ROUND_OVER)
 	self:_setTimeRemaining(0)
 
-	task.delay(1, function()
+	for _, player in ipairs(Players:GetPlayers()) do
+		if not self._snakePlayers[player] then
+			local key = tostring(player.UserId)
+			self._matchReplica:SetValue({"scores", key, "survived"}, true)
+		end
+	end
+
+	task.delay(2, function()
 		self:_startResults()
 	end)
 end
@@ -243,19 +290,30 @@ function GraviBowMatchService:_startResults()
 
 		if self._timeRemaining <= 0 then
 			self:_stopTimer()
-			self:_returnToHub()
+			self:_returnToWaiting()
 		end
 	end)
 	self._timer:Start()
 end
 
-function GraviBowMatchService:_returnToHub()
-	for _, player in ipairs(Players:GetPlayers()) do
-		self._playerService:TeleportPlayerToOwnPlanet(player)
+function GraviBowMatchService:_returnToWaiting()
+	for player, _ in pairs(self._snakePlayers) do
+		if player.Parent then
+			self._snakeService:DestroySnakeForPlayer(player)
+		end
 	end
 
-	self:_setPhase(PHASES.HUB_WAITING)
+	self._snakePlayers = {}
+	self._killDebounce = {}
+	self._matchReplica:SetValue({"snakePlayers"}, {})
+	self._matchReplica:SetValue({"firstSnakeId"}, 0)
+
+	self:_setPhase(PHASES.WAITING)
 	self:_setTimeRemaining(0)
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		self._playerService:ShowAvatar(player)
+	end
 
 	task.defer(function()
 		self:_checkPlayerCount()

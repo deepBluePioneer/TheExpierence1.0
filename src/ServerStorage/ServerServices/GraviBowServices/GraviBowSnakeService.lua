@@ -28,9 +28,9 @@ local GraviBowSnakeService = Knit.CreateService({
 	Client = {},
 
 	_trove = nil,
-	_playerTroves = {},
-	_charTroves = {},
 	_snakeFolder = nil,
+	_snakeTroves = {},
+	_touchConnections = {},
 })
 
 function GraviBowSnakeService:KnitInit()
@@ -38,107 +38,38 @@ function GraviBowSnakeService:KnitInit()
 end
 
 function GraviBowSnakeService:KnitStart()
+	self._matchService = Knit.GetService("GraviBowMatchService")
+
 	self._snakeFolder = Instance.new("Folder")
 	self._snakeFolder.Name = "SnakeBodies"
 	self._snakeFolder.Parent = Workspace
 	self._trove:Add(self._snakeFolder)
 
-	self._trove:Add(Players.PlayerAdded:Connect(function(player)
-		self:_onPlayerAdded(player)
-	end), "Disconnect")
-
 	self._trove:Add(Players.PlayerRemoving:Connect(function(player)
-		self:_onPlayerRemoving(player)
+		self:DestroySnakeForPlayer(player)
 	end), "Disconnect")
-
-	for _, player in ipairs(Players:GetPlayers()) do
-		self:_onPlayerAdded(player)
-	end
 end
 
-function GraviBowSnakeService:_onPlayerAdded(player)
-	local playerTrove = Trove.new()
-	self._playerTroves[player] = playerTrove
+function GraviBowSnakeService:BuildSnakeForPlayer(player)
+	self:DestroySnakeForPlayer(player)
 
-	playerTrove:Add(player.CharacterAdded:Connect(function(character)
-		self:_onCharacterAdded(player, character)
-	end), "Disconnect")
+	local character = player.Character
+	if not character then return end
 
-	if player.Character then
-		self:_onCharacterAdded(player, player.Character)
-	end
-end
-
-function GraviBowSnakeService:_onPlayerRemoving(player)
-	if self._charTroves[player] then
-		self._charTroves[player]:Clean()
-		self._charTroves[player] = nil
-	end
-	local playerTrove = self._playerTroves[player]
-	if playerTrove then
-		playerTrove:Clean()
-		self._playerTroves[player] = nil
-	end
-end
-
-function GraviBowSnakeService:_onCharacterAdded(player, character)
-	local playerTrove = self._playerTroves[player]
-	if not playerTrove then return end
-
-	if self._charTroves[player] then
-		self._charTroves[player]:Clean()
-	end
-	local charTrove = Trove.new()
-	self._charTroves[player] = charTrove
-
-	local hrp = character:WaitForChild("HumanoidRootPart", 10)
-	if not hrp then return end
-
-	local rayParams = RaycastParams.new()
-	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	local excludeList = { character }
-	local snakeBodies = Workspace:FindFirstChild("SnakeBodies")
-	if snakeBodies then table.insert(excludeList, snakeBodies) end
-	local gravZones = Workspace:FindFirstChild("GravityZones")
-	if gravZones then table.insert(excludeList, gravZones) end
-	local tpFolder = Workspace:FindFirstChild("TerrainPlanets")
-	if tpFolder then table.insert(excludeList, tpFolder) end
-	rayParams.FilterDescendantsInstances = excludeList
-
-	local grounded = false
-	for _ = 1, 200 do
-		if not character.Parent then return end
-		local origin = hrp.Position
-		local down = -origin.Unit
-		if origin.Magnitude < 0.01 then down = Vector3.new(0, -1, 0) end
-		local result = Workspace:Raycast(origin, down * 15, rayParams)
-		if result then
-			grounded = true
-			break
-		end
-		task.wait(0.1)
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if not hrp then
+		hrp = character:WaitForChild("HumanoidRootPart", 10)
+		if not hrp then return end
 	end
 
-	if not grounded then
-		warn("[GraviBowSnakeService] Player", player.Name, "never grounded, building snake anyway")
-	end
-
-	task.wait(3)
-	if not character.Parent then return end
+	local snakeTrove = Trove.new()
+	self._snakeTroves[player] = snakeTrove
 
 	local folder = Instance.new("Folder")
 	folder.Name = "Snake_" .. player.UserId
 	folder:SetAttribute("OwnerId", player.UserId)
 	folder:SetAttribute("SegmentCount", SEGMENT_COUNT)
-	folder.Parent = self._snakeFolder
-	charTrove:Add(folder)
-
-	local charParts = {}
-	for _, desc in ipairs(character:GetDescendants()) do
-		if desc:IsA("BasePart") then
-			table.insert(charParts, desc)
-		end
-	end
+	snakeTrove:Add(folder)
 
 	local segments = {}
 
@@ -151,9 +82,9 @@ function GraviBowSnakeService:_onCharacterAdded(player, character)
 		seg.Size = Vector3.new(SEGMENT_LENGTH, diameter, diameter)
 		seg.CFrame = CFrame.new(hrp.Position - hrp.CFrame.LookVector * (SEGMENT_TRAIL_GAP * i))
 		seg.Anchored = false
-		seg.CanCollide = true
+		seg.CanCollide = false
 		seg.CanQuery = false
-		seg.CanTouch = false
+		seg.CanTouch = true
 		seg.Massless = true
 		seg.CastShadow = false
 		seg.TopSurface = Enum.SurfaceType.Smooth
@@ -162,13 +93,6 @@ function GraviBowSnakeService:_onCharacterAdded(player, character)
 
 		seg.Color = BODY_COLOR
 		seg.Transparency = BODY_TRANSPARENCY
-
-		for _, charPart in ipairs(charParts) do
-			local nc = Instance.new("NoCollisionConstraint")
-			nc.Part0 = seg
-			nc.Part1 = charPart
-			nc.Parent = seg
-		end
 
 		local att = Instance.new("Attachment")
 		att.Name = "CenterAtt"
@@ -194,7 +118,6 @@ function GraviBowSnakeService:_onCharacterAdded(player, character)
 		alignOri.Parent = seg
 
 		seg.Parent = folder
-		seg:SetNetworkOwner(player)
 		table.insert(segments, seg)
 	end
 
@@ -207,7 +130,67 @@ function GraviBowSnakeService:_onCharacterAdded(player, character)
 		end
 	end
 
+	self:_addCharacterNoCollision(character, segments, snakeTrove)
+
+	folder.Parent = self._snakeFolder
+
+	for _, seg in ipairs(segments) do
+		seg:SetNetworkOwner(player)
+	end
+
+	self:_connectTouchDetection(player, segments, snakeTrove)
+
 	print("[GraviBowSnakeService] Built snake for", player.Name)
+end
+
+function GraviBowSnakeService:DestroySnakeForPlayer(player)
+	local trove = self._snakeTroves[player]
+	if trove then
+		trove:Clean()
+		self._snakeTroves[player] = nil
+	end
+end
+
+function GraviBowSnakeService:_addCharacterNoCollision(character, segments, snakeTrove)
+	local function addNoCollisionForPart(charPart)
+		if not charPart:IsA("BasePart") then return end
+		for _, seg in ipairs(segments) do
+			if not seg.Parent then continue end
+			local nc = Instance.new("NoCollisionConstraint")
+			nc.Part0 = seg
+			nc.Part1 = charPart
+			nc.Parent = seg
+		end
+	end
+
+	for _, desc in ipairs(character:GetDescendants()) do
+		addNoCollisionForPart(desc)
+	end
+
+	snakeTrove:Add(character.DescendantAdded:Connect(function(desc)
+		addNoCollisionForPart(desc)
+	end), "Disconnect")
+end
+
+function GraviBowSnakeService:_connectTouchDetection(ownerPlayer, segments, snakeTrove)
+	for _, seg in ipairs(segments) do
+		local conn = seg.Touched:Connect(function(hit)
+			if not self._matchService:IsRoundActive() then return end
+
+			local hitCharacter = hit.Parent
+			if not hitCharacter then return end
+			local humanoid = hitCharacter:FindFirstChildOfClass("Humanoid")
+			if not humanoid then return end
+
+			local victimPlayer = Players:GetPlayerFromCharacter(hitCharacter)
+			if not victimPlayer then return end
+			if victimPlayer == ownerPlayer then return end
+			if self._matchService:IsSnakePlayer(victimPlayer) then return end
+
+			self._matchService:ConvertToSnake(victimPlayer)
+		end)
+		snakeTrove:Add(conn, "Disconnect")
+	end
 end
 
 function GraviBowSnakeService:_segmentScale(_index)

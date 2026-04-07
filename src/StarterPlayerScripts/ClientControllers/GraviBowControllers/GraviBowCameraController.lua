@@ -12,10 +12,14 @@ local Shake = require(Packages.Shake)
 local LocalPlayer = Players.LocalPlayer
 
 local MOUSE_SENSITIVITY = 0.3
+local TOUCH_SENSITIVITY = 0.18
+local PINCH_ZOOM_SPEED = 0.08
 local PITCH_MIN = -80
 local PITCH_MAX = 80
 local MIN_DISTANCE = 0
 local MAX_DISTANCE = 30
+local SNAKE_MIN_DISTANCE = 10
+local DEFAULT_MOBILE_DISTANCE = 15
 local SCROLL_STEP = 3
 local FOV_FIRST_PERSON = 55
 local FOV_THIRD_PERSON = 70
@@ -41,6 +45,10 @@ local GraviBowCameraController = Knit.CreateController({
 	_spectatingDeath = false,
 	_digTarget = nil,
 	_digLerpAlpha = 0,
+	_isMobile = false,
+	_activeTouches = {},
+	_cameraTouchId = nil,
+	_lastPinchDistance = nil,
 })
 
 function GraviBowCameraController:KnitInit()
@@ -50,9 +58,22 @@ end
 function GraviBowCameraController:KnitStart()
 	self._gravityController = Knit.GetController("GraviBowGravityController")
 	self._toolController = Knit.GetController("GraviBowToolController")
-	self._mouseLocked = true
+	self._matchController = Knit.GetController("GraviBowMatchController")
+
+	self._isMobile = UserInputService.TouchEnabled
+	self._mouseLocked = not self._isMobile
+
+	if self._isMobile then
+		self._distance = DEFAULT_MOBILE_DISTANCE
+	end
 
 	self._trove:Add(UserInputService.InputBegan:Connect(function(input, processed)
+		if input.UserInputType == Enum.UserInputType.Touch then
+			if not processed then
+				self:_handleTouchBegan(input)
+			end
+			return
+		end
 		if processed then return end
 		if input.KeyCode == Enum.KeyCode.U then
 			self._mouseLocked = not self._mouseLocked
@@ -64,15 +85,28 @@ function GraviBowCameraController:KnitStart()
 	end), "Disconnect")
 
 	self._trove:Add(UserInputService.InputChanged:Connect(function(input, processed)
+		if input.UserInputType == Enum.UserInputType.Touch then
+			if not processed then
+				self:_handleTouchChanged(input)
+			end
+			return
+		end
 		if processed then return end
-		if not self._mouseLocked then return end
 		if input.UserInputType == Enum.UserInputType.MouseMovement then
-			self._yaw = self._yaw + input.Delta.X * MOUSE_SENSITIVITY
-			self._pitch = math.clamp(self._pitch - input.Delta.Y * MOUSE_SENSITIVITY, PITCH_MIN, PITCH_MAX)
+			if self._mouseLocked then
+				self._yaw = self._yaw + input.Delta.X * MOUSE_SENSITIVITY
+				self._pitch = math.clamp(self._pitch - input.Delta.Y * MOUSE_SENSITIVITY, PITCH_MIN, PITCH_MAX)
+			end
 		elseif input.UserInputType == Enum.UserInputType.MouseWheel then
 			if not (self._toolController and self._toolController:IsRadialOpen()) then
 				self._distance = math.clamp(self._distance - input.Position.Z * SCROLL_STEP, MIN_DISTANCE, MAX_DISTANCE)
 			end
+		end
+	end), "Disconnect")
+
+	self._trove:Add(UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch then
+			self:_handleTouchEnded(input)
 		end
 	end), "Disconnect")
 
@@ -83,7 +117,6 @@ function GraviBowCameraController:KnitStart()
 	if LocalPlayer.Character then
 		self:_onCharacterAdded(LocalPlayer.Character)
 	end
-
 end
 
 function GraviBowCameraController:_onCharacterAdded(character)
@@ -101,8 +134,10 @@ function GraviBowCameraController:_onCharacterAdded(character)
 
 	local camera = Workspace.CurrentCamera
 	camera.CameraType = Enum.CameraType.Scriptable
-	UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
-	UserInputService.MouseIconEnabled = false
+	if not self._isMobile then
+		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+		UserInputService.MouseIconEnabled = false
+	end
 
 	local initUp = -self._gravityController:GetSmoothedGravityDirection()
 	self._prevUp = initUp
@@ -122,8 +157,10 @@ function GraviBowCameraController:_onCharacterAdded(character)
 	self._characterTrove:Add(function()
 		RunService:UnbindFromRenderStep(CAM_RENDER_NAME)
 		camera.CameraType = Enum.CameraType.Custom
-		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-		UserInputService.MouseIconEnabled = true
+		if not self._isMobile then
+			UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+			UserInputService.MouseIconEnabled = true
+		end
 	end)
 
 	if humanoid then
@@ -137,6 +174,56 @@ function GraviBowCameraController:_onCharacterAdded(character)
 			end)
 		end), "Disconnect")
 	end
+end
+
+function GraviBowCameraController:_handleTouchBegan(input)
+	self._activeTouches[input] = true
+	if not self._cameraTouchId then
+		self._cameraTouchId = input
+	end
+	self._lastPinchDistance = nil
+end
+
+function GraviBowCameraController:_handleTouchChanged(input)
+	if not self._activeTouches[input] then return end
+
+	local touchCount = 0
+	for _ in pairs(self._activeTouches) do touchCount += 1 end
+
+	if touchCount >= 2 then
+		self:_updatePinchZoom()
+	elseif self._cameraTouchId == input then
+		self._yaw = self._yaw + input.Delta.X * TOUCH_SENSITIVITY
+		self._pitch = math.clamp(self._pitch - input.Delta.Y * TOUCH_SENSITIVITY, PITCH_MIN, PITCH_MAX)
+	end
+end
+
+function GraviBowCameraController:_handleTouchEnded(input)
+	self._activeTouches[input] = nil
+	if self._cameraTouchId == input then
+		self._cameraTouchId = nil
+		for touch in pairs(self._activeTouches) do
+			self._cameraTouchId = touch
+			break
+		end
+	end
+	self._lastPinchDistance = nil
+end
+
+function GraviBowCameraController:_updatePinchZoom()
+	local touches = {}
+	for touch in pairs(self._activeTouches) do
+		table.insert(touches, touch)
+		if #touches == 2 then break end
+	end
+	if #touches < 2 then return end
+
+	local dist = (touches[1].Position - touches[2].Position).Magnitude
+	if self._lastPinchDistance then
+		local delta = dist - self._lastPinchDistance
+		self._distance = math.clamp(self._distance - delta * PINCH_ZOOM_SPEED, MIN_DISTANCE, MAX_DISTANCE)
+	end
+	self._lastPinchDistance = dist
 end
 
 function GraviBowCameraController:_fromToRotation(from, to)
@@ -159,6 +246,12 @@ function GraviBowCameraController:_fromToRotation(from, to)
 end
 
 function GraviBowCameraController:_updateCamera(hrp, head, camera)
+	if self._matchController and self._matchController:IsLocalPlayerSnake() then
+		if self._distance < SNAKE_MIN_DISTANCE then
+			self._distance = SNAKE_MIN_DISTANCE
+		end
+	end
+
 	local gravityDir = self._gravityController:GetSmoothedGravityDirection()
 	local upDir = -gravityDir
 
@@ -225,6 +318,8 @@ function GraviBowCameraController:_updateCamera(hrp, head, camera)
 		if gravZones then table.insert(camFilter, gravZones) end
 		local tpFolder = Workspace:FindFirstChild("TerrainPlanets")
 		if tpFolder then table.insert(camFilter, tpFolder) end
+		local structures = Workspace:FindFirstChild("Structures")
+		if structures then table.insert(camFilter, structures) end
 
 		local rayParams = RaycastParams.new()
 		rayParams.FilterDescendantsInstances = camFilter

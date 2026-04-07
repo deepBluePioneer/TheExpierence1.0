@@ -95,7 +95,7 @@ function GraviBowPlayerService:_onArrowHit(shooter, victimPlayer)
 	if not victimPlayer or not victimPlayer:IsA("Player") then return end
 	if victimPlayer == shooter then return end
 
-	if self._matchService and self._matchService:GetPhase() ~= "GAME_ACTIVE" then
+	if self._matchService and self._matchService:GetPhase() ~= "ROUND_ACTIVE" then
 		return
 	end
 
@@ -105,18 +105,12 @@ function GraviBowPlayerService:_onArrowHit(shooter, victimPlayer)
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	if not humanoid or humanoid.Health <= 0 then return end
 
-	if self._matchService then
-		self._matchService:RecordHit(shooter)
-	end
-
 	humanoid.Health = 0
-
-	if self._matchService then
-		self._matchService:RecordKill(shooter, victimPlayer)
-	end
 end
 
 function GraviBowPlayerService:_onPlayerAdded(player)
+	player.DevTouchMovementMode = Enum.DevTouchMovementMode.Scriptable
+
 	self._oreService:CreateOreReplica(player)
 
 	local function onCharacterAdded(character)
@@ -142,6 +136,19 @@ function GraviBowPlayerService:_onPlayerDied(player)
 		if not player.Parent then return end
 		player:LoadCharacter()
 	end)
+end
+
+function GraviBowPlayerService:_onCharacterRespawned(player, character)
+	self._matchService = self._matchService or Knit.GetService("GraviBowMatchService")
+	local snakeService = Knit.GetService("GraviBowSnakeService")
+
+	if self._matchService:IsSnakePlayer(player) then
+		self:_hideAvatar(character)
+		task.defer(function()
+			if not character.Parent then return end
+			snakeService:BuildSnakeForPlayer(player)
+		end)
+	end
 end
 
 function GraviBowPlayerService:_setupLighting()
@@ -252,7 +259,11 @@ function GraviBowPlayerService:_setupCharacter(player, character)
 	end
 
 	self:_setPartFriction(character)
-	self:_hideAvatar(character)
+
+	self._matchService = self._matchService or Knit.GetService("GraviBowMatchService")
+	if self._matchService:IsSnakePlayer(player) then
+		self:_hideAvatar(character)
+	end
 
 	-- local highlight = Instance.new("Highlight")
 	-- highlight.FillColor = Color3.fromRGB(255, 200, 50)
@@ -296,6 +307,8 @@ function GraviBowPlayerService:_setupCharacter(player, character)
 	else
 		warn("[GraviBowPlayerService] No shared planet - cannot spawn")
 	end
+
+	self:_onCharacterRespawned(player, character)
 end
 
 function GraviBowPlayerService:_setupLeftHandGrip(character)
@@ -570,7 +583,21 @@ function GraviBowPlayerService:GetGamePlanets()
 	return list
 end
 
+function GraviBowPlayerService:HideAvatar(player)
+	local character = player.Character
+	if not character then return end
+	self:_hideAvatar(character)
+end
+
+function GraviBowPlayerService:ShowAvatar(player)
+	local character = player.Character
+	if not character then return end
+	self:_showAvatar(character)
+end
+
 function GraviBowPlayerService:_hideAvatar(character)
+	character:SetAttribute("AvatarHidden", true)
+
 	local function hideDescendant(desc)
 		if desc:IsA("BasePart") then
 			desc.Transparency = 1
@@ -584,8 +611,24 @@ function GraviBowPlayerService:_hideAvatar(character)
 	end
 
 	character.DescendantAdded:Connect(function(desc)
-		hideDescendant(desc)
+		if character:GetAttribute("AvatarHidden") then
+			hideDescendant(desc)
+		end
 	end)
+end
+
+function GraviBowPlayerService:_showAvatar(character)
+	character:SetAttribute("AvatarHidden", false)
+
+	for _, desc in ipairs(character:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			if desc.Name ~= "HumanoidRootPart" then
+				desc.Transparency = 0
+			end
+		elseif desc:IsA("Decal") or desc:IsA("Texture") then
+			desc.Transparency = 0
+		end
+	end
 end
 
 function GraviBowPlayerService:_setPartFriction(character)

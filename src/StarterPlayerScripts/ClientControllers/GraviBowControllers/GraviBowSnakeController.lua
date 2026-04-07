@@ -42,37 +42,61 @@ function GraviBowSnakeController:KnitStart()
 	self._gravityController = Knit.GetController("GraviBowGravityController")
 	self._characterController = Knit.GetController("GraviBowCharacterController")
 
-	self._trove:Add(LocalPlayer.CharacterAdded:Connect(function(character)
-		self:_onCharacterAdded(character)
+	local folderName = "Snake_" .. LocalPlayer.UserId
+
+	local snakeBodies = Workspace:WaitForChild("SnakeBodies", 30)
+	if not snakeBodies then return end
+
+	self._snakeBodies = snakeBodies
+	self._folderName = folderName
+	self._activeFolder = nil
+
+	local function onSnakeFolderAdded(folder)
+		if folder.Name ~= folderName then return end
+		self._activeFolder = folder
+		self:_activateSnake(folder)
+	end
+
+	local function onSnakeFolderRemoved(folder)
+		if folder.Name ~= folderName then return end
+		self._activeFolder = nil
+		self:_deactivateSnake()
+	end
+
+	self._trove:Add(snakeBodies.ChildAdded:Connect(onSnakeFolderAdded), "Disconnect")
+	self._trove:Add(snakeBodies.ChildRemoved:Connect(onSnakeFolderRemoved), "Disconnect")
+
+	self._trove:Add(LocalPlayer.CharacterAdded:Connect(function()
+		if self._activeFolder then
+			self:_activateSnake(self._activeFolder)
+		end
 	end), "Disconnect")
 
-	if LocalPlayer.Character then
-		self:_onCharacterAdded(LocalPlayer.Character)
+	local existing = snakeBodies:FindFirstChild(folderName)
+	if existing then
+		onSnakeFolderAdded(existing)
 	end
 end
 
-function GraviBowSnakeController:_onCharacterAdded(character)
-	if self._characterTrove then
-		self._characterTrove:Clean()
+function GraviBowSnakeController:_activateSnake(folder)
+	self:_deactivateSnake()
+
+	local character = LocalPlayer.Character
+	if not character then return end
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if not hrp then
+		hrp = character:WaitForChild("HumanoidRootPart", 10)
+		if not hrp then return end
 	end
+
 	self._characterTrove = self._trove:Extend()
-	self._segments = {}
-	self._trail = {}
-	self._trailHead = 0
-	self._trailCount = 0
-	self._lastSamplePos = nil
-
-	local hrp = character:WaitForChild("HumanoidRootPart", 10)
-	if not hrp then return end
-
-	local folder = self:_waitForSnakeFolder()
-	if not folder then return end
 
 	local segmentCount = folder:GetAttribute("SegmentCount") or 20
 	self._segmentCount = segmentCount
 	self._samplesPerSegF = SEGMENT_TRAIL_GAP / SAMPLE_DISTANCE
 	self._bufferSize = math.ceil(segmentCount * self._samplesPerSegF) + 30
 
+	self._trail = {}
 	local backDir = -hrp.CFrame.LookVector
 	for i = 1, self._bufferSize do
 		local stepsFromHead = self._bufferSize - i
@@ -89,46 +113,93 @@ function GraviBowSnakeController:_onCharacterAdded(character)
 	end), "Disconnect")
 end
 
-function GraviBowSnakeController:_waitForSnakeFolder()
-	local snakeBodies = Workspace:WaitForChild("SnakeBodies", 15)
-	if not snakeBodies then return nil end
-
-	local folderName = "Snake_" .. LocalPlayer.UserId
-	local folder = snakeBodies:FindFirstChild(folderName)
-	if folder then return folder end
-
-	local startTime = os.clock()
-	while os.clock() - startTime < 15 do
-		folder = snakeBodies:FindFirstChild(folderName)
-		if folder then return folder end
-		task.wait(0.1)
+function GraviBowSnakeController:_deactivateSnake()
+	if self._characterTrove then
+		self._characterTrove:Clean()
+		self._characterTrove = nil
 	end
-
-	warn("[GraviBowSnakeController] Timed out waiting for snake folder")
-	return nil
+	self._segments = {}
+	self._trail = {}
+	self._trailHead = 0
+	self._trailCount = 0
+	self._lastSamplePos = nil
+	self._wasDigging = false
+	self._lastDigBezier = nil
 end
 
 function GraviBowSnakeController:_collectSegments(folder)
 	self._segments = {}
+
 	for i = 1, self._segmentCount do
-		local seg = folder:WaitForChild("Seg_" .. i, 15)
-		if not seg then
-			warn("[GraviBowSnakeController] Timed out waiting for Seg_" .. i)
-			continue
-		end
+		self:_tryAddSegment(folder:FindFirstChild("Seg_" .. i), i)
+	end
 
-		local alignPos = seg:WaitForChild("TrailAlign", 5)
-		local alignOri = seg:WaitForChild("TrailOrient", 5)
-		if not alignPos or not alignOri then
-			warn("[GraviBowSnakeController] Missing constraints on Seg_" .. i)
-			continue
-		end
+	if self._characterTrove then
+		self._characterTrove:Add(folder.ChildAdded:Connect(function(child)
+			local segNum = tonumber(child.Name:match("^Seg_(%d+)$"))
+			if not segNum or self._segments[segNum] then return end
+			task.defer(function()
+				self:_tryAddSegment(child, segNum)
+				self:_snapSegmentToTrail(segNum)
+			end)
+		end), "Disconnect")
+	end
 
-		self._segments[i] = {
-			part = seg,
-			alignPos = alignPos,
-			alignOri = alignOri,
-		}
+	self:_snapAllSegmentsToTrail()
+end
+
+function GraviBowSnakeController:_tryAddSegment(seg, index)
+	if not seg then return end
+	local alignPos = seg:FindFirstChild("TrailAlign")
+	if not alignPos then
+		alignPos = seg:WaitForChild("TrailAlign", 2)
+	end
+	local alignOri = seg:FindFirstChild("TrailOrient")
+	if not alignOri then
+		alignOri = seg:WaitForChild("TrailOrient", 2)
+	end
+	if not alignPos or not alignOri then return end
+
+	self._segments[index] = {
+		part = seg,
+		alignPos = alignPos,
+		alignOri = alignOri,
+	}
+end
+
+function GraviBowSnakeController:_snapSegmentToTrail(index)
+	local data = self._segments[index]
+	if not data then return end
+	if self._trailCount < 1 then return end
+
+	local planetCenter = self._gravityController:GetSphereCenter()
+	if not planetCenter then return end
+
+	local trailF = index * self._samplesPerSegF
+	if trailF < 0 then trailF = 0 end
+	local targetPos = self:_getSampleLerped(trailF)
+
+	local aheadF = math.max(0, trailF - self._samplesPerSegF)
+	local aheadPos = self:_getSampleLerped(aheadF)
+
+	local toCenter = planetCenter - targetPos
+	local upDir
+	if toCenter.Magnitude > 0.01 then upDir = -toCenter.Unit else upDir = Vector3.yAxis end
+
+	local scale = self:_segmentScale(index)
+	local finalPos = targetPos + upDir * (GROUND_OFFSET * scale)
+	local fwd = aheadPos - targetPos
+	if fwd.Magnitude < 0.01 then fwd = upDir:Cross(Vector3.new(0, 0, 1)) end
+	local ori = self:_cubeOrientation(upDir, fwd)
+
+	data.part.CFrame = ori + finalPos
+	data.alignPos.Position = finalPos
+	data.alignOri.CFrame = ori
+end
+
+function GraviBowSnakeController:_snapAllSegmentsToTrail()
+	for i = 1, self._segmentCount do
+		self:_snapSegmentToTrail(i)
 	end
 end
 

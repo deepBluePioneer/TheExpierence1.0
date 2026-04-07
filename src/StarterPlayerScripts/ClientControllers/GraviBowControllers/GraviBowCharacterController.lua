@@ -45,6 +45,9 @@ local ANIM_FADE_TIME = 0.2
 
 local GRAVITY_FORCE = 40
 
+local LUNGE_IMPULSE = 250
+local LUNGE_COOLDOWN = 1.0
+
 local DIG_SPEED_THRESHOLD = 40
 local DIG_DURATION = 0.6
 local DIG_EXIT_VELOCITY = 55
@@ -91,6 +94,11 @@ local GraviBowCharacterController = Knit.CreateController({
 	_jumpBufferTimer = 0,
 	_wasGrounded = false,
 
+	_lungeCooldownTimer = 0,
+	_isMobile = false,
+	_thumbstickDir = nil,
+	_thumbstickTouchId = nil,
+
 	_isDigging = false,
 	_digTimer = 0,
 	_digEntryPos = nil,
@@ -110,6 +118,10 @@ function GraviBowCharacterController:KnitStart()
 	self._groundController = Knit.GetController("GraviBowGroundController")
 	self._cameraController = Knit.GetController("GraviBowCameraController")
 	self._jetpackController = Knit.GetController("GraviBowJetpackController")
+	self._matchController = Knit.GetController("GraviBowMatchController")
+
+	self._isMobile = UserInputService.TouchEnabled
+	self._thumbstickDir = Vector3.zero
 
 	self._trove:Add(UserInputService.JumpRequest:Connect(function()
 		self:_onJumpRequest()
@@ -132,6 +144,10 @@ function GraviBowCharacterController:KnitStart()
 		end
 	end), "Disconnect")
 
+	if self._isMobile then
+		self:_createMobileControls()
+	end
+
 	self._trove:Add(LocalPlayer.CharacterAdded:Connect(function(character)
 		self:_onCharacterAdded(character)
 	end), "Disconnect")
@@ -139,6 +155,159 @@ function GraviBowCharacterController:KnitStart()
 	if LocalPlayer.Character then
 		self:_onCharacterAdded(LocalPlayer.Character)
 	end
+end
+
+function GraviBowCharacterController:_createMobileControls()
+	local STICK_COLOR = Color3.fromRGB(255, 150, 40)
+	local STICK_BG = Color3.fromRGB(25, 18, 12)
+	local JUMP_COLOR = Color3.fromRGB(255, 150, 40)
+
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "MobileControls"
+	gui.ResetOnSpawn = false
+	gui.DisplayOrder = 200
+	gui.IgnoreGuiInset = true
+	gui.Parent = LocalPlayer.PlayerGui
+	self._trove:Add(gui)
+
+	local thumbOuter = Instance.new("TextButton")
+	thumbOuter.Name = "ThumbstickOuter"
+	thumbOuter.Active = true
+	thumbOuter.AnchorPoint = Vector2.new(0.5, 0.5)
+	thumbOuter.Position = UDim2.fromScale(0.13, 0.72)
+	thumbOuter.Size = UDim2.fromScale(0.18, 0)
+	thumbOuter.BackgroundColor3 = STICK_BG
+	thumbOuter.BackgroundTransparency = 0.5
+	thumbOuter.BorderSizePixel = 0
+	thumbOuter.Text = ""
+	thumbOuter.AutoButtonColor = false
+	thumbOuter.Parent = gui
+
+	local outerAR = Instance.new("UIAspectRatioConstraint")
+	outerAR.AspectRatio = 1
+	outerAR.Parent = thumbOuter
+
+	local outerCorner = Instance.new("UICorner")
+	outerCorner.CornerRadius = UDim.new(1, 0)
+	outerCorner.Parent = thumbOuter
+
+	local outerStroke = Instance.new("UIStroke")
+	outerStroke.Color = STICK_COLOR
+	outerStroke.Thickness = 2
+	outerStroke.Transparency = 0.4
+	outerStroke.Parent = thumbOuter
+
+	local thumbInner = Instance.new("Frame")
+	thumbInner.Name = "ThumbstickInner"
+	thumbInner.AnchorPoint = Vector2.new(0.5, 0.5)
+	thumbInner.Position = UDim2.fromScale(0.5, 0.5)
+	thumbInner.Size = UDim2.fromScale(0.4, 0.4)
+	thumbInner.BackgroundColor3 = STICK_COLOR
+	thumbInner.BackgroundTransparency = 0.3
+	thumbInner.BorderSizePixel = 0
+	thumbInner.Parent = thumbOuter
+
+	local innerAR = Instance.new("UIAspectRatioConstraint")
+	innerAR.AspectRatio = 1
+	innerAR.Parent = thumbInner
+
+	local innerCorner = Instance.new("UICorner")
+	innerCorner.CornerRadius = UDim.new(1, 0)
+	innerCorner.Parent = thumbInner
+
+	local jumpBtn = Instance.new("TextButton")
+	jumpBtn.Name = "JumpButton"
+	jumpBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+	jumpBtn.Position = UDim2.fromScale(0.88, 0.72)
+	jumpBtn.Size = UDim2.fromScale(0.13, 0)
+	jumpBtn.BackgroundColor3 = STICK_BG
+	jumpBtn.BackgroundTransparency = 0.5
+	jumpBtn.BorderSizePixel = 0
+	jumpBtn.Text = ""
+	jumpBtn.AutoButtonColor = false
+	jumpBtn.Parent = gui
+
+	local jumpAR = Instance.new("UIAspectRatioConstraint")
+	jumpAR.AspectRatio = 1
+	jumpAR.Parent = jumpBtn
+
+	local jumpCorner = Instance.new("UICorner")
+	jumpCorner.CornerRadius = UDim.new(1, 0)
+	jumpCorner.Parent = jumpBtn
+
+	local jumpStroke = Instance.new("UIStroke")
+	jumpStroke.Color = JUMP_COLOR
+	jumpStroke.Thickness = 2
+	jumpStroke.Transparency = 0.4
+	jumpStroke.Parent = jumpBtn
+
+	local jumpIcon = Instance.new("TextLabel")
+	jumpIcon.Size = UDim2.fromScale(1, 1)
+	jumpIcon.BackgroundTransparency = 1
+	jumpIcon.Text = "^"
+	jumpIcon.TextScaled = true
+	jumpIcon.TextColor3 = JUMP_COLOR
+	jumpIcon.Font = Enum.Font.GothamBold
+	jumpIcon.Parent = jumpBtn
+
+	local jumpTSC = Instance.new("UITextSizeConstraint")
+	jumpTSC.MinTextSize = 16
+	jumpTSC.MaxTextSize = 48
+	jumpTSC.Parent = jumpIcon
+
+	thumbOuter.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch then
+			self._thumbstickTouchId = input
+		end
+	end)
+
+	self._trove:Add(UserInputService.InputChanged:Connect(function(input)
+		if input ~= self._thumbstickTouchId then return end
+		if input.UserInputType ~= Enum.UserInputType.Touch then return end
+
+		local center = thumbOuter.AbsolutePosition + thumbOuter.AbsoluteSize / 2
+		local touchPos = Vector2.new(input.Position.X, input.Position.Y)
+		local offset = touchPos - center
+		local radius = thumbOuter.AbsoluteSize.X / 2
+
+		local clampedOffset = offset
+		if offset.Magnitude > radius then
+			clampedOffset = offset.Unit * radius
+		end
+
+		local norm = clampedOffset / radius
+		thumbInner.Position = UDim2.fromScale(0.5 + norm.X * 0.35, 0.5 + norm.Y * 0.35)
+
+		local mag = math.min(offset.Magnitude / radius, 1)
+		if mag < 0.15 then
+			self._thumbstickDir = Vector3.zero
+		else
+			local dir = offset.Unit
+			self._thumbstickDir = Vector3.new(dir.X, 0, dir.Y) * mag
+		end
+	end), "Disconnect")
+
+	self._trove:Add(UserInputService.InputEnded:Connect(function(input)
+		if input ~= self._thumbstickTouchId then return end
+		self._thumbstickTouchId = nil
+		self._thumbstickDir = Vector3.zero
+		thumbInner.Position = UDim2.fromScale(0.5, 0.5)
+	end), "Disconnect")
+
+	jumpBtn.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch then
+			self._jumpHeld = true
+			self._jumpReleased = false
+			self:_onJumpRequest()
+		end
+	end)
+
+	jumpBtn.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch then
+			self._jumpHeld = false
+			self._jumpReleased = true
+		end
+	end)
 end
 
 function GraviBowCharacterController:_createStateMachine()
@@ -310,10 +479,45 @@ function GraviBowCharacterController:_update(hrp, dt)
 	self:_updateAnimation()
 	self:_updateCharacterVisibility()
 
+	if self._lungeCooldownTimer > 0 then
+		self._lungeCooldownTimer -= dt
+	end
+
 	self._wasGrounded = isGrounded
 	hrp.AssemblyAngularVelocity = Vector3.zero
 
 	self.State = self._stateMachine.current
+end
+
+function GraviBowCharacterController:_tryLunge()
+	if self._lungeCooldownTimer > 0 then return end
+	if self._isDigging then return end
+
+	local character = self._character
+	if not character then return end
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+
+	local upDir = -self._gravityController.GravityDirection
+	local moveDir = self:_getWorldMoveDirection(upDir)
+
+	if moveDir.Magnitude < 0.01 then
+		local vel = hrp.AssemblyLinearVelocity
+		local tangent = vel - upDir * vel:Dot(upDir)
+		if tangent.Magnitude > 1 then
+			moveDir = tangent.Unit
+		else
+			moveDir = self._cameraController.CameraLookOnSurface
+			if not moveDir or moveDir.Magnitude < 0.01 then return end
+		end
+	end
+
+	moveDir = (moveDir - upDir * moveDir:Dot(upDir))
+	if moveDir.Magnitude < 0.01 then return end
+	moveDir = moveDir.Unit
+
+	hrp.AssemblyLinearVelocity = hrp.AssemblyLinearVelocity + moveDir * LUNGE_IMPULSE
+	self._lungeCooldownTimer = LUNGE_COOLDOWN
 end
 
 function GraviBowCharacterController:_getWorldMoveDirection(upDir)
@@ -352,6 +556,11 @@ function GraviBowCharacterController:_getInputDirection()
 	if moveDir.Magnitude > 0.01 then
 		return moveDir.Unit
 	end
+
+	if self._thumbstickDir and self._thumbstickDir.Magnitude > 0.15 then
+		return self._thumbstickDir.Unit
+	end
+
 	return Vector3.zero
 end
 
@@ -653,6 +862,10 @@ function GraviBowCharacterController:GetDigBezier()
 end
 
 function GraviBowCharacterController:_tryStartDig(hrp, upDir, impactVelocity)
+	if not self._matchController:IsLocalPlayerSnake() then
+		return false
+	end
+
 	local downSpeed = -impactVelocity:Dot(upDir)
 	if downSpeed < DIG_SPEED_THRESHOLD then
 		return false
@@ -854,6 +1067,7 @@ end
 
 function GraviBowCharacterController:_drawDigTrajectory(hrp)
 	if not Gizmo then return end
+	if not self._matchController:IsLocalPlayerSnake() then return end
 
 	local planetCenter = self._gravityController:GetSphereCenter()
 	local planetRadius = self._gravityController:GetSphereRadius()

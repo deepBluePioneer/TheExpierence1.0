@@ -27,6 +27,8 @@ local GraviBowCrystalService = Knit.CreateService({
 function GraviBowCrystalService:KnitInit() end
 
 function GraviBowCrystalService:KnitStart()
+	do return end -- crystals disabled
+
 	self._prefab = self:_findPrefab()
 	if not self._prefab then
 		warn("[GraviBowCrystalService] No crystal prefab found")
