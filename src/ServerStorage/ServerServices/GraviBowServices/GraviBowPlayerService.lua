@@ -131,6 +131,18 @@ end
 
 local SPECTATE_TIME = 3
 
+-- Default corpse lifecycle is unreliable here (most Humanoid states disabled, custom movement).
+-- Remove the dead model from Workspace; LoadCharacter still runs on SPECTATE_TIME for respawn.
+function GraviBowPlayerService:_cleanupDeadCharacter(player, character)
+	local snakeService = Knit.GetService("GraviBowSnakeService")
+	snakeService:DestroySnakeForPlayer(player)
+	task.defer(function()
+		if character.Parent then
+			character:Destroy()
+		end
+	end)
+end
+
 function GraviBowPlayerService:_onPlayerDied(player)
 	task.delay(SPECTATE_TIME, function()
 		if not player.Parent then return end
@@ -257,7 +269,12 @@ function GraviBowPlayerService:_setupCharacter(player, character)
 	humanoid.JumpHeight = 0
 
 	humanoid.Died:Once(function()
+		self._matchService = self._matchService or Knit.GetService("GraviBowMatchService")
+		if self._matchService then
+			self._matchService:EnsureSnakeOnDeath(player)
+		end
 		self:_onPlayerDied(player)
+		self:_cleanupDeadCharacter(player, character)
 	end)
 
 	local rootJoint = hrp:FindFirstChild("RootJoint")

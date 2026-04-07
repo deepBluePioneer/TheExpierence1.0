@@ -129,6 +129,27 @@ function GraviBowMatchService:ConvertToSnake(player)
 	end
 end
 
+function GraviBowMatchService:EnsureSnakeOnDeath(player)
+	-- Any in-round phase (not lobby): deaths must flip the victim to snake so the next
+	-- LoadCharacter respawn runs BuildSnakeForPlayer. ROUND_ACTIVE-only missed COUNTDOWN / SNAKE_SPAWNING.
+	if self._phase == PHASES.WAITING then return end
+	if self._snakePlayers[player] then return end
+
+	self._snakePlayers[player] = true
+	local key = tostring(player.UserId)
+	self._matchReplica:SetValue({"snakePlayers", key}, true)
+
+	local scores = self._matchReplica.Data.scores
+	if scores[key] then
+		self._matchReplica:SetValue({"scores", key, "deaths"}, (scores[key].deaths or 0) + 1)
+	end
+
+	if self:_allPlayersAreSnakes() then
+		self:_stopTimer()
+		self:_startRoundOver()
+	end
+end
+
 function GraviBowMatchService:_allPlayersAreSnakes()
 	for _, player in ipairs(Players:GetPlayers()) do
 		if not self._snakePlayers[player] then

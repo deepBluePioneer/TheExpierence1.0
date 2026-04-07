@@ -44,7 +44,6 @@ local GraviBowCameraController = Knit.CreateController({
 	_shaker = nil,
 	_shakeActive = false,
 	_shakeOffset = CFrame.new(),
-	_spectatingDeath = false,
 	_digTarget = nil,
 	_digLerpAlpha = 0,
 	_isMobile = false,
@@ -160,8 +159,6 @@ function GraviBowCameraController:_resetCameraForNewRound()
 end
 
 function GraviBowCameraController:_onCharacterAdded(character)
-	if self._spectatingDeath then return end
-
 	if self._characterTrove then
 		self._characterTrove:Clean()
 	end
@@ -209,15 +206,9 @@ function GraviBowCameraController:_onCharacterAdded(character)
 	end)
 
 	if humanoid then
-		self._characterTrove:Add(humanoid.Died:Connect(function()
-			self._spectatingDeath = true
-			task.delay(3, function()
-				self._spectatingDeath = false
-				if LocalPlayer.Character and LocalPlayer.Character ~= character then
-					self:_onCharacterAdded(LocalPlayer.Character)
-				end
-			end)
-		end), "Disconnect")
+		humanoid.Died:Once(function()
+			self:StopFollowingCharacter()
+		end)
 	end
 end
 
@@ -408,6 +399,17 @@ end
 function GraviBowCameraController:ClearDigTarget()
 	self._digTarget = nil
 	self._digLerpAlpha = 0
+end
+
+function GraviBowCameraController:StopFollowingCharacter()
+	self:ClearDigTarget()
+	self._shakeActive = false
+	self._shaker = nil
+	self._shakeOffset = CFrame.new()
+	if self._characterTrove then
+		self._characterTrove:Clean()
+		self._characterTrove = nil
+	end
 end
 
 function GraviBowCameraController:TriggerShake(amplitude, duration)

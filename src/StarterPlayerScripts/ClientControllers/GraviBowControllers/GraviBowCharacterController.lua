@@ -414,6 +414,24 @@ function GraviBowCharacterController:_createStateMachine()
 	})
 end
 
+function GraviBowCharacterController:_onLocalHumanoidDeath()
+	self._isDigging = false
+	self._digTimer = 0
+	self._digEntryPos = nil
+	self._digExitPos = nil
+	self._digExitUpDir = nil
+	self._digCP1 = nil
+	self._digCP2 = nil
+	self._digEntryLook = nil
+	if self._cameraController then
+		self._cameraController:StopFollowingCharacter()
+	end
+	if self._characterTrove then
+		self._characterTrove:Clean()
+		self._characterTrove = nil
+	end
+end
+
 function GraviBowCharacterController:_onCharacterAdded(character)
 	if self._characterTrove then
 		self._characterTrove:Clean()
@@ -422,6 +440,13 @@ function GraviBowCharacterController:_onCharacterAdded(character)
 
 	local hrp = character:WaitForChild("HumanoidRootPart", 10)
 	if not hrp then return end
+
+	local humanoidForDeath = character:WaitForChild("Humanoid", 10)
+	if humanoidForDeath then
+		humanoidForDeath.Died:Once(function()
+			self:_onLocalHumanoidDeath()
+		end)
+	end
 
 	local centerAttachment = hrp:WaitForChild("CenterAttachment", 10)
 	if not centerAttachment then

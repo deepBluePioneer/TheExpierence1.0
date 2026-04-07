@@ -108,6 +108,13 @@ function GraviBowSnakeController:_activateSnake(folder)
 
 	self:_collectSegments(folder)
 
+	local hum = character:FindFirstChildOfClass("Humanoid")
+	if hum then
+		hum.Died:Once(function()
+			self:_deactivateSnake()
+		end)
+	end
+
 	self._characterTrove:Add(RunService.RenderStepped:Connect(function()
 		self:_update(hrp)
 	end), "Disconnect")
