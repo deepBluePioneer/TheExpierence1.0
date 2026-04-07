@@ -252,7 +252,7 @@ function GraviBowPlayerService:_setupCharacter(player, character)
 	end
 
 	self:_setPartFriction(character)
-	-- self:_hideAvatar(character)
+	self:_hideAvatar(character)
 
 	-- local highlight = Instance.new("Highlight")
 	-- highlight.FillColor = Color3.fromRGB(255, 200, 50)

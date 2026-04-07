@@ -10,10 +10,12 @@ local Trove = require(Packages.Trove)
 local LocalPlayer = Players.LocalPlayer
 
 local SEGMENT_RADIUS = 2.2
+local GROUND_OFFSET = 0.5
 local SAMPLE_DISTANCE = 0.25
-local SEGMENT_TRAIL_GAP = 2.8
+local SEGMENT_TRAIL_GAP = 1.8
 
 local UNIFORM_SCALE = 1
+
 
 local GraviBowSnakeController = Knit.CreateController({
 	Name = "GraviBowSnakeController",
@@ -71,8 +73,10 @@ function GraviBowSnakeController:_onCharacterAdded(character)
 	self._samplesPerSegF = SEGMENT_TRAIL_GAP / SAMPLE_DISTANCE
 	self._bufferSize = math.ceil(segmentCount * self._samplesPerSegF) + 30
 
+	local backDir = -hrp.CFrame.LookVector
 	for i = 1, self._bufferSize do
-		self._trail[i] = hrp.Position
+		local stepsFromHead = self._bufferSize - i
+		self._trail[i] = hrp.Position + backDir * (SAMPLE_DISTANCE * stepsFromHead)
 	end
 	self._trailHead = self._bufferSize
 	self._trailCount = self._bufferSize
@@ -107,12 +111,18 @@ end
 function GraviBowSnakeController:_collectSegments(folder)
 	self._segments = {}
 	for i = 1, self._segmentCount do
-		local seg = folder:FindFirstChild("Seg_" .. i)
-		if not seg then continue end
+		local seg = folder:WaitForChild("Seg_" .. i, 15)
+		if not seg then
+			warn("[GraviBowSnakeController] Timed out waiting for Seg_" .. i)
+			continue
+		end
 
-		local alignPos = seg:FindFirstChild("TrailAlign")
-		local alignOri = seg:FindFirstChild("TrailOrient")
-		if not alignPos or not alignOri then continue end
+		local alignPos = seg:WaitForChild("TrailAlign", 5)
+		local alignOri = seg:WaitForChild("TrailOrient", 5)
+		if not alignPos or not alignOri then
+			warn("[GraviBowSnakeController] Missing constraints on Seg_" .. i)
+			continue
+		end
 
 		self._segments[i] = {
 			part = seg,
@@ -245,7 +255,7 @@ function GraviBowSnakeController:_update(hrp)
 			if toCenter.Magnitude > 0.01 then upDir = -toCenter.Unit else upDir = Vector3.yAxis end
 
 			local scale = self:_segmentScale(i)
-			local finalPos = targetPos + upDir * (SEGMENT_RADIUS * scale)
+			local finalPos = targetPos + upDir * (GROUND_OFFSET * scale)
 			local fwd = aheadPos - targetPos
 			if fwd.Magnitude < 0.01 then fwd = upDir:Cross(Vector3.new(0, 0, 1)) end
 			local ori = self:_cubeOrientation(upDir, fwd)
@@ -275,7 +285,7 @@ function GraviBowSnakeController:_update(hrp)
 			if curveUp.Magnitude > 0.01 then curveUp = curveUp.Unit else curveUp = Vector3.yAxis end
 
 			local scale = self:_segmentScale(i)
-			local offset = curveUp * (SEGMENT_RADIUS * scale)
+			local offset = curveUp * (GROUND_OFFSET * scale)
 			local finalPos = bPos + offset
 
 			local ori
@@ -325,7 +335,7 @@ function GraviBowSnakeController:_update(hrp)
 		end
 
 		local scale = self:_segmentScale(i)
-		local finalPos = targetPos + upDir * (SEGMENT_RADIUS * scale)
+		local finalPos = targetPos + upDir * (GROUND_OFFSET * scale)
 
 		local ori
 		if i == 1 then

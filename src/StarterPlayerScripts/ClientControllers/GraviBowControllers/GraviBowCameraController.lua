@@ -216,8 +216,18 @@ function GraviBowCameraController:_updateCamera(hrp, head, camera)
 	local eyePos = focusPos - camForward * self._distance
 
 	if self._distance > 0.5 then
+		local camFilter = { hrp.Parent }
+		local snakeBodies = Workspace:FindFirstChild("SnakeBodies")
+		if snakeBodies then table.insert(camFilter, snakeBodies) end
+		local npcFolder = Workspace:FindFirstChild("GraviNPCs")
+		if npcFolder then table.insert(camFilter, npcFolder) end
+		local gravZones = Workspace:FindFirstChild("GravityZones")
+		if gravZones then table.insert(camFilter, gravZones) end
+		local tpFolder = Workspace:FindFirstChild("TerrainPlanets")
+		if tpFolder then table.insert(camFilter, tpFolder) end
+
 		local rayParams = RaycastParams.new()
-		rayParams.FilterDescendantsInstances = { hrp.Parent }
+		rayParams.FilterDescendantsInstances = camFilter
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 		local ray = Workspace:Raycast(focusPos, (eyePos - focusPos).Unit * self._distance, rayParams)
 		if ray then

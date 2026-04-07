@@ -96,6 +96,14 @@ function GraviBowGroundController:_onCharacterAdded(character)
 	if crystalPatches then
 		table.insert(groundFilterList, crystalPatches)
 	end
+	local npcFolder = Workspace:FindFirstChild("GraviNPCs")
+	if npcFolder then
+		table.insert(groundFilterList, npcFolder)
+	end
+	local botFolder = Workspace:FindFirstChild("GraviBots")
+	if botFolder then
+		table.insert(groundFilterList, botFolder)
+	end
 	self._rayParams.FilterDescendantsInstances = groundFilterList
 	self._rayParams.FilterType = Enum.RaycastFilterType.Exclude
 

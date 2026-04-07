@@ -9,12 +9,12 @@ local Trove = require(Packages.Trove)
 local SEGMENT_COUNT = 55
 local SEGMENT_RADIUS = 2.2
 local SEGMENT_LENGTH = 4.4
-local SEGMENT_TRAIL_GAP = 2.8
+local SEGMENT_TRAIL_GAP = 1.8
 
-local ALIGN_RESPONSIVENESS = 22
+local ALIGN_RESPONSIVENESS = 35
 local ALIGN_MAX_FORCE = 100000
-local ALIGN_MAX_VELOCITY = 80
-local ORIENT_RESPONSIVENESS = 14
+local ALIGN_MAX_VELOCITY = 120
+local ORIENT_RESPONSIVENESS = 20
 
 local UNIFORM_SCALE = 1
 
@@ -123,6 +123,9 @@ function GraviBowSnakeService:_onCharacterAdded(player, character)
 		warn("[GraviBowSnakeService] Player", player.Name, "never grounded, building snake anyway")
 	end
 
+	task.wait(3)
+	if not character.Parent then return end
+
 	local folder = Instance.new("Folder")
 	folder.Name = "Snake_" .. player.UserId
 	folder:SetAttribute("OwnerId", player.UserId)
@@ -137,6 +140,8 @@ function GraviBowSnakeService:_onCharacterAdded(player, character)
 		end
 	end
 
+	local segments = {}
+
 	for i = 1, SEGMENT_COUNT do
 		local diameter = SEGMENT_RADIUS * 2
 
@@ -146,7 +151,7 @@ function GraviBowSnakeService:_onCharacterAdded(player, character)
 		seg.Size = Vector3.new(SEGMENT_LENGTH, diameter, diameter)
 		seg.CFrame = CFrame.new(hrp.Position - hrp.CFrame.LookVector * (SEGMENT_TRAIL_GAP * i))
 		seg.Anchored = false
-		seg.CanCollide = false
+		seg.CanCollide = true
 		seg.CanQuery = false
 		seg.CanTouch = false
 		seg.Massless = true
@@ -190,6 +195,16 @@ function GraviBowSnakeService:_onCharacterAdded(player, character)
 
 		seg.Parent = folder
 		seg:SetNetworkOwner(player)
+		table.insert(segments, seg)
+	end
+
+	for i = 1, #segments do
+		for j = i + 1, #segments do
+			local nc = Instance.new("NoCollisionConstraint")
+			nc.Part0 = segments[i]
+			nc.Part1 = segments[j]
+			nc.Parent = segments[i]
+		end
 	end
 
 	print("[GraviBowSnakeService] Built snake for", player.Name)
