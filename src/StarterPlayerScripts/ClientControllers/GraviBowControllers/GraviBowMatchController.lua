@@ -1,5 +1,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
 
 local Packages = ReplicatedStorage.Packages
 local CustomPackages = ReplicatedStorage:WaitForChild("CustomPackages")
@@ -100,6 +102,15 @@ function GraviBowMatchController:KnitStart()
 	end)
 
 	self:_createUI()
+
+	self._trove:Add(UserInputService.InputBegan:Connect(function(input, processed)
+		if processed then return end
+		if input.KeyCode == Enum.KeyCode.H then
+			if self._gui then
+				self._gui.Enabled = not self._gui.Enabled
+			end
+		end
+	end), "Disconnect")
 end
 
 function GraviBowMatchController:_addTextSizeConstraint(parent, minSize, maxSize)
@@ -182,7 +193,7 @@ function GraviBowMatchController:_refreshScoreList(scores, snakePlayers)
 
 		local row = Instance.new("Frame")
 		row.Name = "Row_" .. rank
-		row.Size = UDim2.new(1, 0, 0, 52)
+		row.Size = UDim2.fromScale(1, 0.09)
 		row.BackgroundColor3 = rowBg
 		row.BackgroundTransparency = 0.2
 		row.BorderSizePixel = 0
@@ -193,13 +204,13 @@ function GraviBowMatchController:_refreshScoreList(scores, snakePlayers)
 		corner.Parent = row
 
 		local pad = Instance.new("UIPadding")
-		pad.PaddingLeft = UDim.new(0, 8)
-		pad.PaddingRight = UDim.new(0, 8)
+		pad.PaddingLeft = UDim.new(0.015, 0)
+		pad.PaddingRight = UDim.new(0.015, 0)
 		pad.Parent = row
 
 		local rankLabel = Instance.new("TextLabel")
 		rankLabel.Name = "Rank"
-		rankLabel.Size = UDim2.new(0, 28, 1, 0)
+		rankLabel.Size = UDim2.new(0.06, 0, 1, 0)
 		rankLabel.BackgroundTransparency = 1
 		rankLabel.Text = "#" .. rank
 		rankLabel.TextScaled = true
@@ -210,14 +221,18 @@ function GraviBowMatchController:_refreshScoreList(scores, snakePlayers)
 		self:_addTextSizeConstraint(rankLabel, 10, 22)
 
 		local thumb = self:_createCircularHeadshot(row, entry.userId, roleStroke)
-		thumb.Size = UDim2.new(0, 40, 0, 40)
+		thumb.Size = UDim2.fromScale(0, 0.8)
 		thumb.AnchorPoint = Vector2.new(0, 0.5)
-		thumb.Position = UDim2.new(0, 36, 0.5, 0)
+		thumb.Position = UDim2.fromScale(0.075, 0.5)
+		local thumbAspect = Instance.new("UIAspectRatioConstraint")
+		thumbAspect.AspectRatio = 1
+		thumbAspect.DominantAxis = Enum.DominantAxis.Height
+		thumbAspect.Parent = thumb
 
 		local nameLabel = Instance.new("TextLabel")
 		nameLabel.Name = "Name"
-		nameLabel.Size = UDim2.new(1, -220, 0, 22)
-		nameLabel.Position = UDim2.new(0, 84, 0, 6)
+		nameLabel.Size = UDim2.fromScale(0.42, 0.45)
+		nameLabel.Position = UDim2.fromScale(0.17, 0.1)
 		nameLabel.BackgroundTransparency = 1
 		nameLabel.Text = entry.name
 		nameLabel.TextScaled = true
@@ -230,9 +245,9 @@ function GraviBowMatchController:_refreshScoreList(scores, snakePlayers)
 
 		local roleLabel = Instance.new("TextLabel")
 		roleLabel.Name = "Role"
-		roleLabel.Size = UDim2.new(0, 72, 0, 18)
+		roleLabel.Size = UDim2.fromScale(0.15, 0.35)
 		roleLabel.AnchorPoint = Vector2.new(1, 0)
-		roleLabel.Position = UDim2.new(1, -100, 0, 8)
+		roleLabel.Position = UDim2.fromScale(0.8, 0.15)
 		roleLabel.BackgroundTransparency = 1
 		roleLabel.Text = entry.isSnake and "SNAKE" or "RUNNER"
 		roleLabel.TextScaled = true
@@ -244,9 +259,9 @@ function GraviBowMatchController:_refreshScoreList(scores, snakePlayers)
 
 		local statusLabel = Instance.new("TextLabel")
 		statusLabel.Name = "Status"
-		statusLabel.Size = UDim2.new(0, 88, 1, -12)
+		statusLabel.Size = UDim2.fromScale(0.18, 0.8)
 		statusLabel.AnchorPoint = Vector2.new(1, 0.5)
-		statusLabel.Position = UDim2.new(1, 0, 0.5, 0)
+		statusLabel.Position = UDim2.fromScale(1, 0.5)
 		statusLabel.BackgroundTransparency = 1
 		statusLabel.Text = entry.survived and "SURVIVED" or (entry.isSnake and string.format("%d caught", entry.deaths) or "CAUGHT")
 		statusLabel.TextScaled = true
@@ -260,61 +275,36 @@ function GraviBowMatchController:_refreshScoreList(scores, snakePlayers)
 	end
 end
 
-function GraviBowMatchController:_createAliveRow(entry, order, accentColor, nameColor)
-	local row = Instance.new("Frame")
-	row.Name = (entry.isSnake and "S_" or "R_") .. entry.userId
-	row.Size = UDim2.new(1, 0, 0, 54)
-	row.BackgroundTransparency = 1
-	row.LayoutOrder = order
-	row.BorderSizePixel = 0
+function GraviBowMatchController:_createPlayerIcon(entry, order)
+	local accentColor = entry.isSnake and SNAKE_RED or RUNNER_BLUE
+	local transparency = entry.isSnake and 0.5 or 0
 
-	local thumb = self:_createCircularHeadshot(row, entry.userId, accentColor)
-	thumb.Size = UDim2.new(0, 40, 0, 40)
-	thumb.AnchorPoint = Vector2.new(0, 0.5)
-	thumb.Position = UDim2.new(0, 0, 0.5, 0)
+	local cam = Workspace.CurrentCamera
+	local vh = cam and cam.ViewportSize.Y or 1080
+	local iconSize = math.clamp(math.floor(vh * 0.055), 32, 80)
 
-	local textCol = Instance.new("Frame")
-	textCol.Name = "TextColumn"
-	textCol.Size = UDim2.new(1, -48, 1, 0)
-	textCol.Position = UDim2.new(0, 48, 0, 0)
-	textCol.BackgroundTransparency = 1
-	textCol.Parent = row
+	local icon = Instance.new("Frame")
+	icon.Name = (entry.isSnake and "S_" or "R_") .. entry.userId
+	icon.Size = UDim2.fromOffset(iconSize, iconSize)
+	icon.BackgroundTransparency = 1
+	icon.LayoutOrder = order
+	icon.BorderSizePixel = 0
 
-	local vlist = Instance.new("UIListLayout")
-	vlist.FillDirection = Enum.FillDirection.Vertical
-	vlist.SortOrder = Enum.SortOrder.LayoutOrder
-	vlist.VerticalAlignment = Enum.VerticalAlignment.Center
-	vlist.Padding = UDim.new(0, 2)
-	vlist.Parent = textCol
+	local thumb = self:_createCircularHeadshot(icon, entry.userId, accentColor)
+	thumb.Size = UDim2.fromScale(1, 1)
+	thumb.BackgroundTransparency = transparency
 
-	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Name = "Name"
-	nameLabel.Size = UDim2.new(1, 0, 0, 18)
-	nameLabel.BackgroundTransparency = 1
-	nameLabel.Text = entry.name
-	nameLabel.TextScaled = true
-	nameLabel.TextColor3 = nameColor
-	nameLabel.Font = FONT_BODY
-	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-	nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-	nameLabel.LayoutOrder = 1
-	nameLabel.Parent = textCol
-	self:_addTextSizeConstraint(nameLabel, 8, 16)
+	local img = thumb:FindFirstChild("Image")
+	if img then
+		img.ImageTransparency = transparency
+	end
 
-	local roleLabel = Instance.new("TextLabel")
-	roleLabel.Name = "Role"
-	roleLabel.Size = UDim2.new(1, 0, 0, 14)
-	roleLabel.BackgroundTransparency = 1
-	roleLabel.Text = entry.isSnake and "SNAKE" or "RUNNER"
-	roleLabel.TextScaled = true
-	roleLabel.TextColor3 = accentColor
-	roleLabel.Font = FONT_BODY
-	roleLabel.TextXAlignment = Enum.TextXAlignment.Left
-	roleLabel.LayoutOrder = 2
-	roleLabel.Parent = textCol
-	self:_addTextSizeConstraint(roleLabel, 7, 12)
+	local stroke = thumb:FindFirstChildOfClass("UIStroke")
+	if stroke then
+		stroke.Thickness = 3
+	end
 
-	return row
+	return icon
 end
 
 function GraviBowMatchController:_refreshAliveList(scores, snakePlayers)
@@ -347,16 +337,14 @@ function GraviBowMatchController:_refreshAliveList(scores, snakePlayers)
 	local order = 0
 	for _, entry in ipairs(runners) do
 		order += 1
-		local isLocal = entry.userId == tostring(LocalPlayer.UserId)
-		local row = self:_createAliveRow(entry, order, RUNNER_BLUE, isLocal and AMBER or BONE)
-		row.Parent = self._aliveListFrame
+		local icon = self:_createPlayerIcon(entry, order)
+		icon.Parent = self._aliveListFrame
 	end
 
 	for _, entry in ipairs(snakes) do
 		order += 1
-		local isLocal = entry.userId == tostring(LocalPlayer.UserId)
-		local row = self:_createAliveRow(entry, order, SNAKE_RED, isLocal and AMBER or DUST)
-		row.Parent = self._aliveListFrame
+		local icon = self:_createPlayerIcon(entry, order)
+		icon.Parent = self._aliveListFrame
 	end
 end
 
@@ -371,13 +359,13 @@ function GraviBowMatchController:_createUI()
 
 	local showTimer = Computed(function()
 		local p = phase:get()
-		return p == "COUNTDOWN" or p == "ROUND_ACTIVE"
+		return p == "COUNTDOWN" or p == "SNAKE_SPAWNING" or p == "ROUND_ACTIVE"
 	end)
 
 	local timerText = Computed(function()
 		local t = math.max(0, math.ceil(timeRemaining:get()))
 		local p = phase:get()
-		if p == "COUNTDOWN" then
+		if p == "COUNTDOWN" or p == "SNAKE_SPAWNING" then
 			return tostring(t)
 		elseif p == "ROUND_ACTIVE" then
 			local mins = math.floor(t / 60)
@@ -390,6 +378,7 @@ function GraviBowMatchController:_createUI()
 	local timerColor = Spring(Computed(function()
 		local p = phase:get()
 		if p == "COUNTDOWN" then return AMBER end
+		if p == "SNAKE_SPAWNING" then return SNAKE_RED end
 		if p == "ROUND_ACTIVE" then
 			local t = timeRemaining:get()
 			if t <= 10 then return CRIMSON end
@@ -472,19 +461,19 @@ function GraviBowMatchController:_createUI()
 
 	local scoreList = New "ScrollingFrame" {
 		Name = "ScoreList",
-		Size = UDim2.new(1, 0, 1, 0),
+		Size = UDim2.fromScale(1, 1),
 		Position = UDim2.fromScale(0, 0.17),
 		BackgroundTransparency = 1,
 		ScrollBarThickness = 6,
 		ScrollBarImageColor3 = AMBER,
-		CanvasSize = UDim2.new(0, 0, 0, 0),
+		CanvasSize = UDim2.fromScale(0, 0),
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		BorderSizePixel = 0,
 
 		[Children] = {
 			New "UIListLayout" {
 				SortOrder = Enum.SortOrder.LayoutOrder,
-				Padding = UDim.new(0, 6),
+				Padding = UDim.new(0.012, 0),
 			},
 		},
 	}
@@ -602,18 +591,18 @@ function GraviBowMatchController:_createUI()
 
 					New "Frame" {
 						Name = "Header",
-						Size = UDim2.new(1, 0, 0.055, 0),
+						Size = UDim2.fromScale(1, 0.055),
 						Position = UDim2.fromScale(0, 0.11),
 						BackgroundTransparency = 1,
 
 						[Children] = {
 							New "UIPadding" {
-								PaddingLeft = UDim.new(0, 8),
-								PaddingRight = UDim.new(0, 8),
+								PaddingLeft = UDim.new(0.015, 0),
+								PaddingRight = UDim.new(0.015, 0),
 							},
 							New "TextLabel" {
 								Name = "RankH",
-								Size = UDim2.new(0, 28, 1, 0),
+								Size = UDim2.fromScale(0.06, 1),
 								Position = UDim2.fromScale(0, 0),
 								BackgroundTransparency = 1,
 								Text = "#",
@@ -632,8 +621,8 @@ function GraviBowMatchController:_createUI()
 							},
 							New "TextLabel" {
 								Name = "PlayerH",
-								Size = UDim2.new(1, -220, 1, 0),
-								Position = UDim2.new(0, 84, 0, 0),
+								Size = UDim2.fromScale(0.42, 1),
+								Position = UDim2.fromScale(0.17, 0),
 								BackgroundTransparency = 1,
 								Text = "Player",
 								TextScaled = true,
@@ -652,8 +641,8 @@ function GraviBowMatchController:_createUI()
 							New "TextLabel" {
 								Name = "RoleH",
 								AnchorPoint = Vector2.new(1, 0),
-								Size = UDim2.new(0, 72, 1, 0),
-								Position = UDim2.new(1, -100, 0, 0),
+								Size = UDim2.fromScale(0.15, 1),
+								Position = UDim2.fromScale(0.8, 0),
 								BackgroundTransparency = 1,
 								Text = "Role",
 								TextScaled = true,
@@ -672,8 +661,8 @@ function GraviBowMatchController:_createUI()
 							New "TextLabel" {
 								Name = "StatusH",
 								AnchorPoint = Vector2.new(1, 0),
-								Size = UDim2.new(0, 88, 1, 0),
-								Position = UDim2.new(1, 0, 0, 0),
+								Size = UDim2.fromScale(0.18, 1),
+								Position = UDim2.fromScale(1, 0),
 								BackgroundTransparency = 1,
 								Text = "Result",
 								TextScaled = true,
@@ -696,114 +685,76 @@ function GraviBowMatchController:_createUI()
 				},
 			},
 
-			New "Frame" {
-				Name = "AlivePanel",
-				AnchorPoint = Vector2.new(0, 0),
-				Position = UDim2.fromScale(0.01, 0.046),
-				Size = UDim2.fromScale(0.13, 0.4),
-				BackgroundColor3 = BG_DARK,
-				BackgroundTransparency = Computed(function()
-					return showAliveList:get() and 0.25 or 1
-				end),
-				BorderSizePixel = 0,
-				Visible = showAliveList,
+			(function()
+				local cam = Workspace.CurrentCamera
+				local vh = cam and cam.ViewportSize.Y or 1080
+				local iconSize = math.clamp(math.floor(vh * 0.055), 32, 80)
+				local gap = math.max(4, math.floor(iconSize * 0.2))
+				local labelH = math.max(14, math.floor(iconSize * 0.3))
 
-				[Children] = {
-					New "UICorner" {
-						CornerRadius = UDim.new(0.025, 0),
-					},
-					New "UIStroke" {
-						Color = AMBER,
-						Thickness = 1,
-						Transparency = aliveListAlpha,
-					},
-					New "UIPadding" {
-						PaddingTop = UDim.new(0.03, 0),
-						PaddingBottom = UDim.new(0.03, 0),
-						PaddingLeft = UDim.new(0.06, 0),
-						PaddingRight = UDim.new(0.06, 0),
-					},
+				local wrapper = New "Frame" {
+					Name = "PlayerStripWrapper",
+					AnchorPoint = Vector2.new(0.5, 0),
+					Position = UDim2.fromScale(0.5, 0.22),
+					Size = UDim2.new(0.8, 0, 0, labelH + gap + iconSize),
+					BackgroundTransparency = 1,
+					BorderSizePixel = 0,
+					Visible = showAliveList,
 
-					New "TextLabel" {
-						Name = "Title",
-						Size = UDim2.fromScale(0.5, 0.07),
-						BackgroundTransparency = 1,
-						Text = "PLAYERS",
-						TextScaled = true,
-						TextColor3 = AMBER,
-						TextTransparency = aliveListAlpha,
-						Font = FONT_TITLE,
-						TextXAlignment = Enum.TextXAlignment.Left,
+					[Children] = {
+						(function()
+							local lbl = New "TextLabel" {
+								Name = "AliveCount",
+								AnchorPoint = Vector2.new(0.5, 0),
+								Position = UDim2.fromScale(0.5, 0),
+								Size = UDim2.new(0.25, 0, 0, labelH),
+								BackgroundTransparency = 1,
+								Text = "0 alive",
+								TextScaled = true,
+								TextColor3 = SAND,
+								TextTransparency = aliveListAlpha,
+								Font = FONT_BODY,
+								TextXAlignment = Enum.TextXAlignment.Center,
 
-						[Children] = {
-							New "UITextSizeConstraint" {
-								MinTextSize = 10,
-								MaxTextSize = 22,
-							},
-						},
-					},
-
-					(function()
-						local lbl = New "TextLabel" {
-							Name = "AliveCount",
-							AnchorPoint = Vector2.new(1, 0),
-							Position = UDim2.fromScale(1, 0),
-							Size = UDim2.fromScale(0.5, 0.07),
-							BackgroundTransparency = 1,
-							Text = "0 alive",
-							TextScaled = true,
-							TextColor3 = SAND,
-							TextTransparency = aliveListAlpha,
-							Font = FONT_BODY,
-							TextXAlignment = Enum.TextXAlignment.Right,
-
-							[Children] = {
-								New "UITextSizeConstraint" {
-									MinTextSize = 8,
-									MaxTextSize = 16,
+								[Children] = {
+									New "UITextSizeConstraint" {
+										MinTextSize = 8,
+										MaxTextSize = 14,
+									},
 								},
-							},
-						}
-						self._aliveCountLabel = lbl
-						return lbl
-					end)(),
+							}
+							self._aliveCountLabel = lbl
+							return lbl
+						end)(),
 
-					New "Frame" {
-						Name = "Divider",
-						Size = UDim2.new(1, 0, 0, 1),
-						Position = UDim2.fromScale(0, 0.08),
-						BackgroundColor3 = DUST,
-						BackgroundTransparency = 0.5,
-						BorderSizePixel = 0,
+						(function()
+							local strip = Instance.new("Frame")
+							strip.Name = "PlayerStrip"
+							strip.AnchorPoint = Vector2.new(0.5, 0)
+							strip.Position = UDim2.new(0.5, 0, 0, labelH + gap)
+							strip.Size = UDim2.new(1, 0, 0, iconSize)
+							strip.BackgroundTransparency = 1
+							strip.BorderSizePixel = 0
+
+							local layout = Instance.new("UIListLayout")
+							layout.FillDirection = Enum.FillDirection.Horizontal
+							layout.SortOrder = Enum.SortOrder.LayoutOrder
+							layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+							layout.VerticalAlignment = Enum.VerticalAlignment.Center
+							layout.Padding = UDim.new(0, gap)
+							layout.Parent = strip
+
+							self._aliveListFrame = strip
+							return strip
+						end)(),
 					},
-
-					(function()
-						local scrollFrame = New "ScrollingFrame" {
-							Name = "AliveList",
-							Size = UDim2.fromScale(1, 0.88),
-							Position = UDim2.fromScale(0, 0.1),
-							BackgroundTransparency = 1,
-							ScrollBarThickness = 4,
-							ScrollBarImageColor3 = DUST,
-							CanvasSize = UDim2.new(0, 0, 0, 0),
-							AutomaticCanvasSize = Enum.AutomaticSize.Y,
-							BorderSizePixel = 0,
-
-							[Children] = {
-								New "UIListLayout" {
-									SortOrder = Enum.SortOrder.LayoutOrder,
-									Padding = UDim.new(0, 6),
-								},
-							},
-						}
-						self._aliveListFrame = scrollFrame
-						return scrollFrame
-					end)(),
-				},
-			},
+				}
+				return wrapper
+			end)(),
 		},
 	}
 
+	self._gui = gui
 	self._trove:Add(gui)
 end
 

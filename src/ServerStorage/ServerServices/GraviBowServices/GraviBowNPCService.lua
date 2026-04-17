@@ -28,6 +28,8 @@ function GraviBowNPCService:KnitInit()
 end
 
 function GraviBowNPCService:KnitStart()
+	do return end -- bots disabled
+
 	self._terrainService = Knit.GetService("GraviBowTerrainService")
 
 	local planet = self._terrainService:GetSharedPlanet()

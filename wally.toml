@@ -18,3 +18,7 @@ PID = "sleitnick/pid@2.1.0"
 promise = "evaera/promise@4.0.0"
 Sequent = "sleitnick/sequent@0.1.0"
 partcache = "4igz/partcache@1.0.1"
+inventorymakerclient = "asiandayboy/inventorymakerclient@1.2.1"
+
+[server-dependencies]
+inventorymakerserver = "asiandayboy/inventorymakerserver@1.2.1"

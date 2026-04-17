@@ -19,6 +19,7 @@ function GraviBowToolService:KnitInit()
 end
 
 function GraviBowToolService:KnitStart()
+	do return end -- tools disabled
 	self:_setupToolPickups()
 end
 

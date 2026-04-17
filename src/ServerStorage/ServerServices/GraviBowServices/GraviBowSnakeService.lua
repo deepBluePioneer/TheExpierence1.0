@@ -17,6 +17,7 @@ local ALIGN_MAX_VELOCITY = 120
 local ORIENT_RESPONSIVENESS = 20
 
 local UNIFORM_SCALE = 1
+local REVEAL_TIME = 3
 
 local HEAD_COLOR = Color3.fromRGB(225, 165, 55)
 local BODY_COLOR_START = Color3.fromRGB(175, 115, 50)
@@ -89,10 +90,14 @@ function GraviBowSnakeService:BuildSnakeForPlayer(player)
 		seg.CanTouch = true
 		seg.Massless = true
 		seg.CastShadow = false
-		seg.TopSurface = Enum.SurfaceType.Smooth
-		seg.BottomSurface = Enum.SurfaceType.Smooth
+		seg.TopSurface = Enum.SurfaceType.Studs
+		seg.BottomSurface = Enum.SurfaceType.Studs
+		seg.FrontSurface = Enum.SurfaceType.Studs
+		seg.BackSurface = Enum.SurfaceType.Studs
+		seg.LeftSurface = Enum.SurfaceType.Studs
+		seg.RightSurface = Enum.SurfaceType.Studs
 		seg.Material = BODY_MATERIAL
-		seg.Transparency = BODY_TRANSPARENCY
+		seg.Transparency = 1
 
 		local baseColor
 		if i == 1 then
@@ -153,7 +158,36 @@ function GraviBowSnakeService:BuildSnakeForPlayer(player)
 
 	self:_connectTouchDetection(player, segments, snakeTrove)
 
+	self:_staggerReveal(segments, snakeTrove)
+
 	print("[GraviBowSnakeService] Built snake for", player.Name)
+end
+
+function GraviBowSnakeService:_staggerReveal(segments, snakeTrove)
+	local interval = 0.05
+	local batchSize = math.max(1, math.ceil(#segments / (REVEAL_TIME / interval)))
+
+	local thread = task.spawn(function()
+		for i = 1, #segments, batchSize do
+			for j = i, math.min(i + batchSize - 1, #segments) do
+				local seg = segments[j]
+				if not seg.Parent then return end
+				seg.Transparency = BODY_TRANSPARENCY
+				for _, child in ipairs(seg:GetChildren()) do
+					if child:IsA("BasePart") then
+						child.Transparency = 0
+					elseif child:IsA("PointLight") then
+						child.Enabled = true
+					end
+				end
+			end
+			task.wait(interval)
+		end
+	end)
+
+	snakeTrove:Add(function()
+		task.cancel(thread)
+	end)
 end
 
 function GraviBowSnakeService:DestroySnakeForPlayer(player)
@@ -220,8 +254,13 @@ function GraviBowSnakeService:_makeDetailPart(parent)
 	p.CanTouch = false
 	p.Massless = true
 	p.CastShadow = false
-	p.TopSurface = Enum.SurfaceType.Smooth
-	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Transparency = 1
+	p.TopSurface = Enum.SurfaceType.Studs
+	p.BottomSurface = Enum.SurfaceType.Studs
+	p.FrontSurface = Enum.SurfaceType.Studs
+	p.BackSurface = Enum.SurfaceType.Studs
+	p.LeftSurface = Enum.SurfaceType.Studs
+	p.RightSurface = Enum.SurfaceType.Studs
 	p.Parent = parent
 	return p
 end
@@ -274,6 +313,7 @@ function GraviBowSnakeService:_weldHeadDetails(seg, diameter)
 		eye.CanTouch = false
 		eye.Massless = true
 		eye.CastShadow = false
+		eye.Transparency = 1
 		eye.Parent = seg
 		self:_weldTo(seg, eye, CFrame.new(side * r * 0.42, r * 0.18, -(r * 0.82)))
 
@@ -289,6 +329,7 @@ function GraviBowSnakeService:_weldHeadDetails(seg, diameter)
 		pupil.CanTouch = false
 		pupil.Massless = true
 		pupil.CastShadow = false
+		pupil.Transparency = 1
 		pupil.Parent = seg
 		self:_weldTo(eye, pupil, CFrame.new(side * eyeSize * 0.1, eyeSize * 0.05, -(eyeSize * 0.35)))
 	end
@@ -298,6 +339,7 @@ function GraviBowSnakeService:_weldHeadDetails(seg, diameter)
 	light.Brightness = 0.4
 	light.Range = 8
 	light.Shadows = false
+	light.Enabled = false
 	light.Parent = seg
 end
 

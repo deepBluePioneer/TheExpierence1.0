@@ -28,9 +28,10 @@
       "$className": "ServerScriptService",
       "Source": {
         "$path": "src/ServerScriptService"
+      },
+      "ServerPackages": {
+        "$path": "ServerPackages"
       }
-   
-    
     },
 
     "StarterPlayer": {

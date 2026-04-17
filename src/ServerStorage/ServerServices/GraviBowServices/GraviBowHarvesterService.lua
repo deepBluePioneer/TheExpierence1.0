@@ -31,6 +31,7 @@ function GraviBowHarvesterService:KnitInit()
 end
 
 function GraviBowHarvesterService:KnitStart()
+	do return end -- harvesters disabled
 	self._playerService = Knit.GetService("GraviBowPlayerService")
 	self._oreService = Knit.GetService("GraviBowOreService")
 

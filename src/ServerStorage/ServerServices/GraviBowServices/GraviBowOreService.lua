@@ -40,11 +40,11 @@ local GraviBowOreService = Knit.CreateService({
 	_itemsFolder = nil,
 })
 
-function GraviBowOreService:KnitInit()
-	self._oreClassToken = ReplicaService.NewClassToken("GraviBowOreState")
-end
+function GraviBowOreService:KnitInit() end
 
 function GraviBowOreService:KnitStart()
+	do return end -- ore/shop disabled
+	self._oreClassToken = ReplicaService.NewClassToken("GraviBowOreState")
 	self._harvesterService = Knit.GetService("GraviBowHarvesterService")
 
 	self._itemsFolder = Instance.new("Folder")
@@ -65,6 +65,7 @@ function GraviBowOreService:KnitStart()
 end
 
 function GraviBowOreService:CreateOreReplica(player)
+	if not self._oreClassToken then return end
 	if self._oreReplicas[player] then return end
 	local replica = ReplicaService.NewReplica({
 		ClassToken = self._oreClassToken,

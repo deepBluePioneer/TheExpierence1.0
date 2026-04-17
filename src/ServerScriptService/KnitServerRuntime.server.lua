@@ -14,7 +14,7 @@ local LakelandCareerDayPlaceID = 108316442650035
 local ProvingGroundsPlaceID = 83678239321664
 local PacManPlaceID = 131551483824515
 local CavesPlaceID = 135299039277049
-local GraviBowPlaceID = 128815289098570
+local GraviBowPlaceID = 115587119276840
 
 -- Service directories
 local HubServices = ServerServices.HubServices
