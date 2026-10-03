@@ -4,16 +4,9 @@ local StarterPlayer = game:GetService("StarterPlayer")
 local StarterPlayerScripts = StarterPlayer.StarterPlayerScripts
 local Knit = require(ReplicatedStorage.Packages.Knit)
 
--- Place IDs
-local HubPlaceID = 91627323095607
-local CityTrialPlaceID = 107271232251787
-
--- Controller directories
+local PlaceID = 138778098643510
 local ClientControllers = StarterPlayerScripts.Source.ClientControllers
-local HubControllers = ClientControllers.HubControllers
-local CityTrialControllers = ClientControllers.CityTrialControllers
 
--- Function to require controllers recursively
 local function requireControllers(directory)
 	for _, controller in ipairs(directory:GetChildren()) do
 		if controller:IsA("ModuleScript") and controller.Name:match("Controller$") then
@@ -29,25 +22,20 @@ local function requireControllers(directory)
 	end
 end
 
--- Load controllers based on place ID
 local function loadControllersForPlace(placeId)
-	if placeId == HubPlaceID then
-		requireControllers(HubControllers)
-	elseif placeId == CityTrialPlaceID then
-		requireControllers(CityTrialControllers)
+	if placeId == PlaceID then
+		requireControllers(ClientControllers)
 	elseif RunService:IsStudio() then
-		warn("Studio detected with PlaceId " .. placeId .. " -- loading Hub controllers for testing")
-		requireControllers(HubControllers)
+		warn("Studio detected with PlaceId " .. placeId .. " -- loading ClientControllers for testing")
+		requireControllers(ClientControllers)
 	else
 		warn("Unrecognized Place ID: " .. placeId .. ", no controllers loaded")
 		return
 	end
 end
 
--- Load the controllers appropriate for the current game's place ID
 loadControllersForPlace(game.PlaceId)
 
--- Start Knit
 Knit.Start():andThen(function()
 	print("Knit Started on the Client")
 end):catch(function(err)

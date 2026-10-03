@@ -1,5 +1,5 @@
 {
-  "name": "Roblox-Knit-template",
+  "name": "When-The-Sunflower-Bleeds",
   "tree": {
     "$className": "DataModel",
 
@@ -8,15 +8,12 @@
       "Source": {
         "$path": "src/ReplicatedStorage"
       },
-      "Packages":{
+      "Packages": {
         "$path": "Packages"
       },
-      "CustomPackages":{
+      "CustomPackages": {
         "$path": "CustomPackages"
       }
-
-     
-      
     },
 
     "ServerScriptService": {
@@ -24,31 +21,27 @@
       "Source": {
         "$path": "src/ServerScriptService"
       }
-   
-    
     },
 
     "StarterPlayer": {
       "$className": "StarterPlayer",
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
-
         "Source": {
           "$path": "src/StarterPlayerScripts"
         }
       }
     },
-   
+
     "ServerStorage": {
       "$className": "ServerStorage",
       "Source": {
         "$path": "src/ServerStorage"
       },
-      "node_modules":{
+      "node_modules": {
         "$path": "node_modules"
       }
     },
-   
 
     "Workspace": {
       "$properties": {
